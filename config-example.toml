@@ -1,0 +1,15 @@
+pool_account_id = "mlcl1aqfasg6kcvwejypuvrs2a8yzksxcefph"
+
+[[liquidity_pools]]
+name = "Bitcoin pool"
+symbol = "BTC"
+decimals = 8
+faucet_id = "mlcl1azwplffm9d4y5gq9g2r769hzsyf5h9g6"
+oracle_id = "e62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43"
+
+[[liquidity_pools]]
+name = "Ethereum pool"
+symbol = "ETH"
+decimals = 8
+faucet_id = "mlcl1arqwrapl5sqasgqhj8t6jsh0p5ynxw7s"
+oracle_id = "ff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace"

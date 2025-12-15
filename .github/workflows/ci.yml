@@ -1,0 +1,228 @@
+name: continuous-integration
+
+on:
+  push:
+    branches: [ main ]
+    paths-ignore:
+      - '**/*.md'
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+    paths-ignore:
+      - '**/*.md'
+  workflow_dispatch:
+
+env:
+  RUST_LOG:            debug
+  MIDEN_NODE_ENDPOINT: localhost
+  MIDEN_NODE_VERSION:  v0.12.5
+
+jobs:
+  e2e-tests:
+    name: Run E2E Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install miden-node
+        run: |
+          ARCH="amd64"
+          FILE="miden-node-${MIDEN_NODE_VERSION}-${ARCH}.deb"
+          URL="https://github.com/0xMiden/miden-node/releases/download/${MIDEN_NODE_VERSION}/${FILE}"
+
+          echo "Downloading $FILE from $URL"
+          curl -L -o miden-node.deb ${URL}
+          sudo apt install -y ./miden-node.deb
+
+          miden-node --version
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - name: Cache Rust/Cargo projects and dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-all-crates: true
+          cache-directories: true
+          cache-on-failure: true
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Copy environment and config files
+        run: |
+          cp .env-example .env
+          sed -i 's/testnet/localhost/g' .env
+          
+          cp config-example.toml config.toml
+          cp faucets-example.toml faucets.toml
+
+      - name: Build binaries
+        run: |
+          cargo build --release --bins
+
+      - name: Prepare `miden-node`
+        run: |
+          mkdir data
+          mkdir accounts
+
+          miden-node bundled bootstrap    \
+            --data-directory data         \
+            --accounts-directory accounts
+
+      - name: Start `miden-node` in background
+        run: |
+          miden-node bundled start        \
+            --data-directory data         \
+            --rpc.url http://0.0.0.0:57291 \
+            > miden-node.log 2>&1 &
+
+          MIDEN_NODE_PID=$!
+          echo "MIDEN_NODE_PID=$MIDEN_NODE_PID" >> $GITHUB_ENV
+          echo "miden-node PID: $MIDEN_NODE_PID"
+
+          echo "Waiting for miden-node to be ready..."
+          for i in {1..30}; do
+            if grep -q "Server initialized" miden-node.log 2>/dev/null; then
+              echo "miden-node is ready!"
+              echo "Startup took $i seconds"
+              break
+            fi
+            if [ $i -eq 30 ]; then
+              echo "miden-node failed to start within 30 seconds"
+              echo "miden-node log:"
+              cat miden-node.log
+              exit 1
+            fi
+            if [ $((i % 5)) -eq 0 ]; then
+              echo "Still waiting... ($i/30)"
+              echo "Last log line: $(tail -1 miden-node.log 2>/dev/null || echo 'No logs yet')"
+            fi
+            sleep 1
+          done
+
+          echo "miden-node log (last 20 lines):"
+          tail -20 miden-node.log
+
+      - name: Spawn faucets
+        id: spawn_faucets
+        run: |
+          FAUCETS_OUTPUT=$(cargo run --release --bin spawn_faucets 2>&1)
+          echo "$FAUCETS_OUTPUT"
+
+          # Extract faucet ids
+          # Format: Faucet account ID (BTC): "mtst1qz..."
+          BTC_FAUCET=$(echo "$FAUCETS_OUTPUT" | grep "Faucet account ID (BTC):" | sed 's/.*: "\(.*\)"/\1/')
+          ETH_FAUCET=$(echo "$FAUCETS_OUTPUT" | grep "Faucet account ID (ETH):" | sed 's/.*: "\(.*\)"/\1/')
+
+          echo "BTC Faucet: $BTC_FAUCET"
+          echo "ETH Faucet: $ETH_FAUCET"
+
+          awk -v btc="$BTC_FAUCET" -v eth="$ETH_FAUCET" '
+            /name = "Bitcoin pool"/ { in_btc=1 }
+            /name = "Ethereum pool"/ { in_btc=0; in_eth=1 }
+            /faucet_id/ {
+              if (in_btc) {
+                print "faucet_id = \"" btc "\""
+                in_btc=0
+                next
+              } else if (in_eth) {
+                print "faucet_id = \"" eth "\""
+                in_eth=0
+                next
+              }
+            }
+            { print }
+          ' config.toml > config.toml.tmp && mv config.toml.tmp config.toml
+
+          cat config.toml
+
+      - name: Spawn pools
+        id: spawn_pools
+        run: |
+          POOLS_OUTPUT=$(cargo run --release --bin spawn_pools 2>&1)
+          echo "$POOLS_OUTPUT"
+
+          # Extract pool id from output
+          # Format: contract id: "mlcl1qpr..." or New pool created: "mlcl1qpr..."
+          POOL_ID=$(echo "$POOLS_OUTPUT" | grep -E "contract id:|New pool created:" | head -1 | sed 's/.*: "\(.*\)"/\1/')
+
+          echo "Pool ID: $POOL_ID"
+
+          # Update config.toml with pool ID
+          sed -i "s/^pool_account_id = .*/pool_account_id = \"$POOL_ID\"/" config.toml
+
+          echo "Pools spawned and config updated"
+          cat config.toml
+
+      - name: Copy store to testing store
+        run: |
+          cp store.sqlite3 testing_store.sqlite3
+          ls -lh testing_store.sqlite3
+
+      - name: Start server in background
+        run: |
+          MIDEN_NODE_ENDPOINT=localhost cargo run --release --bin server > server.log 2>&1 &
+          SERVER_PID=$!
+          echo "SERVER_PID=$SERVER_PID" >> $GITHUB_ENV
+          echo "Server PID: $SERVER_PID"
+
+          echo "Waiting for server to start..."
+          for i in {1..60}; do
+            if curl -s http://localhost:3000/health > /dev/null 2>&1; then
+              echo "Server is ready!"
+              echo "Server startup took $i seconds"
+              break
+            fi
+            if [ $i -eq 60 ]; then
+              echo "Server failed to start within 60 seconds"
+              echo "Last 50 lines of server log:"
+              tail -50 server.log
+              exit 1
+            fi
+            if [ $((i % 5)) -eq 0 ]; then
+              echo "Still waiting... ($i/60)"
+              echo "Last log line: $(tail -1 server.log 2>/dev/null || echo 'No logs yet')"
+            fi
+            sleep 1
+          done
+
+          echo "Server is running, showing last 10 log lines:"
+          tail -10 server.log
+
+      - name: Run `e2e_private_note` test
+        env:
+          # needs to be set explicitly here, for `cargo test` to pass it through.
+          MIDEN_NODE_ENDPOINT: localhost
+        run: |
+          cargo test --release e2e_private_note -- --nocapture
+
+      - name: Run `e2e_public_note` test
+        env:
+          # needs to be set explicitly here, for `cargo test` to pass it through.
+          MIDEN_NODE_ENDPOINT: localhost
+        run: |
+          cargo test --release e2e_public_note -- --nocapture
+
+      - name: Run `e2e_zoroswap_note_test` test
+        env:
+          # needs to be set explicitly here, for `cargo test` to pass it through.
+          MIDEN_NODE_ENDPOINT: localhost
+        run: |
+          cargo test --release zero_note_create_consume_with_refund_test -- --exact --nocapture
+
+      # For debugging purposes, if the CI fails
+      - name: Upload server and node logs
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: logs
+          path: |
+            server.log
+            miden-node.log
+          if-no-files-found: warn

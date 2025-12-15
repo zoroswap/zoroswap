@@ -1,0 +1,220 @@
+use.miden::active_account
+use miden::native_account
+use.std::sys
+
+
+#! CONSTANTS
+const.MAX_COVERAGE_RATIO = 0x0002 # 200%
+
+
+#! ERRORS
+const.ERR_MAX_COVERAGE_RATIO_EXCEEDED ="Max coverage ratio exceeded"
+const.ERR_RESERVE_WITH_SLIPPAGE_EXCEEDS_ASSET_BALANCE ="Reserve with slippage exceeds asset balance"
+const.ERR_RESERVE_EXCEEDS_RESERVE_WITH_SLIPPAGE ="Reserve exceeds reserve with slippage"
+
+
+
+#! STORAGE STRUCTURE
+#! SINGLE ASSET
+#! pool state: [liabilities, reserve, reserve_with_slippage, 0]
+#! fees: [swap_fee, backstop_fee, protocol_fee, 0 ]
+#! curve: c, beta
+#! => []
+
+const.ASSET0_ID_ADDR = 0x0000
+const.ASSET1_ID_ADDR = 0x0001
+
+const.POOL0_STATE_ADDR = 0x0002
+const.POOL1_STATE_ADDR = 0x0003
+
+const.POOL0_FEES_ADDR = 0x0004
+const.POOL1_FEES_ADDR = 0x0005
+
+const.POOL0_CURVE_ADDR = 0x0006
+const.POOL1_CURVE_ADDR = 0x0007
+
+
+#! INDEXES
+const.LIABILITIES_INDEX = 0x0000
+const.RESERVE_INDEX = 0x0001
+const.RESERVE_WITH_SLIPPAGE_INDEX = 0x0002
+
+const.SWAP_FEE_INDEX = 0x0000
+const.BACKSTOP_FEE_INDEX = 0x0001
+const.PROTOCOL_FEE_INDEX = 0x0002
+
+const.C_INDEX = 0x0000
+const.BETA_INDEX = 0x0001
+
+
+
+
+#! SETTERS
+
+
+#! Sets POOL STATE
+#!
+#! Inputs: [asset_id_loc, pool_state_loc, liabilities, reserve, reserve_with_slippage]
+#! Outputs: []
+#!
+#! @dev TODO: compare reserve with slippage with actual asset balances 
+proc.set_pool_state
+    # @dev: esure reserve never > reserve_with_slippage
+    dup.3 dup.5  lte assert.err=ERR_RESERVE_EXCEEDS_RESERVE_WITH_SLIPPAGE
+    # @dev:ensure reserves < max_coverage_ratio * liabilities
+    dup.4 dup.3 mul.MAX_COVERAGE_RATIO
+    # => [liablities * max_coverage_ratio, reserve_with_slippage, asset_id_loc, pool_state_loc, NEW_POOL_STATE]
+    lt assert.err=ERR_MAX_COVERAGE_RATIO_EXCEEDED
+    # => [asset_id_loc, pool_state_loc, liabilities, reserve, reserve_with_slippage]
+    exec.active_account::get_item swap.2 drop swap.2 drop exec.active_account::get_balance dup.4
+    # => [asset0_balance, reserve_with_slippage, pool_state_loc, liabilities, reserve, reserve_with_slippage]
+    lte assert.err=ERR_RESERVE_WITH_SLIPPAGE_EXCEEDS_ASSET_BALANCE
+    # => [pool_state_loc, liabilities, reserve, reserve_with_slippage, 0]
+    push.0 swap.1
+    exec.native_account::set_item
+    # => [NEW_STORAGE_COMMITMENT, old_liabilities, old_reserve, old_reserve_with_slippage, 0]
+    drop dropw dropw
+    # => []  
+end
+
+export.set_pool0_state
+    push.POOL0_STATE_ADDR push.ASSET0_ID_ADDR 
+
+    exec.set_pool_state
+end
+
+
+
+export.set_pool1_state
+    push.POOL1_STATE_ADDR push.ASSET1_ID_ADDR 
+
+    exec.set_pool_state
+end
+
+
+proc.debug_storage
+    push.POOL1_CURVE_ADDR exec.active_account::get_item
+    push.POOL0_CURVE_ADDR exec.active_account::get_item
+    push.POOL1_FEES_ADDR exec.active_account::get_item
+    push.POOL0_FEES_ADDR exec.active_account::get_item
+    push.POOL1_STATE_ADDR exec.active_account::get_item
+    push.POOL0_STATE_ADDR exec.active_account::get_item
+    push.ASSET1_ID_ADDR exec.active_account::get_item
+    push.ASSET0_ID_ADDR exec.active_account::get_item
+    debug.stack
+    dropw
+    dropw
+    dropw
+    dropw
+    dropw
+    dropw
+    dropw
+    dropw
+end
+
+
+
+#! GETTERS
+
+#! Returns ASSET ADDRESS
+#!
+#! Inputs: []
+#! Outputs: [asset_accout_prefix, asset_account_suffix]
+#!
+export.get_asset0
+    push.ASSET0_ID_ADDR exec.active_account::get_item
+    
+    swap.2 drop swap.2 drop
+    # => [asset_accout_prefix, asset_account_suffix]
+end
+export.get_asset1
+    push.ASSET1_ID_ADDR exec.active_account::get_item
+    
+    swap.2 drop swap.2 drop
+    # => [asset_accout_prefix, asset_account_suffix]
+end
+
+
+
+#! Returns POOL STATE
+#!
+#! Inputs: []
+#! Outputs: [liabilities, reserve, reserve_with_slippage]
+#!
+export.get_pool0_state
+    push.POOL0_STATE_ADDR
+    # => [pool0_state_addr]
+    
+    exec.active_account::get_item
+    # => [liabilities, reserve, reserve_with_slippage, 0]
+
+    swap.3 drop 
+    # => [liabilities, reserve, reserve_with_slippage]
+end
+export.get_pool1_state
+    push.POOL1_STATE_ADDR
+    # => [pool1_state_addr]
+    
+    exec.active_account::get_item
+    # => [liabilities, reserve, reserve_with_slippage, 0]
+
+    swap.3 drop
+    # => [liabilities, reserve, reserve_with_slippage]
+end
+
+
+#! Returns POOL FEES
+#!
+#! Inputs: []
+#! Outputs: [swap_fee, backstop_fee, protocol_fee]
+#!
+export.get_pool0_fees
+    push.POOL0_FEES_ADDR
+    # => [pool0_fees_addr]
+    
+    exec.active_account::get_item
+    # => [swap_fee, backstop_fee, protocol_fee, 0]
+
+    swap.3 drop
+    # => [swap_fee, backstop_fee, protocol_fee]
+end
+export.get_pool1_fees
+    push.POOL1_FEES_ADDR
+    # => [pool1_fees_addr]
+    
+    exec.active_account::get_item
+    # => [swap_fee, backstop_fee, protocol_fee, 0]
+
+    swap.3 drop
+    # => [swap_fee, backstop_fee, protocol_fee]
+end
+
+
+#! Returns POOL CURVE
+#!
+#! Inputs: []
+#! Outputs: [c, beta]
+#!
+
+export.get_pool0_curve
+    push.POOL0_CURVE_ADDR
+    # => [pool0_curve_addr]
+    
+    exec.active_account::get_item
+    # => [c, beta, 0, 0]
+
+    swap.2 drop swap.2 drop
+    # => [c, beta]
+end
+export.get_pool1_curve
+    push.POOL1_CURVE_ADDR
+    # => [pool1_curve_addr]
+    
+    exec.active_account::get_item
+    # => [c, beta, 0, 0]
+
+    swap.2 drop swap.2 drop
+    # => [c, beta]
+end
+
+

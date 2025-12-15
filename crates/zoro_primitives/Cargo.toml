@@ -1,0 +1,11 @@
+[package]
+name = "zoro_primitives"
+version = "0.2.0"
+edition = "2024"
+
+[features]
+default = ["dummy-curve"]
+dummy-curve = []
+
+[dependencies]
+alloy = { workspace = true }
