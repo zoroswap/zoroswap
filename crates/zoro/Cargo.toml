@@ -2,6 +2,7 @@
 name = "zoroswap"
 version = "0.2.0"
 edition = "2024"
+license = "GPL-3.0-only"
 
 [dependencies]
 zoro_primitives = { path = "../zoro_primitives", default-features = false }
