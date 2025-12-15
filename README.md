@@ -13,6 +13,11 @@ This repository contains an Oracle-informed AMM for the [Miden blockchain](https
 
 You can find our testnet deployment here: [https://zoroswap.com](https://zoroswap.com).
 
+## Table of Contents
+
+- [Setup](#setup)
+- [Curve Setup](#curve-setup)  
+
 ## Setup
 
 ### 1. Copy environment and app configs
