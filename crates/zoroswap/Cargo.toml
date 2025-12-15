@@ -53,7 +53,7 @@ clap = { version = "4.5", features = ["derive"] }
 #
 # The feature `local-curve` makes `zoro` use the `zoro-curve`
 # folder relative to this directory.
-zoro_curve_local = { package = "zoro_curve", path = "../../../zoro-curve", optional = true }
+zoro_curve_local = { package = "zoro_curve", version = "*", optional = true }
 
 [features]
 default = ["zoro_primitives/dummy-curve"]

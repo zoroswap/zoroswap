@@ -8,3 +8,6 @@ resolver = "2"
 
 [workspace.dependencies]
 alloy = { version = "1.0.23", features = ["full"] }
+
+[patch.crates-io]
+zoro_curve = { path = "../zoro-curve" }
