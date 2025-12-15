@@ -32,7 +32,7 @@ struct Args {
     config: String,
 
     /// Path to the MASM files directory
-    #[arg(short, long, default_value = "./crates/zoro/masm")]
+    #[arg(short, long, default_value = "./crates/zoroswap/masm")]
     masm_path: String,
 
     /// Path to the keystore directory
@@ -72,7 +72,8 @@ async fn main() -> Result<()> {
     // Load the MASM file for the counter contract
     let pool_reader_path = format!("{}/accounts/two_asset_pool.masm", config.masm_path);
     let pool_reader_path = Path::new(&pool_reader_path);
-    let pool_code = fs::read_to_string(pool_reader_path)?;
+    let pool_code = fs::read_to_string(pool_reader_path)
+        .unwrap_or_else(|err| panic!("unable to read from {pool_reader_path:?}: {err}"));
 
     // Prepare assembler (debug mode = true)
     let assembler: Assembler = TransactionKernel::assembler().with_debug_mode(true);

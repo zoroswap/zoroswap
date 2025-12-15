@@ -34,7 +34,7 @@ struct Args {
     config: String,
 
     /// Path to the MASM files directory
-    #[arg(short, long, default_value = "./crates/zoro/masm")]
+    #[arg(short, long, default_value = "./crates/zoroswap/masm")]
     masm_path: String,
 
     /// Path to the keystore directory
