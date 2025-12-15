@@ -73,14 +73,18 @@ cargo test --release e2e_private_note -- --exact --nocapture
 4. Server should pick up the emitted note, consume it and execute against the pool we created earlier and emit new `P2ID` targeted at the user with swapped assets.
 5. Consume the `P2ID` emitted by the server concluding the test.
 
-
-## Curve Implementation
+## Curve Setup
 
 Zoro uses a pluggable curve implementation for AMM calculations. By default, it uses a simple
 linear curve ([`DummyCurve`](./crates/zoro_primitives/src/dummy_curve.rs)) to demonstrate 
 its functionality.
 
-### Using the Default (Linear) Curve
+| Curve | Feature Flag                                                         | Repository                                                                 | Use Case |
+|-------|----------------------------------------------------------------------|----------------------------------------------------------------------------|----------|
+| **`DummyCurve`** | `default` (always available)                                         | [Public in `zoro_primitives`](./crates/zoro_primitives/src/dummy_curve.rs) | Development, testing, reference |
+| **`ZoroCurve`** | `--features zoro-curve-local` or `--features zoro-curve-private-repo` | Private                          | Production, proprietary algorithm |
+
+### Using the Default Curve
 
 The default build uses the `DummyCurve` implementation:
 
@@ -88,22 +92,31 @@ The default build uses the `DummyCurve` implementation:
 cargo build
 ```
 
-**Note:** The linear curve is just here to demonstrate the functionality!
+**Note:** The (linear) dummy curve is just here to demonstrate the functionality!
 
-### Using the Proprietary Zoro Curve
+### Using the Proprietary Curve
 
-#### From a local folder
-
-```sh
-cargo run --bin server --features zoro-curve-local
-cargo test --features zoro-curve-local
-cargo install --features zoro-curve-local
-```
-
-#### From the private `zoro-curve` repository
+#### From the private `zoro-curve` repository (installation on a server)
 
 ```sh
 cargo run --bin server --features zoro-curve-private-repo
 cargo test --features zoro-curve-private-repo
 cargo install --features zoro-curve-private-repo
+```
+
+#### From a local folder (local development)
+
+Requires a folder structure where both repositories are on the same level:
+
+```
+zoroswap/
+└── ...
+zoro-curve/
+└── ...
+```
+
+```sh
+cargo run --bin server --features zoro-curve-local
+cargo test --features zoro-curve-local
+cargo install --features zoro-curve-local
 ```
