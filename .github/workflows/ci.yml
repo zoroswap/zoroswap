@@ -64,6 +64,7 @@ jobs:
 
       - name: Build binaries
         run: |
+          cargo new --name zoro_curve ../zoro-curve
           cargo build --release --bins
 
       - name: Prepare `miden-node`
