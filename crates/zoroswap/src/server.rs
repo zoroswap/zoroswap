@@ -3,12 +3,13 @@ use axum::{
     Json, Router,
     body::Body,
     extract::State,
-    http::{Response, StatusCode},
+    http::{HeaderMap, HeaderValue, Response, StatusCode},
     response::IntoResponse,
     routing::{get, post},
 };
 use chrono::Utc;
 use miden_client::account::AccountId;
+use reqwest::header;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::mpsc::Sender;
@@ -69,14 +70,18 @@ pub fn create_router(state: AppState) -> Router {
         .with_state(state)
 }
 
-async fn health_check() -> Json<serde_json::Value> {
-    Json(serde_json::json!({
+async fn health_check() -> impl IntoResponse {
+    let response = serde_json::json!({
         "status": "healthy",
         "timestamp": Utc::now()
-    }))
+    });
+
+    let mut headers = HeaderMap::new();
+    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+    (headers, Json(response))
 }
 
-async fn pool_info(State(state): State<AppState>) -> Json<serde_json::Value> {
+async fn pool_info(State(state): State<AppState>) -> impl IntoResponse {
     let config = state.amm_state.config();
     let network_id = config.network_id.clone();
     let pool_account_id = config.pool_account_id.to_bech32(network_id.clone());
@@ -85,10 +90,16 @@ async fn pool_info(State(state): State<AppState>) -> Json<serde_json::Value> {
         .iter()
         .map(|p| p.to_raw_config(network_id.clone()))
         .collect();
-    Json(serde_json::json!({
+    let response = serde_json::json!({
         "pool_account_id": pool_account_id,
         "liquidity_pools": pools
-    }))
+    });
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("max-age=120, must-revalidate"),
+    );
+    (headers, Json(response))
 }
 
 async fn mint_faucet(
@@ -161,14 +172,18 @@ async fn submit_order(
     }
 }
 
-async fn get_stats(
-    State(state): State<AppState>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+async fn get_stats(State(state): State<AppState>) -> impl IntoResponse {
     let open_orders = state.amm_state.get_open_orders();
     let closed_orders = state.amm_state.get_closed_orders();
-    Ok(Json(serde_json::json!({
+    let response = serde_json::json!({
         "open_orders": open_orders.len(),
         "closed_orders": closed_orders.len(),
         "timestamp": chrono::Utc::now()
-    })))
+    });
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("max-age=15, must-revalidate"),
+    );
+    (headers, Json(response))
 }

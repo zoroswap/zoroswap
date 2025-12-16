@@ -185,9 +185,14 @@ async fn run_main_tokio(
     println!("\n🚀 Zoro server is running!");
     println!("📡 Available endpoints:");
     println!("  GET  /health                    - Health check");
+    println!("  GET  /pools/info                - Pool AccountId & liq. pools info");
+    println!("  GET  /stats                     - Runtime statistics");
+    println!("  POST /orders/submit             - Submit a new order");
+    println!("  POST /faucets/mint              - Mint from a faucet");
     println!("  POST /orders/submit             - Submit a new order");
     println!("🌐 Server address: {}", server_url);
     println!("📊 Example: {}/health\n", server_url);
+
     if let Err(e) = axum::serve(listener, app).await {
         error!("Critical error on server: {e}. Exiting with status 1.");
         std::process::exit(1);
