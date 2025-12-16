@@ -422,7 +422,7 @@ mod tests {
 
         assert_eq!(
             base_decimals, 6,
-            "Base pool (asset_in) must have 6 decimals"
+            "Base pool (asset_in) must have 6 decimals."
         );
         assert_eq!(
             quote_decimals, 12,
