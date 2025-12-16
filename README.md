@@ -112,7 +112,7 @@ cargo run --release --bin server
 cp store.sqlite3 testing_store.sqlite3
 ```
 
-This is required so client on server and client on test do not share the same store as then notes commited in test would go into `output_notes` but the server expects notes in `input_notes`.
+This is required so client on server and client on test do not share the same store as then notes committed in test would go into `output_notes` but the server expects notes in `input_notes`.
 
 ### 2. Run the e2e test
 
@@ -127,7 +127,7 @@ cargo test --release e2e_private_note -- --exact --nocapture
 ```
 
 1. Create an account with a basic wallet component (user).
-2. Mint some token from faucets we created at setup.
+2. Mint some tokens from the faucets we created at setup.
 3. Create a `ZOROSWAP` note requesting a swap of minted assets in line with current oracle prices and send it as a public note to testnet or via endpoint.
-4. Server should pick up the emitted note, consume it and execute against the pool we created earlier and emit new `P2ID` targeted at the user with swapped assets.
+4. Server should pick up the emitted note, consume it and execute against the pool we created earlier and emit a new `P2ID` targeted at the user with swapped assets.
 5. Consume the `P2ID` emitted by the server concluding the test.
