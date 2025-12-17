@@ -48,6 +48,15 @@ async fn e2e_public_note() -> Result<()> {
     let sync_summary = client.sync_state().await?;
     println!("\nLatest block: {}", sync_summary.block_num);
 
+    let (balances_pool_0, _) =
+        fetch_pool_state_from_chain(&mut client, config.pool_account_id, 0).await?;
+    let (balances_pool_1, _) =
+        fetch_pool_state_from_chain(&mut client, config.pool_account_id, 1).await?;
+    let vault = fetch_vault_for_account_from_chain(&mut client, config.pool_account_id).await?;
+    println!("balances for liq pool 0: {balances_pool_0:?}");
+    println!("balances for liq pool 1: {balances_pool_1:?}");
+    println!("pool vault on-chain: {vault:?}");
+
     // ---------------------------------------------------------------------------------
     println!("\n\t[STEP 1] Create user account\n");
 
@@ -238,6 +247,29 @@ async fn e2e_public_note() -> Result<()> {
     println!("New account vault: {:?}", new_balance_user);
     println!("User successfully consumed swap into its wallet.");
     print_transaction_info(&tx_id);
+
+    // ---------------------------------------------------------------------------------
+    println!("\n\t[STEP 6] Confirm pool states updated accordingly\n");
+    let (new_balances_pool_0, _) =
+        fetch_pool_state_from_chain(&mut client, config.pool_account_id, 0).await?;
+    let (new_balances_pool_1, _) =
+        fetch_pool_state_from_chain(&mut client, config.pool_account_id, 1).await?;
+    let new_vault = fetch_vault_for_account_from_chain(&mut client, config.pool_account_id).await?;
+    println!("previous balances for liq pool 0: {balances_pool_0:?}");
+    println!("previouse balances for liq pool 1: {balances_pool_1:?}");
+    println!("new balances for liq pool 0: {new_balances_pool_0:?}");
+    println!("new balances for liq pool 1: {new_balances_pool_1:?}");
+    println!("pool vault: {vault:?}");
+
+    assert!(
+        balances_pool_0 != new_balances_pool_0,
+        "Balances for pool 0 havent changed"
+    );
+    assert!(
+        balances_pool_1 != new_balances_pool_1,
+        "Balances for pool 1 havent changed"
+    );
+    assert!(new_vault != vault, "Balances for pool 1 havent changed");
 
     Ok(())
 }

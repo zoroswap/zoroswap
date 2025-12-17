@@ -109,8 +109,8 @@ impl AmmState {
         }
     }
 
-    pub fn update_pool_state(&self, pool_account_id: &AccountId, new_pool_balances: PoolBalances) {
-        if let Some(mut liq_pool) = self.liquidity_pools.get_mut(pool_account_id) {
+    pub fn update_pool_state(&self, faucet_id: &AccountId, new_pool_balances: PoolBalances) {
+        if let Some(mut liq_pool) = self.liquidity_pools.get_mut(faucet_id) {
             liq_pool.update_state(new_pool_balances);
         };
     }

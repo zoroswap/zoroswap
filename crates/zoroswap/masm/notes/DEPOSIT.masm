@@ -10,10 +10,10 @@ use.zoro::two_asset_pool
 # ERRORS
 # =================================================================================================
 
-# ZOROSWAP script expects exactly 9 note inputs
-const.ERR_ZOROSWAP_WRONG_NUMBER_OF_INPUTS="ZOROSWAP wrong number of inputs"
-# ZOROSWAP script requires exactly one note asset
-const.ERR_ZOROSWAP_WRONG_NUMBER_OF_ASSETS="ZOROSWAP wrong number of assets"
+# DEPOSIT script expects exactly 9 note inputs
+const.ERR_DEPOSIT_WRONG_NUMBER_OF_INPUTS="DEPOSIT wrong number of inputs"
+# DEPOSIT script requires exactly one note asset
+const.ERR_DEPOSIT_WRONG_NUMBER_OF_ASSETS="DEPOSIT wrong number of assets"
 
 
 # CONSTANTS
@@ -36,51 +36,35 @@ const.INPUTS_POINTER = 0x0010
 
 
 
-const.INPUTS_WORD_0 = INPUTS_POINTER        # [REQUESTED_ASSET_WORD]
-const.INPUTS_WORD_1 = INPUTS_POINTER + 4    # [deadline, p2id_tag, empty, empty]
-const.INPUTS_WORD_2 = INPUTS_POINTER + 8    # [CREATOR_ID_WORD] = [empty, empty, creator_id_suffix, creator_id_prefix]
-const.INPUTS_WORD_3 = INPUTS_POINTER + 12   # [EMPTY]
-const.INPUTS_WORD_4 = INPUTS_POINTER + 16   # [EMPTY]
-const.INPUTS_WORD_5 = INPUTS_POINTER + 20   # [EMPTY]
-const.INPUTS_WORD_6 = INPUTS_POINTER + 24   # [EMPTY]
-const.INPUTS_WORD_7 = INPUTS_POINTER + 28   # [EMPTY]
-const.INPUTS_WORD_8 = INPUTS_POINTER + 32   # [EMPTY]
+const.INPUTS_WORD_0 = INPUTS_POINTER        # [min_lp_amount_out, deadline, p2id_tag, empty]
+const.INPUTS_WORD_1 = INPUTS_POINTER + 4    # [CREATOR_ID_WORD] = [empty, empty, creator_id_suffix, creator_id_prefix]
 
 
-# first 3 WORDS of input space used for inputs
+
+# first 2 WORDS of input space used for inputs
 # ====================================================
-const.NUMBER_OF_INPUTS = 0x000C # 12
+const.NUMBER_OF_INPUTS = 0x0008 # 8
 
 
 # semantic names for inputs
 # ====================================================
-const.REQUESTED_ASSET_WORD = INPUTS_WORD_0
-# [deadline, p2id_tag, empty, empty]
-const.CREATOR_ID_WORD = INPUTS_WORD_2
-const.INPUTS_EMPTY_WORD_0 = INPUTS_WORD_3
-# [EMPTY]
-# [EMPTY]
-# [EMPTY]
+# [min_lp_amount_outdeadline, p2id_tag, empty, empty]
+const.INPUT_PARAMS = INPUTS_WORD_0
+const.CREATOR_ID_WORD = INPUTS_WORD_1
 
 
-# ZOROSWAP Note Inputs (16 to 28)
+
+# DEPOSIT Note Inputs (16 to 24)
 # [min_amount_out, empty, out_asset_id_suffix, out_asset_id_prefix]
-const.MIN_AMOUNT_OUT = REQUESTED_ASSET_WORD  # 0x0010
-const.OUT_TOKEN_EMPTY_FELT = REQUESTED_ASSET_WORD + 1
-const.OUT_TOKEN_ID_SUFFIX = REQUESTED_ASSET_WORD + 2
-const.OUT_TOKEN_ID_PREFIX = REQUESTED_ASSET_WORD + 3  # 0x0013
-
-# [deadline, p2id_tag, empty, empty]
-const.DEADLINE = INPUTS_WORD_1  # 0x0014
-const.P2ID_TAG = INPUTS_WORD_1 + 1
-const.EMPTY_INPUT_6 = INPUTS_WORD_1 + 2
-const.EMPTY_INPUT_7 = INPUTS_WORD_1 + 3  # 0x0017
+const.MIN_LP_AMOUNT_OUT = INPUT_PARAMS  # 0x0010
+const.DEADLINE = INPUT_PARAMS + 1
+const.P2ID_TAG = INPUT_PARAMS + 2
 
 # [empty, empty, creator_id_suffix, creator_id_prefix]
-const.EMPTY_INPUT_8 = CREATOR_ID_WORD # 0x0018
-const.EMPTY_INPUT_9 = CREATOR_ID_WORD + 1
-const.ZOROSWAP_CREATOR_ID_SUFFIX = CREATOR_ID_WORD + 2
-const.ZOROSWAP_CREATOR_ID_PREFIX = CREATOR_ID_WORD + 3  # 0x001B
+const.EMPTY_INPUT_4 = CREATOR_ID_WORD # 0x0018
+const.EMPTY_INPUT_5 = CREATOR_ID_WORD + 1
+const.DEPOSIT_CREATOR_ID_SUFFIX = CREATOR_ID_WORD + 2
+const.DEPOSIT_CREATOR_ID_PREFIX = CREATOR_ID_WORD + 3  # 0x001B
 
 # EMPTY  5WORDS 0X001C- 0x00
 
@@ -91,57 +75,28 @@ const.ZOROSWAP_CREATOR_ID_PREFIX = CREATOR_ID_WORD + 3  # 0x001B
 const.ARGS_POINTER = 0x0040
 
 
-
-const.ARGS_WORD_0 = ARGS_POINTER        # [REQUESTED_ASSET_WORD]
-const.ARGS_WORD_1 = ARGS_POINTER + 4    # [deadline, p2id_tag, empty, empty]
-const.ARGS_WORD_2 = ARGS_POINTER + 8    # [CREATOR_ID_WORD] = [empty, empty, creator_id_suffix, creator_id_prefix]
-const.ARGS_WORD_3 = ARGS_POINTER + 12   # [EMPTY]
-
+const.ARGS_WORD_0 = ARGS_POINTER        # []
 
 # first 3 WORDS of ARGUMENTS space used for args
 # ====================================================
-const.NUMBER_OF_ARGS = 0x000C # 12
+const.NUMBER_OF_ARGS = 0x000C # 4
 
 # semantic names for inputs
 # ====================================================
 
-const.AMOUNT_OUT_WORD = ARGS_WORD_0   # 0x0040
-const.POOL0_STATE_WORD = ARGS_WORD_1  # 0x0044
-const.POOL1_STATE_WORD = ARGS_WORD_2  # 0x0048
-
-
-# [amount_out, empty, empty, empty]
-const.AMOUNT_OUT = AMOUNT_OUT_WORD
-# 3 empty felts 
-
-# [pool0_liabilities, pool0_reserve, pool0_reserve_with_slippage, empty]
-const.POOL0_LIABILITIES = POOL0_STATE_WORD  # 0x0044
-const.POOL0_RESERVE = POOL0_STATE_WORD + 1
-const.POOL0_RESERVE_WITH_SLIPPAGE = POOL0_STATE_WORD + 2
-const.POOL0_EMPTY_FELT = POOL0_STATE_WORD + 3 # 0x0047
-
-# [pool1_liabilities, pool1_reserve, pool1_reserve_with_slippage, empty]
-const.POOL1_LIABILITIES = POOL1_STATE_WORD  # 0x0048
-const.POOL1_RESERVE = POOL1_STATE_WORD + 1
-const.POOL1_RESERVE_WITH_SLIPPAGE = POOL1_STATE_WORD + 2
-const.POOL1_EMPTY_FELT = POOL1_STATE_WORD + 3 # 0x0051
-
-
-
-# space for pool state updates
-
-# space for future inuts
-
-
+const.LP_AMOUNT_OUT = ARGS_WORD_0   # 0x0040
+const.LIABILITIES = ARGS_WORD_0 + 1  # 0x0041
+const.RESERVE = ARGS_WORD_0 + 2  # 0x0042
+const.RESERVE_WITH_SLIPPAGE = ARGS_WORD_0 + 3  # 0x0043
 
 
 # memory addresses of the assets
-const.IN_ASSET_WORD = 0x0060
+const.DEPOSIT_ASSET_WORD = 0x0060
 # memory locations based on IN_ASSET_WORD
-const.AMOUNT_IN = IN_ASSET_WORD
-const.IN_TOKEN_EMPTY_FELT = IN_ASSET_WORD + 1
-const.IN_TOKEN_ID_PREFIX = IN_ASSET_WORD + 3
-const.IN_TOKEN_ID_SUFFIX = IN_ASSET_WORD + 2
+const.DEPOSIT_AMOUNT = DEPOSIT_ASSET_WORD
+const.DEPOSIT_ASSET_EMPTY_FELT = DEPOSIT_ASSET_WORD + 1
+const.DEPOSIT_ASSET_ID_PREFIX = DEPOSIT_ASSET_WORD + 3
+const.DEPOSIT_ASSET_ID_SUFFIX = DEPOSIT_ASSET_WORD + 2
 
 
 # "constant" MEMORY
@@ -150,19 +105,8 @@ const.IN_TOKEN_ID_SUFFIX = IN_ASSET_WORD + 2
 const.P2ID_SCRIPT_ROOT_WORD = 0x0080
 
 
-
-#! Sends Assets in Note to Consuming Account
-#!
-#! Inputs: []
-#! Outputs: []
-#!
-proc.add_first_asset_to_account
-    mem_loadw_be.IN_ASSET_WORD
-    #call.wallet::receive_asset
-end
-
 proc.store_asset_in_to_memory
-    push.IN_ASSET_WORD exec.active_note::get_assets assert.err=ERR_ZOROSWAP_WRONG_NUMBER_OF_ASSETS
+    push.DEPOSIT_ASSET_WORD exec.active_note::get_assets assert.err=ERR_DEPOSIT_WRONG_NUMBER_OF_ASSETS
     drop
 end
 
@@ -171,17 +115,17 @@ proc.store_inputs_to_memory
     push.INPUTS_POINTER exec.active_note::get_inputs
     # => [num_inputs, inputs_ptr]
     # make sure the number of inputs is N
-    eq.NUMBER_OF_INPUTS assert.err=ERR_ZOROSWAP_WRONG_NUMBER_OF_INPUTS
+    eq.NUMBER_OF_INPUTS assert.err=ERR_DEPOSIT_WRONG_NUMBER_OF_INPUTS
     # => [inputs_ptr]
     drop
 
 end
 # @note TODO: pool stats will likely need to go through the advice stack
 proc.store_args_to_memory
-    mem_store.POOL0_LIABILITIES
-    mem_store.POOL0_RESERVE
-    mem_store.POOL0_RESERVE_WITH_SLIPPAGE
-    mem_store.AMOUNT_OUT
+    mem_store.LIABILITIES
+    mem_store.RESERVE
+    mem_store.RESERVE_WITH_SLIPPAGE
+    mem_store.LP_AMOUNT_OUT
 end
 
 
@@ -197,7 +141,7 @@ proc.build_p2id_recipient_hash
     swapw hmerge
     # => [SERIAL_SCRIPT_HASH]
     padw
-    mem_load.ZOROSWAP_CREATOR_ID_SUFFIX mem_load.ZOROSWAP_CREATOR_ID_PREFIX
+    mem_load.DEPOSIT_CREATOR_ID_SUFFIX mem_load.DEPOSIT_CREATOR_ID_PREFIX
     push.0.0
 
     push.4000 mem_storew_be dropw
@@ -268,48 +212,40 @@ proc.store_p2id_script_hash
     mem_storew_be.P2ID_SCRIPT_ROOT_WORD dropw
 end
 
-proc.execute_ZOROSWAP
-    mem_load.AMOUNT_OUT
-    mem_load.MIN_AMOUNT_OUT
+proc.execute_DEPOSIT
+    mem_load.LP_AMOUNT_OUT
+    mem_load.MIN_LP_AMOUNT_OUT
     lt
     # min amount out is not met
     if.true
-        mem_loadw_be.IN_ASSET_WORD
+        mem_loadw_be.DEPOSIT_ASSET_WORD
+        exec.create_p2id_reverse_note
     else
-        mem_load.POOL0_RESERVE_WITH_SLIPPAGE mem_load.POOL0_RESERVE mem_load.POOL0_LIABILITIES
+        mem_load.DEPOSIT_CREATOR_ID_SUFFIX mem_load.DEPOSIT_CREATOR_ID_PREFIX
+        # => [creator_id_prefix, creator_id_suffix]
+        push.0 mem_load.RESERVE_WITH_SLIPPAGE mem_load.RESERVE mem_load.LIABILITIES 
+         # => [liabilities,reserve, reserve_with_slippage, 0, creator_id_prefix, creator_id_suffix]
         push.0.0.0.0
-        mem_loadw_be.IN_ASSET_WORD
-        #call.two_asset_pool::swap_in_pool0
-        #call.wallet::receive_asset
-        call.two_asset_pool::receive_asset
+        mem_loadw_be.DEPOSIT_ASSET_WORD
+        # => [ASSET, liabilities,reserve, reserve_with_slippage, 0, creator_id_prefix, creator_id_suffix]
 
-        mem_load.AMOUNT_OUT push.0 mem_load.OUT_TOKEN_ID_SUFFIX mem_load.OUT_TOKEN_ID_PREFIX
+    
+        call.two_asset_pool::deposit
+
     end
 
-    exec.create_p2id_reverse_note
+
 
     #mem_load.POOL0_RESERVE_WITH_SLIPPAGE mem_load.POOL0_RESERVE mem_load.POOL0_LIABILITIES 
     #call.two_asset_pool::set_pool0_state
 end
 
 begin
-    push.6000.0.0.0
-    adv.push_mapval
-    
-    swap.3 drop push.256   # => 999 = mem address
-    padw padw padw
-
-
-    adv_pipe
-    debug.stack.16
-    dropw swapw dropw swapw dropw
-
     exec.store_args_to_memory
     exec.store_inputs_to_memory
     exec.store_asset_in_to_memory
-    #exec.add_first_asset_to_account
     exec.store_p2id_script_hash
-    exec.execute_ZOROSWAP
+    exec.execute_DEPOSIT
 
     #mem_load.IN_TOKEN_ID_SUFFIX
     #mem_load.IN_TOKEN_ID_PREFIX

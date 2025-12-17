@@ -1,11 +1,20 @@
 use alloy::primitives::{I256, U256};
 use anyhow::{Result, anyhow};
-use miden_client::account::AccountId;
-use std::{collections::HashMap, str::FromStr};
-#[cfg(feature = "zoro-curve-local")]
-use zoro_curve_local::ZoroCurve as ConfiguredCurve;
-use zoro_miden_client::MidenClient;
-#[cfg(not(feature = "zoro-curve-local"))]
+use miden_assembly::Assembler;
+use miden_client::{
+    Felt,
+    account::AccountId,
+    transaction::{TransactionRequest, TransactionRequestBuilder, TransactionScript},
+};
+use miden_lib::transaction::TransactionKernel;
+use std::{collections::HashMap, fs, path::Path, str::FromStr};
+
+use tracing::info;
+
+#[cfg(feature = "nabla-curve")]
+use zoro_curve::NablaCurve as ConfiguredCurve;
+use zoro_miden_client::{MidenClient, create_library};
+#[cfg(not(feature = "nabla-curve"))]
 use zoro_primitives::dummy_curve::DummyCurve as ConfiguredCurve;
 use zoro_primitives::traits::Curve;
 
@@ -75,7 +84,17 @@ pub async fn fetch_pool_state_from_chain(
         pool_account_id
     ))?;
     let account_storage = account.account().storage();
-    let pool_balances = account_storage.get_item(3 + index_in_pool)?;
+    let asset_mapping_index = [
+        Felt::new(index_in_pool as u64),
+        Felt::new(0),
+        Felt::new(0),
+        Felt::new(0),
+    ];
+    let asset_address = account_storage.get_map_item(9, asset_mapping_index.into())?;
+
+    let pool_balances = account_storage.get_map_item(10, asset_address.into())?;
+
+    // let pool_balances = account_storage.get_item(3 + index_in_pool)?;
     let pool_fees = account_storage.get_item(5 + index_in_pool)?;
     let pool_curve = account_storage.get_item(7 + index_in_pool)?;
 
@@ -85,9 +104,12 @@ pub async fn fetch_pool_state_from_chain(
     // }
 
     let pool_balances = PoolBalances {
-        reserve: U256::from(pool_balances[0].as_int()),
+        // reserve: U256::from(pool_balances[0].as_int()),
+        // reserve_with_slippage: U256::from(pool_balances[1].as_int()),
+        // total_liabilities: U256::from(pool_balances[2].as_int()),
         reserve_with_slippage: U256::from(pool_balances[1].as_int()),
-        total_liabilities: U256::from(pool_balances[2].as_int()),
+        reserve: U256::from(pool_balances[2].as_int()),
+        total_liabilities: U256::from(pool_balances[3].as_int()),
     };
     let pool_settings = PoolSettings {
         beta: I256::from_str(&pool_curve[0].as_int().to_string())?,
@@ -148,6 +170,50 @@ impl Default for PoolState {
     }
 }
 
+pub fn create_set_pool_state_tx(
+    pool_num: usize,
+    balances: PoolBalances,
+    masm_path: &'static str,
+) -> Result<TransactionRequest> {
+    let script_path = format!("{masm_path}/scripts/set_pool{pool_num}_state.masm");
+    let script_code = fs::read_to_string(Path::new(&script_path))
+        .map_err(|e| anyhow!("Error opening {script_path}: {e}"))?;
+    let pool_account_path = format!("{masm_path}/accounts/two_asset_pool.masm");
+    let pool_code = fs::read_to_string(Path::new(&pool_account_path))
+        .map_err(|e| anyhow!("Error opening {pool_account_path}: {e}"))?;
+    let assembler: Assembler = TransactionKernel::assembler().with_debug_mode(true);
+    let account_component_lib = create_library(
+        assembler.clone(),
+        "external_contract::two_pools_contract",
+        &pool_code,
+    )
+    .unwrap_or_else(|err| panic!("Failed to create library: {err:?}"));
+
+    let program = assembler
+        .clone()
+        .with_dynamic_library(&account_component_lib)
+        .unwrap_or_else(|err| panic!("Failed to add dynamic library: {err:?}"))
+        .assemble_program(script_code)
+        .unwrap_or_else(|err| panic!("Failed to assemble program: {err:?}"));
+    let tx_script = TransactionScript::new(program);
+
+    // Build a transaction request with the custom script
+    let tx_request = TransactionRequestBuilder::new()
+        .custom_script(tx_script)
+        .script_arg(
+            [
+                Felt::new(balances.total_liabilities.to::<u64>()),
+                Felt::new(balances.reserve_with_slippage.to::<u64>()),
+                Felt::new(balances.reserve.to::<u64>()),
+                Felt::new(0),
+            ]
+            .into(),
+        )
+        .build()?;
+
+    Ok(tx_request)
+}
+
 /// Constants for fee calculations
 const FEE_PRECISION: U256 = U256::from_limbs([1_000_000, 0, 0, 0]); // 10^6
 const _PRICE_SCALING_FACTOR: i128 = 1e12 as i128;
@@ -204,13 +270,13 @@ pub fn get_curve_amount_out(
 
     // COMPUTE
     // ADJUST FOR IN TOKEN POOL IMBALANCE
-    // log::info!(
-    //     "base pool reserve: {:?} base pool total liabilities: {:?} base pool reserve with slippage: {:?} amount in: {:?}",
-    //     base_pool.reserve,
-    //     base_pool.total_liabilities,
-    //     base_pool.reserve_with_slippage,
-    //     amount_in
-    // );
+    println!(
+        "base pool reserve: {:?} base pool total liabilities: {:?} base pool reserve with slippage: {:?} amount in: {:?}",
+        base_pool.balances.reserve,
+        base_pool.balances.total_liabilities,
+        base_pool.balances.reserve_with_slippage,
+        amount_in
+    );
     let effective_amount_in = curve_in.inverse_horizontal(
         I256::from_str(&base_pool.balances.reserve.to_string())
             .unwrap_or_else(|err| panic!("Failed to parse base_pool.reserve: {err:?}")),
@@ -223,19 +289,18 @@ pub fn get_curve_amount_out(
         asset_decimals_in,
     );
 
-    // log::info!(
-    //     "basePool reserve: {:?} effective_amount_in: {:?}",
-    //     base_pool.reserve,
-    //     effective_amount_in
-    // );
-    // log::info!(
-    //     "base pool reserve + effective_amount_in: {:?}",
-    //     base_pool.reserve + effective_amount_in
-    // );
-    // log::info!(
-    //     "base pool total liabilities: {:?}",
-    //     base_pool.total_liabilities
-    // );
+    println!(
+        "basePool reserve: {:?} effective_amount_in: {:?}",
+        base_pool.balances.reserve, effective_amount_in
+    );
+    println!(
+        "base pool reserve + effective_amount_in: {:?}",
+        base_pool.balances.reserve + effective_amount_in
+    );
+    println!(
+        "base pool total liabilities: {:?}",
+        base_pool.balances.total_liabilities
+    );
     if (base_pool.balances.reserve + effective_amount_in)
         > (U256::from(2) * base_pool.balances.total_liabilities)
     {
@@ -243,24 +308,20 @@ pub fn get_curve_amount_out(
     }
 
     // AMOUNT OUT BEFORE FEES AND OUT TOKEN POOL IMBALANCE
-    // log::info!(
-    //     "asset_decimals_in: {:?} asset_decimals_out: {:?}, price: {:?}",
-    //     asset_decimals_in,
-    //     asset_decimals_out,
-    //     price
-    // );
+    println!(
+        "asset_decimals_in: {:?} asset_decimals_out: {:?}, price: {:?}",
+        asset_decimals_in, asset_decimals_out, price
+    );
     let scaling_factor = if asset_decimals_in > asset_decimals_out {
         price_scaling_factor * U256::from(10).pow(asset_decimals_in - asset_decimals_out)
     } else {
         price_scaling_factor / U256::from(10).pow(asset_decimals_out - asset_decimals_in)
     };
 
-    // log::info!(
-    //     "effective_amount_in: {:?} price: {:?} scaling_factor: {:?}",
-    //     effective_amount_in,
-    //     price,
-    //     scaling_factor
-    // );
+    println!(
+        "effective_amount_in: {:?} price: {:?} scaling_factor: {:?}",
+        effective_amount_in, price, scaling_factor
+    );
     let raw_amount_out = effective_amount_in * price / scaling_factor;
 
     // COMPUTE FEES
@@ -272,18 +333,18 @@ pub fn get_curve_amount_out(
     // COMPUTE ACTUAL LP FEE
     let reduced_reserve_out = quote_pool.balances.reserve - raw_amount_out + fee_amount;
 
-    // log::info!(
-    //     "LP AMOUNT out
-    //     reduced_reserve_out {},
-    //     quote_pool.total_liabilities: {},
-    //     quote_pool.reserve_with_slippage : {},
-    //     asset_decimals_out: {},
-    //     ",
-    //     reduced_reserve_out,
-    //     quote_pool.total_liabilities,
-    //     quote_pool.reserve_with_slippage,
-    //     asset_decimals_out
-    // );
+    println!(
+        "LP AMOUNT out
+        reduced_reserve_out {},
+        quote_pool.total_liabilities: {},
+        quote_pool.reserve_with_slippage : {},
+        asset_decimals_out: {},
+        ",
+        reduced_reserve_out,
+        quote_pool.balances.total_liabilities,
+        quote_pool.balances.reserve_with_slippage,
+        asset_decimals_out
+    );
 
     let mut actual_lp_fee_amount = curve_out.inverse_diagonal(
         reduced_reserve_out,
@@ -317,18 +378,18 @@ pub fn get_curve_amount_out(
         quote_pool.balances.reserve_with_slippage - reserve_with_slippage_after_amount_out;
 
     // Debug logging (remove in production)
-    // println!("Debug values:");
-    // println!("  effective_amount_in: {}", effective_amount_in);
-    // println!("  raw_amount_out: {}", raw_amount_out);
-    // println!(
-    //     "  reserve_with_slippage_out: {}",
-    //     quote_pool.reserve_with_slippage
-    // );
-    // println!(
-    //     "  reserve_with_slippage_after_amount_out: {}",
-    //     reserve_with_slippage_after_amount_out
-    // );
-    // println!("  amount_out: {}", amount_out);
+    println!("Debug values:");
+    println!("  effective_amount_in: {}", effective_amount_in);
+    println!("  raw_amount_out: {}", raw_amount_out);
+    println!(
+        "  reserve_with_slippage_out: {}",
+        quote_pool.balances.reserve_with_slippage
+    );
+    println!(
+        "  reserve_with_slippage_after_amount_out: {}",
+        reserve_with_slippage_after_amount_out
+    );
+    println!("  amount_out: {}", amount_out);
 
     //     reserver_with_slippage1 = reserver_with_slippage0 + amount_in
     // reserver1 =  reserver0 + effective_amount_in
@@ -339,8 +400,8 @@ pub fn get_curve_amount_out(
     // reserve_with_slippage_after_amount_out
 
     let new_pool_balances_base = PoolBalances {
-        reserve: base_pool.balances.reserve + amount_in,
-        reserve_with_slippage: base_pool.balances.reserve + effective_amount_in,
+        reserve: base_pool.balances.reserve + effective_amount_in,
+        reserve_with_slippage: base_pool.balances.reserve_with_slippage + amount_in,
         total_liabilities: base_pool.balances.total_liabilities,
     };
 
@@ -376,7 +437,7 @@ mod tests {
             pool_account_id: AccountId::from_hex("0x000000000000000000000000000000").unwrap(),
             faucet_account_id: AccountId::from_hex("0x000000000000000000000000000000").unwrap(),
         };
-        let quote_pool = base_pool.clone();
+        let quote_pool = base_pool;
         let result = get_curve_amount_out(
             &base_pool,
             &quote_pool,
@@ -411,8 +472,7 @@ mod tests {
             pool_account_id: AccountId::from_hex("0x000000000000000000000000000000").unwrap(),
             faucet_account_id: AccountId::from_hex("0x000000000000000000000000000000").unwrap(),
         };
-        let quote_pool = base_pool.clone();
-
+        let quote_pool = base_pool;
         let result = get_curve_amount_out(
             &base_pool,
             &quote_pool,

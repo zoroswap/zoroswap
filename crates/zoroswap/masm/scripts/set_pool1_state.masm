@@ -1,5 +1,7 @@
 use.external_contract::two_pools_contract
 
+use.std::sys
+
 begin
 	# Inputs: [0, reserve_with_slippage, reserve, liabilities]
     swap.2 
@@ -10,5 +12,8 @@ begin
     # : [0, reserve, reserve_with_slippage, liabilities]
     swap.3
     # : [liabilities, reserve, reserve_with_slippage, 0]
-    call.two_pools_contract::set_pool1_state
+    padw
+    call.two_pools_contract::get_asset1
+    call.two_pools_contract::set_pool_state
+    exec.sys::truncate_stack
 end

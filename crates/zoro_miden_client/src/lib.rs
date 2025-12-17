@@ -7,7 +7,8 @@ use miden_client::store::TransactionFilter;
 use miden_client::{
     Client, ClientError, Felt, Word,
     account::{
-        Account, AccountBuilder, AccountId, AccountStorageMode, AccountType, Address, NetworkId,
+        Account, AccountBuilder, AccountId, AccountStorageMode, AccountType, Address,
+        AddressInterface, NetworkId,
     },
     asset::{Asset, FungibleAsset, TokenSymbol},
     auth::AuthSecretKey,
@@ -362,13 +363,10 @@ pub async fn create_basic_account(
         .storage_mode(AccountStorageMode::Public)
         .with_auth_component(AuthRpoFalcon512::new(key_pair.public_key().to_commitment()))
         .with_component(BasicWallet);
-    let account = builder
-        .build()
-        .unwrap_or_else(|err| panic!("Failed to build account: {err:?}"));
+    let account = builder.build().unwrap();
     client.add_account(&account, false).await?;
-    keystore
-        .add_key(&key_pair)
-        .unwrap_or_else(|err| panic!("Failed to add key to keystore: {err:?}"));
+    keystore.add_key(&key_pair).unwrap();
+    client.sync_state().await?;
     Ok((account, key_pair))
 }
 
@@ -395,17 +393,10 @@ pub async fn create_basic_faucet(
         .account_type(AccountType::FungibleFaucet)
         .storage_mode(AccountStorageMode::Public)
         .with_auth_component(AuthRpoFalcon512::new(key_pair.public_key().to_commitment()))
-        .with_component(
-            BasicFungibleFaucet::new(symbol, decimals, max_supply)
-                .unwrap_or_else(|err| panic!("Failed to create faucet: {err:?}")),
-        );
-    let account = builder
-        .build()
-        .unwrap_or_else(|err| panic!("Failed to build faucet account: {err:?}"));
+        .with_component(BasicFungibleFaucet::new(symbol, decimals, max_supply).unwrap());
+    let account = builder.build().unwrap();
     client.add_account(&account, false).await?;
-    keystore
-        .add_key(&key_pair)
-        .unwrap_or_else(|err| panic!("Failed to add key to keystore: {err:?}"));
+    keystore.add_key(&key_pair).unwrap();
     Ok(account)
 }
 
