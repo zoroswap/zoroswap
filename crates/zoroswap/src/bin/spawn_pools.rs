@@ -354,8 +354,7 @@ async fn main() -> Result<()> {
     }
 
     // Consume DEPOSIT notes by POOL CONTRACT
-    let mut failed_notes: HashSet<NoteId> = HashSet::new();
-
+    let failed_notes = Vec::new();
     loop {
         ////////    !!!!!!!!!!!!!!!!!!!!!!!!!
 
@@ -373,6 +372,12 @@ async fn main() -> Result<()> {
                         "Found consumable DEPOSIT notes for pool contract account. Consuming them now..."
                     );
                     let transaction_request = TransactionRequestBuilder::new()
+                        .own_output_notes(
+                            valid_notes
+                                .iter()
+                                .map(|n| OutputNote::Full(n.clone().clone()))
+                                .clone(),
+                        )
                         .build_consume_notes(valid_notes.iter().map(|n| n.id()).collect())?;
                     let _tx_id = client
                         .submit_new_transaction(lp_account.id(), transaction_request)
@@ -440,26 +445,48 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
+// async fn fetch_new_notes_by_tag(
+//     client: &mut MidenClient,
+//     pool_id_tag: &NoteTag,
+// ) -> Result<Vec<Note>> {
+//     client.sync_state().await?;
+//     let all_notes = client.get_input_notes(NoteFilter::Committed).await?;
+//     let notes: Vec<Note> = all_notes
+//         .iter()
+//         .filter_map(|n| {
+//             if let Some(metadata) = n.metadata() {
+//                 if metadata.tag().eq(pool_id_tag) {
+//                     let note = Note::new(
+//                         n.assets().clone(),
+//                         *metadata,
+//                         n.details().recipient().clone(),
+//                     );
+//                     Some(note)
+//                 } else {
+//                     None
+//                 }
+//             } else {
+//                 None
+//             }
+//         })
+//         .collect();
+//     Ok(notes)
+// }
+
 async fn fetch_new_notes_by_tag(
     client: &mut MidenClient,
     pool_id_tag: &NoteTag,
 ) -> Result<Vec<Note>> {
     client.sync_state().await?;
-    let all_notes = client.get_input_notes(NoteFilter::Committed).await?;
+    let all_notes = client.get_output_notes(NoteFilter::Committed).await?;
     let notes: Vec<Note> = all_notes
         .iter()
         .filter_map(|n| {
-            if let Some(metadata) = n.metadata() {
-                if metadata.tag().eq(pool_id_tag) {
-                    let note = Note::new(
-                        n.assets().clone(),
-                        *metadata,
-                        n.details().recipient().clone(),
-                    );
-                    Some(note)
-                } else {
-                    None
-                }
+            if n.metadata().tag().eq(pool_id_tag)
+                && let Some(recipient) = n.recipient()
+            {
+                let note = Note::new(n.assets().clone(), *n.metadata(), recipient.clone());
+                Some(note)
             } else {
                 None
             }
