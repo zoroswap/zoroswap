@@ -64,7 +64,7 @@ fn main() {
             &args.keystore_path,
             &args.store_path,
         ).map_err(|e| e.to_string())?;
-        let mut init_client = instantiate_client(&config, ZoroStorageSettings::ammstate_storage(config.store_path.to_string()))
+        let mut init_client = instantiate_client(config.clone(), ZoroStorageSettings::ammstate_storage(config.store_path.to_string()))
             .await
             .unwrap_or_else(|err| panic!("Failed to instantiate init client: {err:?}"));
         info!(
@@ -91,7 +91,7 @@ fn main() {
             .init_prices_in_state()
             .await
             .map_err(|e| e.to_string())?;
-        let (guarded_faucet, faucet_tx) = GuardedFaucet::new(amm_state.config().clone());
+        let (guarded_faucet, faucet_tx) = GuardedFaucet::new(amm_state.config());
         let notes_listener = NotesListener::new(amm_state.clone());
         Ok::<
             (

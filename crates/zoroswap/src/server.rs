@@ -1,3 +1,4 @@
+use alloy::primitives::U256;
 use anyhow::{Result, anyhow};
 use axum::{
     Json, Router,
@@ -63,6 +64,7 @@ pub fn create_router(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health_check))
         .route("/pools/info", get(pool_info))
+        .route("/pools/state", get(pool_states))
         .route("/orders/submit", post(submit_order))
         .route("/faucets/mint", post(mint_faucet))
         .route("/stats", get(get_stats))
@@ -98,6 +100,46 @@ async fn pool_info(State(state): State<AppState>) -> impl IntoResponse {
     headers.insert(
         header::CACHE_CONTROL,
         HeaderValue::from_static("max-age=120, must-revalidate"),
+    );
+    (headers, Json(response))
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct PoolStateInfo {
+    pool_account_id: String,
+    faucet_account_id: String,
+    reserve: U256,
+    reserve_with_slippage: U256,
+    total_liabilities: U256,
+    swap_fee: U256,
+    backstop_fee: U256,
+    protocol_fee: U256,
+}
+
+async fn pool_states(State(state): State<AppState>) -> impl IntoResponse {
+    let config = state.amm_state.config();
+    let network_id = config.network_id;
+    let pools = state.amm_state.liquidity_pools();
+    let pool_states: Vec<PoolStateInfo> = pools
+        .iter()
+        .map(|s| PoolStateInfo {
+            pool_account_id: s.pool_account_id.to_bech32(network_id.clone()),
+            faucet_account_id: s.faucet_account_id.to_bech32(network_id.clone()),
+            reserve: s.balances.reserve,
+            reserve_with_slippage: s.balances.reserve_with_slippage,
+            total_liabilities: s.balances.total_liabilities,
+            swap_fee: s.settings.swap_fee,
+            backstop_fee: s.settings.backstop_fee,
+            protocol_fee: s.settings.protocol_fee,
+        })
+        .collect();
+    let response = serde_json::json!({
+        "data": pool_states
+    });
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("max-age=15, must-revalidate"),
     );
     (headers, Json(response))
 }

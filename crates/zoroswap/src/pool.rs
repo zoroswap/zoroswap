@@ -28,9 +28,9 @@ pub struct PoolState {
 pub struct PoolSettings {
     beta: I256,
     c: I256,
-    swap_fee: U256,
-    backstop_fee: U256,
-    protocol_fee: U256,
+    pub swap_fee: U256,
+    pub backstop_fee: U256,
+    pub protocol_fee: U256,
 }
 
 impl PoolState {

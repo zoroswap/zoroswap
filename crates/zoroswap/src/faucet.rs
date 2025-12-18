@@ -37,7 +37,7 @@ impl GuardedFaucet {
 
     pub async fn start(&mut self) -> Result<()> {
         let mut client = instantiate_client(
-            &self.config,
+            self.config.clone(),
             ZoroStorageSettings::faucet_storage(self.config.store_path.to_string()),
         )
         .await?;

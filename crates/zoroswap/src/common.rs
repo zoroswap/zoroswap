@@ -92,7 +92,7 @@ impl ZoroStorageSettings {
 /// - Importing all faucets from liquidity pools
 /// - Adding note tags for pool monitoring
 pub async fn instantiate_client(
-    config: &Config,
+    config: Config,
     storage: ZoroStorageSettings,
 ) -> Result<MidenClient, ClientError> {
     use miden_client::{

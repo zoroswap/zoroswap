@@ -115,8 +115,8 @@ impl AmmState {
         };
     }
 
-    pub fn config(&self) -> &Config {
-        &self.config
+    pub fn config(&self) -> Config {
+        (*self.config).clone()
     }
 
     pub fn liquidity_pools(&self) -> &DashMap<AccountId, PoolState> {
