@@ -194,11 +194,9 @@ proc.create_p2id_reverse_note
     # => [note_idx, pad(15), ASSET_TO_BE_SENT]
     swapw.2 dropw swapw.3
     # => [ASSET, note_idx, pad(11)]
-    debug.stack.16
     padw mem_loadw_be.260 # load new out pool state
 
     swapw.2 swapw
-    debug.stack.16
     
     call.two_asset_pool::move_asset_to_note
     # => [ASSET, note_idx, pad(3), NEW_OUT_POOL_STATE, pad(4)]
@@ -208,7 +206,6 @@ end
 
 proc.store_p2id_script_hash
     push.15783632360113277539.7403765918285273520.15691985194755641846.10399643920503194563
-
     mem_storew_be.P2ID_SCRIPT_ROOT_WORD dropw
 end
 
@@ -217,6 +214,7 @@ proc.execute_DEPOSIT
     mem_load.MIN_LP_AMOUNT_OUT
     lt
     # min amount out is not met
+
     if.true
         mem_loadw_be.DEPOSIT_ASSET_WORD
         exec.create_p2id_reverse_note
@@ -228,7 +226,6 @@ proc.execute_DEPOSIT
         push.0.0.0.0
         mem_loadw_be.DEPOSIT_ASSET_WORD
         # => [ASSET, liabilities,reserve, reserve_with_slippage, 0, creator_id_prefix, creator_id_suffix]
-
     
         call.two_asset_pool::deposit
 
@@ -241,19 +238,17 @@ proc.execute_DEPOSIT
 end
 
 begin
-    exec.store_args_to_memory
-    exec.store_inputs_to_memory
-    exec.store_asset_in_to_memory
-    exec.store_p2id_script_hash
-    exec.execute_DEPOSIT
+    debug.stack.4
 
-    #mem_load.IN_TOKEN_ID_SUFFIX
-    #mem_load.IN_TOKEN_ID_PREFIX
-    
- 
-    #push.100000003000000
-    #dup dup
-    #call.two_asset_pool::set_pool0_state
+    exec.store_args_to_memory
+
+    exec.store_inputs_to_memory
+
+    exec.store_asset_in_to_memory
+
+    exec.store_p2id_script_hash
+
+    exec.execute_DEPOSIT
 
     exec.sys::truncate_stack
 end

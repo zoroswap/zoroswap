@@ -54,6 +54,26 @@ struct Args {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let word: Word = ([
+        Felt::new(13603942263569969660),
+        Felt::new(13080156875089878972),
+        Felt::new(7935997992824405568),
+        Felt::new(3892474124107991533),
+    ])
+    .into();
+    let word_reversed: Word = ([
+        Felt::new(3892474124107991533),
+        Felt::new(7935997992824405568),
+        Felt::new(13080156875089878972),
+        Felt::new(13603942263569969660),
+    ])
+    .into();
+    println!("+++++Word: {:?} {:?}", word, word.to_hex());
+    println!(
+        "+++++Word reversed: {:?} {:?}",
+        word_reversed,
+        word_reversed.to_hex()
+    );
     let args = Args::parse();
     tracing_subscriber::fmt()
         .with_env_filter("info,zoro=debug")
@@ -218,6 +238,14 @@ async fn main() -> Result<()> {
         .with_component(BasicWallet)
         .build()?;
 
+    println!("+++++Pool contract procedures");
+    pool_contract
+        .code()
+        .procedures()
+        .into_iter()
+        .for_each(|proc| {
+            println!("+++++proc root: {:?} ", proc.mast_root().to_hex());
+        });
     println!(
         "pool contract commitment hash: {:?}",
         pool_contract.commitment().to_hex()
@@ -302,10 +330,11 @@ async fn main() -> Result<()> {
         "pool contract storage: {:?}",
         account.account().storage().get_item(0)
     );
+    println!("\n[STEP 3] Make DEPOSIT notes for each liq pool");
 
     for pool in config.liquidity_pools.iter() {
         println!("liq pool: {:?}", pool.name);
-        println!("Importing the lp account to client");
+        // println!("Importing the lp account to client");
         //client.import_account_by_id(lp_account.id()).await?;
         let amount_in: u64 = amount * 10u64.pow(pool.decimals as u32);
         let max_slippage = 0.005; // 0.5 %
@@ -371,16 +400,30 @@ async fn main() -> Result<()> {
                     println!(
                         "Found consumable DEPOSIT notes for pool contract account. Consuming them now..."
                     );
-                    let transaction_request = TransactionRequestBuilder::new()
-                        .own_output_notes(
+
+                    let in_amount: u64 = amount * 10u64.pow(8 as u32);
+                    let args: Word = [
+                        Felt::new(in_amount),
+                        Felt::new(in_amount),
+                        Felt::new(in_amount),
+                        Felt::new(in_amount),
+                    ]
+                    .into();
+                    let consume_req = TransactionRequestBuilder::new()
+                        .unauthenticated_input_notes(
                             valid_notes
                                 .iter()
-                                .map(|n| OutputNote::Full(n.clone().clone()))
-                                .clone(),
+                                .map(|deposit_note| {
+                                    (deposit_note.clone().clone(), Some(args.clone()))
+                                })
+                                .collect::<Vec<_>>(),
                         )
-                        .build_consume_notes(valid_notes.iter().map(|n| n.id()).collect())?;
+                        .build()
+                        .map_err(|e| {
+                            anyhow::anyhow!("Failed to build batch transaction request: {}", e)
+                        })?;
                     let _tx_id = client
-                        .submit_new_transaction(lp_account.id(), transaction_request)
+                        .submit_new_transaction(pool_contract.id(), consume_req)
                         .await?;
 
                     println!("All of liq pool's DEPOSIT notes consumed successfully.");

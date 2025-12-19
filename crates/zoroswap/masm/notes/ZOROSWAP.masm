@@ -250,11 +250,9 @@ proc.create_p2id_reverse_note
     # => [note_idx, pad(15), ASSET_TO_BE_SENT]
     swapw.2 dropw swapw.3
     # => [ASSET, note_idx, pad(11)]
-    debug.stack.16
     padw mem_loadw_be.260 # load new out pool state
 
     swapw.2 swapw
-    debug.stack.16
     
     call.two_asset_pool::move_asset_to_note
     # => [ASSET, note_idx, pad(3), NEW_OUT_POOL_STATE, pad(4)]
@@ -301,7 +299,6 @@ begin
 
 
     adv_pipe
-    debug.stack.16
     dropw swapw dropw swapw dropw
 
     exec.store_args_to_memory

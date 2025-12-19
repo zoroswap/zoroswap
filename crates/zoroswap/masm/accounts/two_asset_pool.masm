@@ -93,7 +93,7 @@ export.set_pool_state
     # =>[reserve, ASSET, liabilities, reserve, reserve_with_slippage, 0, ASSET]
     dup.7
     # => [reserve_with_slippage, reserve, ASSET, liabilities, reserve, reserve_with_slippage, 0, ASSET]
-    
+    debug.stack.16
     lte assert.err=ERR_RESERVE_EXCEEDS_RESERVE_WITH_SLIPPAGE
     ## => [ASSET, liabilities, reserve, reserve_with_slippage, 0, ASSET]
 
@@ -360,6 +360,7 @@ export.deposit
     mem_storew_be.DEPOSIT_ASSET_LOC
 
     exec.receive_asset
+    
 
     padw
     mem_loadw_be.DEPOSIT_ASSET_LOC

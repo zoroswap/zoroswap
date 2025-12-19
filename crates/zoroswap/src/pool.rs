@@ -18,7 +18,7 @@ use zoro_miden_client::{MidenClient, create_library};
 use zoro_primitives::dummy_curve::DummyCurve as ConfiguredCurve;
 use zoro_primitives::traits::Curve;
 
-#[derive(Clone, Debug, Copy)]
+#[derive(Clone, Debug, Copy, PartialEq, Eq)]
 pub struct PoolBalances {
     pub reserve: U256,
     pub reserve_with_slippage: U256,

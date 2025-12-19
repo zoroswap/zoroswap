@@ -260,6 +260,21 @@ pub fn create_deposit_note(
     let pool_component_lib =
         create_library(assembler.clone(), "zoro::two_asset_pool", &pool_code).unwrap();
 
+    println!("+++++Pool component lib exports:",);
+    pool_component_lib.exports().for_each(|export| {
+        println!(
+            "+++++Export: {:?} {:?} {:?}",
+            export.name.name,
+            pool_component_lib
+                .get_procedure_root_by_name(export.name.clone())
+                .unwrap(),
+            pool_component_lib
+                .get_procedure_root_by_name(export.name.clone())
+                .unwrap()
+                .to_hex()
+        );
+    });
+
     let note_script = ScriptBuilder::new(true)
         .with_dynamically_linked_library(&pool_component_lib)
         .unwrap()

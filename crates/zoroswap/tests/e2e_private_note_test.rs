@@ -14,8 +14,9 @@ use std::str::FromStr;
 use url::Url;
 use zoro_miden_client::{create_basic_account, wait_for_consumable_notes, wait_for_note};
 use zoroswap::{
-    Config, ZoroStorageSettings, create_zoroswap_note, fetch_vault_for_account_from_chain,
-    get_oracle_prices, instantiate_client, print_note_info, print_transaction_info, serialize_note,
+    Config, ZoroStorageSettings, create_zoroswap_note, fetch_pool_state_from_chain,
+    fetch_vault_for_account_from_chain, get_oracle_prices, instantiate_client, print_note_info,
+    print_transaction_info, serialize_note,
 };
 
 #[tokio::test]
@@ -66,15 +67,16 @@ async fn e2e_private_note() -> Result<()> {
 
     // ---------------------------------------------------------------------------------
     println!("\n\t[STEP 2] Fund user wallet\n");
-
     let pool0 = config
         .liquidity_pools
         .first()
         .expect("No liquidity pools found in config.");
+
     let pool1 = config
         .liquidity_pools
         .last()
         .expect("No liquidity pools found in config.");
+
     let amount: u64 = 5 * 10u64.pow(pool0.decimals as u32 - 2); // 0.05
     let fungible_asset = FungibleAsset::new(pool0.faucet_id, amount)?;
     let transaction_request = TransactionRequestBuilder::new().build_mint_fungible_asset(
