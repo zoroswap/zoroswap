@@ -488,34 +488,6 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-// async fn fetch_new_notes_by_tag(
-//     client: &mut MidenClient,
-//     pool_id_tag: &NoteTag,
-// ) -> Result<Vec<Note>> {
-//     client.sync_state().await?;
-//     let all_notes = client.get_input_notes(NoteFilter::Committed).await?;
-//     let notes: Vec<Note> = all_notes
-//         .iter()
-//         .filter_map(|n| {
-//             if let Some(metadata) = n.metadata() {
-//                 if metadata.tag().eq(pool_id_tag) {
-//                     let note = Note::new(
-//                         n.assets().clone(),
-//                         *metadata,
-//                         n.details().recipient().clone(),
-//                     );
-//                     Some(note)
-//                 } else {
-//                     None
-//                 }
-//             } else {
-//                 None
-//             }
-//         })
-//         .collect();
-//     Ok(notes)
-// }
-
 async fn fetch_new_notes_by_tag(
     client: &mut MidenClient,
     pool_id_tag: &NoteTag,

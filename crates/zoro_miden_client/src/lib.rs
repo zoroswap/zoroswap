@@ -457,6 +457,27 @@ pub async fn wait_for_consumable_notes(
     }
 }
 
+pub async fn fetch_new_notes_by_tag(
+    client: &mut MidenClient,
+    pool_id_tag: &NoteTag,
+) -> Result<Vec<Note>> {
+    client.sync_state().await?;
+    let all_notes = client.get_output_notes(NoteFilter::Committed).await?;
+    let notes: Vec<Note> = all_notes
+        .iter()
+        .filter_map(|n| {
+            if n.metadata().tag().eq(pool_id_tag)
+                && let Some(recipient) = n.recipient()
+            {
+                let note = Note::new(n.assets().clone(), *n.metadata(), recipient.clone());
+                Some(note)
+            } else {
+                None
+            }
+        })
+        .collect();
+    Ok(notes)
+}
 // --------------------------------------------------------------------------
 // Utility Functions
 // --------------------------------------------------------------------------

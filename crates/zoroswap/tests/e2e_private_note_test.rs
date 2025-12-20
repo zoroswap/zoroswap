@@ -4,34 +4,48 @@ use dotenv::dotenv;
 use miden_client::store::TransactionFilter;
 use miden_client::{
     Felt, Word,
+    account::Account,
     asset::FungibleAsset,
     crypto::FeltRng,
     keystore::FilesystemKeyStore,
-    note::{NoteTag, NoteType},
+    note::{Note, NoteTag, NoteType},
     transaction::{OutputNote, TransactionRequestBuilder},
 };
-use std::str::FromStr;
+use rand::rngs::StdRng;
+use std::{str::FromStr, time::Duration};
 use url::Url;
-use zoro_miden_client::{create_basic_account, wait_for_consumable_notes, wait_for_note};
+use zoro_miden_client::{
+    MidenClient, create_basic_account, fetch_new_notes_by_tag, wait_for_consumable_notes,
+    wait_for_note,
+};
 use zoroswap::{
-    Config, ZoroStorageSettings, create_zoroswap_note, fetch_pool_state_from_chain,
-    fetch_vault_for_account_from_chain, get_oracle_prices, instantiate_client, print_note_info,
-    print_transaction_info, serialize_note,
+    Config, ZoroStorageSettings, config::LiquidityPoolConfig, create_deposit_note,
+    create_zoroswap_note, fetch_pool_state_from_chain, fetch_vault_for_account_from_chain,
+    get_oracle_prices, instantiate_client, print_note_info, print_transaction_info, serialize_note,
 };
 
-#[tokio::test]
-async fn e2e_private_note() -> Result<()> {
-    dotenv().ok();
+struct Accounts {
+    pub zoro: Account,
+    pub user: Account,
+}
 
-    // ---------------------------------------------------------------------------------
-    println!("\n\t[STEP 0] Init client and config\n");
+async fn set_up() -> Result<(
+    Config,
+    MidenClient,
+    FilesystemKeyStore<StdRng>,
+    Accounts,
+    Vec<LiquidityPoolConfig>,
+)> {
+    dotenv().ok();
 
     let config = Config::from_config_file(
         "../../config.toml",
         "../../masm",
         "../../keystore",
         "../../testing_store.sqlite3",
-    )?;
+    )
+    .unwrap();
+
     assert!(
         config.liquidity_pools.len() > 1,
         "Less than 2 liquidity pools configured"
@@ -40,32 +54,26 @@ async fn e2e_private_note() -> Result<()> {
         &config,
         ZoroStorageSettings::trading_storage("../../testing_store.sqlite3".to_string()),
     )
-    .await?;
-    let endpoint = config.miden_endpoint;
+    .await
+    .unwrap();
+    let endpoint = config.miden_endpoint.clone();
     let keystore = FilesystemKeyStore::new(config.keystore_path.into()).unwrap();
-    let sync_summary = client.sync_state().await?;
+    let sync_summary = client.sync_state().await.unwrap();
     println!("\nLatest block: {}", sync_summary.block_num);
-
-    let (balances_pool_0, _) =
-        fetch_pool_state_from_chain(&mut client, config.pool_account_id, 0).await?;
-    let (balances_pool_1, _) =
-        fetch_pool_state_from_chain(&mut client, config.pool_account_id, 1).await?;
-    let vault = fetch_vault_for_account_from_chain(&mut client, config.pool_account_id).await?;
-    println!("balances for liq pool 0: {balances_pool_0:?}");
-    println!("balances for liq pool 1: {balances_pool_1:?}");
-    println!("pool vault on-chain: {vault:?}");
-
-    // ---------------------------------------------------------------------------------
-    println!("\n\t[STEP 1] Create user account\n");
-
-    let (account, _) = create_basic_account(&mut client, keystore.clone()).await?;
+    let (account, _) = create_basic_account(&mut client, keystore.clone())
+        .await
+        .unwrap();
     println!(
         "Created Account ⇒ ID: {:?}",
         account.id().to_bech32(endpoint.to_network_id())
     );
-    client.sync_state().await?;
+    client.sync_state().await.unwrap();
 
-    // ---------------------------------------------------------------------------------
+    let accounts = Accounts {
+        zoro: account.clone(),
+        user: account.clone(),
+    };
+
     println!("\n\t[STEP 2] Fund user wallet\n");
     let pool0 = config
         .liquidity_pools
@@ -76,9 +84,24 @@ async fn e2e_private_note() -> Result<()> {
         .liquidity_pools
         .last()
         .expect("No liquidity pools found in config.");
+    let pools = vec![pool0.clone(), pool1.clone()];
 
-    let amount: u64 = 5 * 10u64.pow(pool0.decimals as u32 - 2); // 0.05
-    let fungible_asset = FungibleAsset::new(pool0.faucet_id, amount)?;
+    fund_user_wallet(&mut client, &accounts.user, &pool0, 0).await?;
+    Ok((config, client, keystore, accounts, pools))
+}
+
+async fn fund_user_wallet(
+    client: &mut MidenClient,
+    account: &Account,
+    pool: &LiquidityPoolConfig,
+    amount: u64,
+) -> Result<()> {
+    let amount: u64 = if amount > 0 {
+        amount
+    } else {
+        5 * 10u64.pow(pool.decimals as u32 - 2)
+    }; // 0.05
+    let fungible_asset = FungibleAsset::new(pool.faucet_id, amount)?;
     let transaction_request = TransactionRequestBuilder::new().build_mint_fungible_asset(
         fungible_asset,
         account.id(),
@@ -86,9 +109,9 @@ async fn e2e_private_note() -> Result<()> {
         client.rng(),
     )?;
     let tx_id = client
-        .submit_new_transaction(pool0.faucet_id, transaction_request)
+        .submit_new_transaction(pool.faucet_id, transaction_request)
         .await?;
-    println!("Minted {amount} {} for the user.", pool0.symbol);
+    println!("Minted {amount} {} for the user.", pool.symbol);
     client.sync_state().await?;
 
     let transaction = client
@@ -102,7 +125,7 @@ async fn e2e_private_note() -> Result<()> {
         _ => panic!("Expected OutputNote::Full, got something else"),
     };
 
-    wait_for_note(&mut client, &account, &minted_note).await?;
+    wait_for_note(client, &account, &minted_note).await?;
 
     let consume_req = TransactionRequestBuilder::new()
         .authenticated_input_notes([(minted_note.id(), None)])
@@ -113,9 +136,135 @@ async fn e2e_private_note() -> Result<()> {
         .submit_new_transaction(account.id(), consume_req)
         .await?;
     client.sync_state().await?;
-    let new_balance_user = fetch_vault_for_account_from_chain(&mut client, account.id()).await?;
+    let new_balance_user = fetch_vault_for_account_from_chain(client, account.id()).await?;
     println!("New account vault: {:?}", new_balance_user);
     println!("User successfully consumed swap into its wallet");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn e2e_private_deposit_withdraw_test() -> Result<()> {
+    let (config, mut client, keystore, accounts, pools) = set_up().await?;
+    let account = accounts.user;
+    let pool = pools[0];
+
+    let amount = 4;
+    /// create DEPOSIT note
+    let amount_in: u64 = amount * 10u64.pow(pool.decimals as u32);
+    let max_slippage = 0.005; // 0.5 %
+    let min_lp_amount_out = (amount_in as f64) * (1.0 - max_slippage);
+    let min_lp_amount_out = min_lp_amount_out as u64;
+    let asset_in = FungibleAsset::new(pool.faucet_id, amount_in)?;
+    //let asset_out: FungibleAsset = FungibleAsset::new(pool1.faucet_id, min_amount_out)?;
+    // let requested_asset_word: Word = asset_out.into();
+    let p2id_tag = NoteTag::from_account_id(account.id());
+    let deadline = (Utc::now().timestamp_millis() as u64) + 10000;
+    let inputs = vec![
+        Felt::new(0),
+        Felt::new(min_lp_amount_out), // min_lp_amount_out
+        Felt::new(deadline),          // deadline
+        p2id_tag.into(),              // p2id tag
+        Felt::new(0),
+        Felt::new(0),
+        account.id().suffix(),
+        account.id().prefix().into(),
+    ];
+    let pool_contract_tag = NoteTag::from_account_id(config.pool_account_id);
+    let deposit_serial_num = client.rng().draw_word();
+    println!(
+        "Made an deposit note for {amount_in} {} expecting  at least {min_lp_amount_out} lp amount out.",
+        pool.symbol
+    );
+    let deposit_note = create_deposit_note(
+        inputs,
+        vec![asset_in.into()],
+        account.id(),
+        deposit_serial_num,
+        pool_contract_tag,
+        NoteType::Public,
+    )?;
+
+    let note_req = TransactionRequestBuilder::new()
+        .own_output_notes(vec![OutputNote::Full(deposit_note.clone())])
+        .build()
+        .unwrap();
+
+    println!("tx request built");
+    let _tx_id = client
+        .submit_new_transaction(account.id(), note_req)
+        .await?;
+    println!("Minted note of {} tokens for liq pool.", amount_in);
+    client.sync_state().await?;
+
+    /// CONSUME DEPOSIT note
+    loop {
+        match fetch_new_notes_by_tag(&mut client, &pool_contract_tag).await {
+            Ok(notes) => {
+                let number_of_notes = notes.len();
+                if number_of_notes > 0 {
+                    println!(
+                        "Found consumable DEPOSIT notes for pool contract account. Consuming them now..."
+                    );
+
+                    let in_amount: u64 = amount * 10u64.pow(8 as u32);
+                    let args: Word = [
+                        Felt::new(in_amount),
+                        Felt::new(in_amount),
+                        Felt::new(in_amount),
+                        Felt::new(in_amount),
+                    ]
+                    .into();
+                    let consume_req = TransactionRequestBuilder::new()
+                        .unauthenticated_input_notes(
+                            notes
+                                .iter()
+                                .map(|deposit_note| {
+                                    (deposit_note.clone().clone(), Some(args.clone()))
+                                })
+                                .collect::<Vec<_>>(),
+                        )
+                        .build()
+                        .map_err(|e| {
+                            anyhow::anyhow!("Failed to build batch transaction request: {}", e)
+                        })?;
+                    let _tx_id = client
+                        .submit_new_transaction(config.pool_account_id, consume_req)
+                        .await?;
+
+                    println!("All DEPOSIT note consumed successfully.");
+                    break;
+                } else {
+                    println!(
+                        "Currently, pool contract has {} consumable DEPOSIT notes. Waiting...",
+                        number_of_notes
+                    );
+                    tokio::time::sleep(Duration::from_secs(3)).await;
+                }
+            }
+            Err(e) => {
+                println!("Error in listening for zoro swap notes: {}", e);
+            }
+        };
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn e2e_private_note() -> Result<()> {
+    let (config, mut client, keystore, accounts, pools) = set_up().await?;
+    let account = accounts.user;
+    let pool0 = pools[0];
+    let pool1 = pools[1];
+
+    let (balances_pool_0, _) =
+        fetch_pool_state_from_chain(&mut client, config.pool_account_id, 0).await?;
+    let (balances_pool_1, _) =
+        fetch_pool_state_from_chain(&mut client, config.pool_account_id, 1).await?;
+    let vault = fetch_vault_for_account_from_chain(&mut client, config.pool_account_id).await?;
+    println!("balances for liq pool 0: {balances_pool_0:?}");
+    println!("balances for liq pool 1: {balances_pool_1:?}");
+    println!("pool vault on-chain: {vault:?}");
 
     // ---------------------------------------------------------------------------------
     println!("\n\t[STEP 3] Fetching latest prices from the oracle\n");
@@ -252,6 +401,9 @@ async fn e2e_private_note() -> Result<()> {
 
     Ok(())
 }
+
+// #[tokio::test]
+// async fn e2e_private_deposit_withdraw_test() -> Result<()> {
 
 async fn send_to_server(server_url: &str, note: String) -> Result<()> {
     let url = Url::from_str(format!("{server_url}/orders/submit").as_str())?;
