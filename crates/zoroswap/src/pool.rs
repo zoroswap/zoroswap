@@ -98,8 +98,9 @@ pub async fn fetch_initial_lp_max_supply_from_chain(
         Felt::new(0),
         Felt::new(0),
     ];
-    let asset_address = account_storage.get_map_item(9, asset_mapping_index.into())?;
-    let total_supply = account_storage.get_map_item(11, asset_address)?[0].as_int();
+    let mut asset_address = account_storage.get_map_item(9, asset_mapping_index.into())?;
+    asset_address.reverse();
+    let total_supply = account_storage.get_map_item(11, asset_address)?[3].as_int();
     Ok(total_supply)
 }
 
@@ -187,6 +188,7 @@ impl Default for PoolState {
                 backstop_fee: U256::from(0),
                 protocol_fee: U256::from(0),
             },
+            lp_total_supply: 0,
         }
     }
 }
