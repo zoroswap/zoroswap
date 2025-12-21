@@ -159,7 +159,7 @@ impl TradingEngine {
                     let (amount_out, new_pool_balance) = get_deposit_lp_amount_out(
                         &base_pool_state,
                         U256::from(order.asset_in.amount()),
-                        U256::from(0), // total supply
+                        U256::from(base_pool_state.lp_total_supply), // total supply
                         U256::from(base_pool_decimals),
                     )?;
                     let amount_out = amount_out.to::<u64>();
@@ -201,7 +201,7 @@ impl TradingEngine {
                     let (amount_out, new_pool_balance) = get_deposit_lp_amount_out(
                         &base_pool_state,
                         U256::from(order.asset_in.amount()),
-                        U256::from(0), // total supply
+                        U256::from(base_pool_state.lp_total_supply), // total supply
                         U256::from(base_pool_decimals),
                     )?;
                     let amount_out = amount_out.to::<u64>();

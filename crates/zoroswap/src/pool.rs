@@ -8,6 +8,7 @@ use miden_client::{
 };
 use miden_lib::transaction::TransactionKernel;
 use std::{collections::HashMap, fs, path::Path, str::FromStr};
+use tracing::info;
 
 #[cfg(feature = "zoro-curve-local")]
 use zoro_curve_local::ZoroCurve as ConfiguredCurve;
@@ -29,6 +30,7 @@ pub struct PoolState {
     pub balances: PoolBalances,
     pub pool_account_id: AccountId,
     pub faucet_account_id: AccountId,
+    pub lp_total_supply: u64,
 }
 
 #[derive(Clone, Debug, Copy)]
@@ -61,14 +63,44 @@ impl PoolState {
     ) -> Result<()> {
         let (new_pool_balances, new_pool_settings) =
             fetch_pool_state_from_chain(client, self.pool_account_id, index_in_pool).await?;
+        let lp_total_supply =
+            fetch_initial_lp_max_supply_from_chain(client, self.pool_account_id, index_in_pool)
+                .await?;
         self.balances = new_pool_balances;
         self.settings = new_pool_settings;
-        // info!(
-        //     "Set liq pool on account {} for asset {}\nBalances: {:?}\nSettings: {:?}",
-        //     self.pool_account_id, self.faucet_account_id, self.balances, self.settings
-        // );
+        self.lp_total_supply = lp_total_supply;
+        info!(
+            "Set liq pool on account {} for asset {}\nBalances: {:?}\nSettings: {:?}\nLP total supply: {}",
+            self.pool_account_id,
+            self.faucet_account_id,
+            self.balances,
+            self.settings,
+            self.lp_total_supply
+        );
         Ok(())
     }
+}
+
+pub async fn fetch_initial_lp_max_supply_from_chain(
+    client: &mut MidenClient,
+    pool_account_id: AccountId,
+    index_in_pool: u8,
+) -> Result<u64> {
+    client.sync_state().await?;
+    let account = client.get_account(pool_account_id).await?.ok_or(anyhow!(
+        "No account found on chain for account_id {}",
+        pool_account_id
+    ))?;
+    let account_storage = account.account().storage();
+    let asset_mapping_index = [
+        Felt::new(index_in_pool as u64),
+        Felt::new(0),
+        Felt::new(0),
+        Felt::new(0),
+    ];
+    let asset_address = account_storage.get_map_item(9, asset_mapping_index.into())?;
+    let total_supply = account_storage.get_map_item(11, asset_address)?[0].as_int();
+    Ok(total_supply)
 }
 
 pub async fn fetch_pool_state_from_chain(
