@@ -1,6 +1,7 @@
 use crate::{
     amm_state::AmmState,
     common::{ZoroStorageSettings, instantiate_client},
+    order::OrderType,
 };
 use anyhow::Result;
 use miden_client::{
@@ -41,7 +42,10 @@ impl NotesListener {
                         .filter(|n| !failed_notes.contains(&n.id()))
                         .collect();
                     for note in valid_notes.iter() {
-                        if let Err(e) = self.state.add_order(note.to_owned().clone()) {
+                        if let Err(e) = self
+                            .state
+                            .add_order(note.to_owned().clone(), OrderType::Swap)
+                        {
                             error!("Error inserting new note: {e}");
                             failed_notes.insert(note.id());
                         };

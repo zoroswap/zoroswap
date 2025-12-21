@@ -91,22 +91,13 @@ pub async fn fetch_pool_state_from_chain(
         Felt::new(0),
     ];
     let asset_address = account_storage.get_map_item(9, asset_mapping_index.into())?;
-
-    let pool_balances = account_storage.get_map_item(10, asset_address.into())?;
+    let pool_balances = account_storage.get_map_item(10, asset_address)?;
 
     // let pool_balances = account_storage.get_item(3 + index_in_pool)?;
     let pool_fees = account_storage.get_item(5 + index_in_pool)?;
     let pool_curve = account_storage.get_item(7 + index_in_pool)?;
 
-    // for i in 0..9 {
-    //     let value = account_storage.get_item(i)?;
-    //     println!("storage {i}: {:?}", value);
-    // }
-
     let pool_balances = PoolBalances {
-        // reserve: U256::from(pool_balances[0].as_int()),
-        // reserve_with_slippage: U256::from(pool_balances[1].as_int()),
-        // total_liabilities: U256::from(pool_balances[2].as_int()),
         reserve_with_slippage: U256::from(pool_balances[1].as_int()),
         reserve: U256::from(pool_balances[2].as_int()),
         total_liabilities: U256::from(pool_balances[3].as_int()),

@@ -2,6 +2,7 @@ use crate::{
     config::Config,
     oracle_sse::{PriceData, PriceMetadata},
     order::Order,
+    order::OrderType,
     pool::{PoolBalances, PoolState},
 };
 use alloy::primitives::U256;
@@ -59,7 +60,7 @@ impl AmmState {
             instantiate_simple_client(self.config.keystore_path, &self.config.miden_endpoint)
                 .await?;
         for liq_pool in self.config.liquidity_pools.iter() {
-            let _ = miden_client
+            miden_client
                 .import_account_by_id(liq_pool.faucet_id)
                 .await?;
             if let Some(acc) = miden_client.get_account(liq_pool.faucet_id).await? {
@@ -70,9 +71,13 @@ impl AmmState {
         Ok(())
     }
 
-    pub fn add_order(&self, note: Note) -> Result<String> {
+    pub fn add_order(&self, note: Note, order_type: OrderType) -> Result<String> {
         let note_id = note.id().to_hex();
-        let order = Order::from_note(&note)?;
+        let order = match order_type {
+            OrderType::Deposit => Order::from_deposit_note(&note),
+            OrderType::Withdraw => Order::from_withdraw_note(&note),
+            OrderType::Swap => Order::from_swap_note(&note),
+        }?;
         let order_id = order.id;
         self.notes.insert(order_id, note);
         self.open_orders.insert(order_id, order);

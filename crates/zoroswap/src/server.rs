@@ -18,7 +18,7 @@ use tracing::{error, info};
 
 use crate::{
     amm_state::AmmState, config::RawLiquidityPoolConfig, faucet::FaucetMintInstruction,
-    note_serialization::deserialize_note,
+    note_serialization::deserialize_note, order::OrderType,
 };
 
 #[derive(Clone)]
@@ -63,7 +63,9 @@ pub fn create_router(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health_check))
         .route("/pools/info", get(pool_info))
-        .route("/orders/submit", post(submit_order))
+        .route("/orders/submit", post(submit_swap))
+        .route("/deposit/submit", post(submit_deposit))
+        .route("/withdraw/submit", post(submit_withdraw))
         .route("/faucets/mint", post(mint_faucet))
         .route("/stats", get(get_stats))
         .layer(CorsLayer::permissive())
@@ -132,7 +134,7 @@ async fn mint_faucet(
     Ok(resp)
 }
 
-async fn submit_order(
+async fn submit_swap(
     State(state): State<AppState>,
     Json(payload): Json<SubmitOrderRequest>,
 ) -> Json<SubmitOrderResponse> {
@@ -150,23 +152,103 @@ async fn submit_order(
         }
     };
 
-    match state.amm_state.add_order(note) {
+    match state.amm_state.add_order(note, OrderType::Swap) {
+        Ok(order_id) => {
+            info!("Successfully added swap order: {}", order_id);
+            Json(SubmitOrderResponse {
+                success: true,
+                order_id,
+                message:
+                    "Swap order submitted successfully. Matching engine will process it automatically."
+                        .to_string(),
+            })
+        }
+        Err(e) => {
+            error!("Failed to add swap order: {}", e);
+            Json(SubmitOrderResponse {
+                success: false,
+                order_id: "".to_string(),
+                message: format!("Failed to submit order: {}", e),
+            })
+        }
+    }
+}
+
+async fn submit_deposit(
+    State(state): State<AppState>,
+    Json(payload): Json<SubmitOrderRequest>,
+) -> Json<SubmitOrderResponse> {
+    info!("Received order submission request");
+    // Deserialize the note from base64
+    let note = match deserialize_note(&payload.note_data) {
+        Ok(note) => note,
+        Err(e) => {
+            error!("Failed to deserialize note: {}", e);
+            return Json(SubmitOrderResponse {
+                success: false,
+                order_id: "".to_string(),
+                message: format!("Invalid note data: {}", e),
+            });
+        }
+    };
+
+    match state.amm_state.add_order(note, OrderType::Deposit) {
         Ok(order_id) => {
             info!("Successfully added order: {}", order_id);
             Json(SubmitOrderResponse {
                 success: true,
                 order_id,
                 message:
-                    "Order submitted successfully. Matching engine will process automatically."
+                    "Deposit order submitted successfully. Matching engine will process it automatically."
                         .to_string(),
             })
         }
         Err(e) => {
-            error!("Failed to add order: {}", e);
+            error!("Failed to add deposit order: {}", e);
             Json(SubmitOrderResponse {
                 success: false,
                 order_id: "".to_string(),
-                message: format!("Failed to submit order: {}", e),
+                message: format!("Failed to submit deposit order: {}", e),
+            })
+        }
+    }
+}
+
+async fn submit_withdraw(
+    State(state): State<AppState>,
+    Json(payload): Json<SubmitOrderRequest>,
+) -> Json<SubmitOrderResponse> {
+    info!("Received order submission request");
+    // Deserialize the note from base64
+    let note = match deserialize_note(&payload.note_data) {
+        Ok(note) => note,
+        Err(e) => {
+            error!("Failed to deserialize note: {}", e);
+            return Json(SubmitOrderResponse {
+                success: false,
+                order_id: "".to_string(),
+                message: format!("Invalid note data: {}", e),
+            });
+        }
+    };
+
+    match state.amm_state.add_order(note, OrderType::Withdraw) {
+        Ok(order_id) => {
+            info!("Successfully added withdraw order: {}", order_id);
+            Json(SubmitOrderResponse {
+                success: true,
+                order_id,
+                message:
+                    "Withdraw order submitted successfully. Matching engine will process it automatically."
+                        .to_string(),
+            })
+        }
+        Err(e) => {
+            error!("Failed to add withdraw order: {}", e);
+            Json(SubmitOrderResponse {
+                success: false,
+                order_id: "".to_string(),
+                message: format!("Failed to submit withdraw order: {}", e),
             })
         }
     }
