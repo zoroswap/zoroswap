@@ -208,13 +208,13 @@ impl TradingEngine {
                     if amount_out > 0 && amount_out >= order.asset_out.amount() {
                         let (_, note) = self.state.pluck_note(&order.id)?;
                         pools
-                            .get_mut(&order.asset_in.faucet_id())
+                            .get_mut(&order.asset_out.faucet_id())
                             .ok_or(anyhow!("Missing pool in state"))?
                             .update_state(new_pool_balance);
                         order_executions.push(OrderExecution::Withdraw(ExecutionDetails {
                             note,
                             order,
-                            amount_out: order.asset_in.amount(),
+                            amount_out,
                             in_pool_balances: base_pool_state.balances,
                             out_pool_balances: quote_pool_state.balances,
                         }));
@@ -229,14 +229,7 @@ impl TradingEngine {
                                 order.asset_out.amount()
                             );
                         }
-                        let (_, note) = self.state.pluck_note(&order.id)?;
-                        order_executions.push(OrderExecution::FailedOrder(ExecutionDetails {
-                            note,
-                            order,
-                            amount_out: order.asset_in.amount(),
-                            in_pool_balances: base_pool_state.balances,
-                            out_pool_balances: quote_pool_state.balances,
-                        }));
+                        self.state.pluck_note(&order.id)?;
                     }
                 }
                 OrderType::Swap => {
@@ -359,25 +352,7 @@ impl TradingEngine {
                     ))
                 }
                 OrderExecution::Withdraw(execution_details) => {
-                    NoteExecutionDetails::ConsumeWithArgs((
-                        execution_details.note,
-                        Word::from(&[
-                            Felt::new(execution_details.amount_out),
-                            Felt::new(
-                                execution_details
-                                    .in_pool_balances
-                                    .reserve_with_slippage
-                                    .to::<u64>(),
-                            ),
-                            Felt::new(execution_details.in_pool_balances.reserve.to::<u64>()),
-                            Felt::new(
-                                execution_details
-                                    .in_pool_balances
-                                    .total_liabilities
-                                    .to::<u64>(),
-                            ),
-                        ]),
-                    ))
+                    self.prepare_payout(execution_details, true)?
                 }
             };
 

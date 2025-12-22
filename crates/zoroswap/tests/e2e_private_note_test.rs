@@ -282,7 +282,12 @@ async fn e2e_private_deposit_withdraw_test() -> Result<()> {
         fetch_lp_total_supply_from_chain(&mut client, config.pool_account_id, 0).await?;
 
     println!(
-        "LP total supply before withdraw: {lp_total_supply_after}, after withdraw: {total_lp_supply_after_withdraw}"
+        "LP total supply before withdraw: {lp_total_supply_before}, after withdraw: {total_lp_supply_after_withdraw}"
+    );
+
+    assert!(
+        lp_total_supply_before == lp_total_supply_after,
+        "LP amount after deposit and then withdraw is not the same as at the start"
     );
 
     Ok(())
