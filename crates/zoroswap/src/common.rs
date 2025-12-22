@@ -228,7 +228,7 @@ pub fn create_zoroswap_note(
     Ok(note)
 }
 
-/// Creates a ZOROSWAP note using the ZOROSWAP.masm script.
+/// Creates a DEPOSIT note using the DEPOSIT.masm script.
 ///
 /// This is specific to the Zoro AMM protocol.
 pub fn create_deposit_note(
@@ -247,6 +247,62 @@ pub fn create_deposit_note(
         .with_warnings_as_errors(true);
 
     let path: PathBuf = [manifest_dir, "masm", "notes", "DEPOSIT.masm"]
+        .iter()
+        .collect();
+    let note_code = fs::read_to_string(&path)
+        .unwrap_or_else(|err| panic!("Error reading {}: {}", path.display(), err));
+    let pool_code_path: PathBuf = [manifest_dir, "masm", "accounts", "two_asset_pool.masm"]
+        .iter()
+        .collect();
+    let pool_code = fs::read_to_string(&pool_code_path)
+        .unwrap_or_else(|err| panic!("Error reading {}: {}", pool_code_path.display(), err));
+
+    let pool_component_lib =
+        create_library(assembler.clone(), "zoro::two_asset_pool", &pool_code).unwrap();
+
+    let note_script = ScriptBuilder::new(true)
+        .with_dynamically_linked_library(&pool_component_lib)
+        .unwrap()
+        .compile_note_script(note_code)
+        .unwrap();
+
+    let inputs = NoteInputs::new(inputs)?;
+    let aux = Felt::new(0);
+    // build the outgoing note
+    let metadata = NoteMetadata::new(
+        creator,
+        note_type,
+        note_tag,
+        NoteExecutionHint::always(),
+        aux,
+    )?;
+
+    let assets = NoteAssets::new(assets)?;
+    let recipient = NoteRecipient::new(swap_serial_num, note_script.clone(), inputs.clone());
+    let note = Note::new(assets.clone(), metadata, recipient.clone());
+
+    Ok(note)
+}
+
+/// Creates a WITHDRAW note using the WITHDRAW.masm script.
+///
+/// This is specific to the Zoro AMM protocol.
+pub fn create_withdraw_note(
+    inputs: Vec<Felt>,
+    assets: Vec<miden_client::asset::Asset>,
+    creator: AccountId,
+    swap_serial_num: Word,
+    note_tag: NoteTag,
+    note_type: NoteType,
+) -> Result<Note, NoteError> {
+    use miden_client::note::NoteInputs;
+
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    let assembler = TransactionKernel::assembler()
+        .with_debug_mode(true)
+        .with_warnings_as_errors(true);
+
+    let path: PathBuf = [manifest_dir, "masm", "notes", "WITHDRAW.masm"]
         .iter()
         .collect();
     let note_code = fs::read_to_string(&path)

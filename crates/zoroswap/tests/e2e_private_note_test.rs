@@ -20,9 +20,9 @@ use zoro_miden_client::{
 };
 use zoroswap::{
     Config, ZoroStorageSettings, config::LiquidityPoolConfig, create_deposit_note,
-    create_zoroswap_note, fetch_lp_total_supply_from_chain, fetch_pool_state_from_chain,
-    fetch_vault_for_account_from_chain, get_oracle_prices, instantiate_client, print_note_info,
-    print_transaction_info, serialize_note,
+    create_withdraw_note, create_zoroswap_note, fetch_lp_total_supply_from_chain,
+    fetch_pool_state_from_chain, fetch_vault_for_account_from_chain, get_oracle_prices,
+    instantiate_client, print_note_info, print_transaction_info, serialize_note,
 };
 
 struct Accounts {
@@ -146,7 +146,7 @@ async fn fund_user_wallet(
 
 #[tokio::test]
 async fn e2e_private_deposit_withdraw_test() -> Result<()> {
-    let (config, mut client, keystore, accounts, pools) = set_up().await?;
+    let (config, mut client, _keystore, accounts, pools) = set_up().await?;
     let account = accounts.user;
     let pool = pools[0];
 
@@ -154,7 +154,7 @@ async fn e2e_private_deposit_withdraw_test() -> Result<()> {
         fetch_lp_total_supply_from_chain(&mut client, config.pool_account_id, 0).await?;
 
     let amount_in = 4;
-    /// create DEPOSIT note
+    println!("\n\t[STEP 1] Create DEPOSIT note\n");
     let amount_in: u64 = amount_in * 10u64.pow(pool.decimals as u32 - 2);
     let max_slippage = 0.005; // 0.5 %
     let min_lp_amount_out = (amount_in as f64) * (1.0 - max_slippage);
@@ -174,7 +174,7 @@ async fn e2e_private_deposit_withdraw_test() -> Result<()> {
         account.id().suffix(),
         account.id().prefix().into(),
     ];
-    let pool_contract_tag = NoteTag::from_account_id(config.pool_account_id);
+    let _pool_contract_tag = NoteTag::from_account_id(config.pool_account_id);
     let deposit_serial_num = client.rng().draw_word();
     println!(
         "Made an deposit note for {amount_in} {} expecting  at least {min_lp_amount_out} lp amount out.",
@@ -216,6 +216,75 @@ async fn e2e_private_deposit_withdraw_test() -> Result<()> {
         lp_total_supply_after >= lp_total_supply_before + min_lp_amount_out,
         "LP total supply didnt increase"
     );
+
+    println!("\n\t[STEP 2] Create WITHDRAW note\n");
+
+    let amount_to_withdraw = 2;
+    let amount_to_withdraw: u64 = amount_to_withdraw * 10u64.pow(pool.decimals as u32 - 2);
+    let max_slippage = 0.005; // 0.5 %
+    let min_asset_amount_out = (amount_to_withdraw as f64) * (1.0 - max_slippage);
+    let min_asset_amount_out = min_asset_amount_out as u64;
+    let asset_out: FungibleAsset = FungibleAsset::new(pool.faucet_id, min_asset_amount_out)?;
+    // let requested_asset_word: Word = asset_out.into();
+    let p2id_tag = NoteTag::from_account_id(account.id());
+    let deadline = (Utc::now().timestamp_millis() as u64) + 10000;
+    let asset_out_word: Word = asset_out.into();
+    let inputs = vec![
+        asset_out_word[0],
+        asset_out_word[1],
+        asset_out_word[2],
+        asset_out_word[3],
+        Felt::new(0),
+        Felt::new(amount_to_withdraw), // min_lp_amount_out
+        Felt::new(deadline),           // deadline
+        p2id_tag.into(),               // p2id tag
+        Felt::new(0),
+        Felt::new(0),
+        account.id().suffix(),
+        account.id().prefix().into(),
+    ];
+    let _pool_contract_tag = NoteTag::from_account_id(config.pool_account_id);
+    let withdraw_serial_num = client.rng().draw_word();
+    println!("######################################################### deadline: {deadline}");
+    println!(
+        "Made an deposit note for {amount_in} {} expecting  at least {min_lp_amount_out} lp amount out.",
+        pool.symbol
+    );
+    let withdraw_note = create_withdraw_note(
+        inputs,
+        vec![],
+        account.id(),
+        withdraw_serial_num,
+        NoteTag::LocalAny(0),
+        NoteType::Private,
+    )?;
+
+    let note_req = TransactionRequestBuilder::new()
+        .own_output_notes(vec![OutputNote::Full(withdraw_note.clone())])
+        .build()
+        .unwrap();
+
+    let _tx_id = client
+        .submit_new_transaction(account.id(), note_req)
+        .await?;
+
+    client.sync_state().await?;
+    send_to_server(
+        &format!("http://{}", config.server_url),
+        serialize_note(&withdraw_note)?,
+        "withdraw",
+    )
+    .await?;
+
+    tokio::time::sleep(Duration::from_secs(10)).await;
+
+    let total_lp_supply_after_withdraw: u64 =
+        fetch_lp_total_supply_from_chain(&mut client, config.pool_account_id, 0).await?;
+
+    println!(
+        "LP total supply before withdraw: {lp_total_supply_after}, after withdraw: {total_lp_supply_after_withdraw}"
+    );
+
     Ok(())
 }
 

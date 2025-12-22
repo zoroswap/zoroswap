@@ -477,6 +477,56 @@ pub fn get_deposit_lp_amount_out(
     Ok((new_lp_amount, new_pool_balances))
 }
 
+pub fn get_withdraw_asset_amount_out(
+    pool: &PoolState,
+    withdraw_amount: U256,
+    old_total_supply: U256,
+    asset_decimals: U256,
+) -> Result<(U256, PoolBalances)> {
+    // Cache to save some sloads
+    let old_total_liabilities = pool.balances.total_liabilities;
+    let old_reserve = pool.balances.reserve;
+    let old_reserve_with_slippage = pool.balances.reserve_with_slippage;
+
+    let reserve_decrement = if old_total_supply == 0 {
+        U256::ZERO
+    } else {
+        (withdraw_amount * old_total_liabilities) / old_total_liabilities
+    };
+
+    let curve = ConfiguredCurve::new(U256::from(pool.settings.beta), U256::from(pool.settings.c));
+
+    let mut new_reserve_with_slippage = curve.psi(
+        old_reserve - reserve_decrement,
+        old_total_liabilities - reserve_decrement,
+        asset_decimals,
+    );
+
+    if new_reserve_with_slippage > old_reserve_with_slippage {
+        new_reserve_with_slippage = old_reserve_with_slippage;
+    }
+
+    let mut payout_amount = old_reserve_with_slippage - new_reserve_with_slippage;
+
+    // fix potential numerical imprecission
+    if payout_amount > reserve_decrement {
+        payout_amount = reserve_decrement;
+    }
+
+    let new_total_liabilities = old_total_liabilities - reserve_decrement;
+
+    let new_reserve = old_reserve - reserve_decrement;
+
+    let new_reserve_with_slippage = old_reserve_with_slippage - payout_amount;
+
+    let new_pool_balances = PoolBalances {
+        reserve: new_reserve,
+        reserve_with_slippage: new_reserve_with_slippage,
+        total_liabilities: new_total_liabilities,
+    };
+
+    Ok((payout_amount, new_pool_balances))
+}
 #[cfg(test)]
 mod tests {
     use super::*;

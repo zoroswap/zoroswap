@@ -91,7 +91,7 @@ const.NUMBER_OF_ARGS = 0x000C # 4
 # semantic names for inputs
 # ====================================================
 
-const.ASSET_AMOUNT_OUT = ARGS_WORD_0   # 0x0040
+const.WITHDRAW_AMOUNT_OUT = ARGS_WORD_0   # 0x0040
 const.LIABILITIES = ARGS_WORD_0 + 1  # 0x0041
 const.RESERVE = ARGS_WORD_0 + 2  # 0x0042
 const.RESERVE_WITH_SLIPPAGE = ARGS_WORD_0 + 3  # 0x0043
@@ -134,7 +134,7 @@ proc.build_p2id_recipient_hash
     swapw hmerge
     # => [SERIAL_SCRIPT_HASH]
     padw
-    mem_load.WITHDRAW_CREATOR_ID_SUFFIX mem_load.WITHDRAW_CREATOR_ID_PREFIX
+    mem_load.CREATOR_ID_SUFFIX mem_load.CREATOR_ID_PREFIX
     push.0.0
 
     push.4000 mem_storew_be dropw
@@ -183,7 +183,7 @@ proc.create_p2id_reverse_note
     # => [tag, aux, note_type, execution_hint, RECIPIENT, pad(8)]
     call.output_note::create
     # => [note_idx, pad(15)]
-    mem_load.ASSET_AMOUNT_OUT
+    mem_load.WITHDRAW_AMOUNT_OUT
     push.0
     mem_load.ASSET_ID_SUFFIX
     mem_load.ASSET_ID_PREFIX
@@ -202,8 +202,8 @@ proc.store_p2id_script_hash
 end
 
 proc.execute_WITHDRAW
-    mem_load.LP_AMOUNT_OUT
-    mem_load.MIN_LP_AMOUNT_OUT
+    mem_load.WITHDRAW_AMOUNT_OUT
+    mem_load.MIN_ASSET_AMOUNT_OUT
     lt assert.err=ERR_WITHDRAW_MIN_ASSET_OUT_NOT_MET 
     # min amount out is not met
 
@@ -224,8 +224,6 @@ begin
     exec.store_args_to_memory
 
     exec.store_inputs_to_memory
-
-    exec.store_asset_in_to_memory
 
     exec.store_p2id_script_hash
 
