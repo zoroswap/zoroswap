@@ -4,7 +4,7 @@ use miden_client::Felt;
 use miden_client::account::AccountId;
 use miden_client::asset::FungibleAsset;
 use miden_client::note::Note;
-use tracing::info;
+use tracing::debug;
 use uuid::Uuid;
 
 pub type AssetSymbol = &'static str;
@@ -48,7 +48,7 @@ impl Order {
 
         let note_inputs: &[Felt] = note.inputs().values();
 
-        info!("Note inputs: {:?}", note_inputs);
+        //info!("Note inputs: {:?}", note_inputs);
 
         let requested: &[Felt] = note_inputs
             .get(..4)
@@ -78,7 +78,7 @@ impl Order {
             p2id_tag,
         };
 
-        info!("New order from {}: {order:?}", creator_id.to_hex());
+        debug!("New order from {}: {order:?}", creator_id.to_hex());
 
         Ok(order)
     }
