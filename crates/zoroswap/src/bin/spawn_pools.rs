@@ -23,8 +23,8 @@ use std::{fs, path::Path, time::Duration};
 use tracing::info;
 use zoro_miden_client::{MidenClient, create_basic_account, instantiate_simple_client};
 use zoroswap::{
-    Config, create_deposit_note, fetch_initial_lp_total_supply_from_chain,
-    fetch_pool_state_from_chain, fetch_vault_for_account_from_chain,
+    Config, create_deposit_note, fetch_lp_total_supply_from_chain, fetch_pool_state_from_chain,
+    fetch_vault_for_account_from_chain,
 };
 
 #[derive(Parser, Debug)]
@@ -457,8 +457,7 @@ async fn main() -> Result<()> {
     let vault = fetch_vault_for_account_from_chain(&mut client, pool_contract.id()).await?;
     let (balances_pool_1, settings_pool_1) =
         fetch_pool_state_from_chain(&mut client, pool_contract.id(), 1).await?;
-    let total_supply =
-        fetch_initial_lp_total_supply_from_chain(&mut client, pool_contract.id(), 1).await?;
+    let total_supply = fetch_lp_total_supply_from_chain(&mut client, pool_contract.id(), 1).await?;
     println!(
         "pool account 0: {:?}\n{:?}",
         balances_pool_0, settings_pool_0

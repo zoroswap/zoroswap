@@ -64,8 +64,7 @@ impl PoolState {
         let (new_pool_balances, new_pool_settings) =
             fetch_pool_state_from_chain(client, self.pool_account_id, index_in_pool).await?;
         let lp_total_supply =
-            fetch_initial_lp_total_supply_from_chain(client, self.pool_account_id, index_in_pool)
-                .await?;
+            fetch_lp_total_supply_from_chain(client, self.pool_account_id, index_in_pool).await?;
         self.balances = new_pool_balances;
         self.settings = new_pool_settings;
         self.lp_total_supply = lp_total_supply;
@@ -81,7 +80,7 @@ impl PoolState {
     }
 }
 
-pub async fn fetch_initial_lp_total_supply_from_chain(
+pub async fn fetch_lp_total_supply_from_chain(
     client: &mut MidenClient,
     pool_account_id: AccountId,
     index_in_pool: u8,

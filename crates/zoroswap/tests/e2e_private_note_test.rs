@@ -20,8 +20,9 @@ use zoro_miden_client::{
 };
 use zoroswap::{
     Config, ZoroStorageSettings, config::LiquidityPoolConfig, create_deposit_note,
-    create_zoroswap_note, fetch_pool_state_from_chain, fetch_vault_for_account_from_chain,
-    get_oracle_prices, instantiate_client, print_note_info, print_transaction_info, serialize_note,
+    create_zoroswap_note, fetch_lp_total_supply_from_chain, fetch_pool_state_from_chain,
+    fetch_vault_for_account_from_chain, get_oracle_prices, instantiate_client, print_note_info,
+    print_transaction_info, serialize_note,
 };
 
 struct Accounts {
@@ -149,9 +150,12 @@ async fn e2e_private_deposit_withdraw_test() -> Result<()> {
     let account = accounts.user;
     let pool = pools[0];
 
-    let amount = 4;
+    let lp_total_supply_before =
+        fetch_lp_total_supply_from_chain(&mut client, config.pool_account_id, 0).await?;
+
+    let amount_in = 4;
     /// create DEPOSIT note
-    let amount_in: u64 = amount * 10u64.pow(pool.decimals as u32);
+    let amount_in: u64 = amount_in * 10u64.pow(pool.decimals as u32 - 2);
     let max_slippage = 0.005; // 0.5 %
     let min_lp_amount_out = (amount_in as f64) * (1.0 - max_slippage);
     let min_lp_amount_out = min_lp_amount_out as u64;
@@ -181,8 +185,8 @@ async fn e2e_private_deposit_withdraw_test() -> Result<()> {
         vec![asset_in.into()],
         account.id(),
         deposit_serial_num,
-        pool_contract_tag,
-        NoteType::Public,
+        NoteTag::LocalAny(0),
+        NoteType::Private,
     )?;
 
     let note_req = TransactionRequestBuilder::new()
@@ -196,57 +200,22 @@ async fn e2e_private_deposit_withdraw_test() -> Result<()> {
         .await?;
     println!("Minted note of {} tokens for liq pool.", amount_in);
     client.sync_state().await?;
+    let serialized_note = serialize_note(&deposit_note)?;
+    send_to_server(
+        &format!("http://{}", config.server_url),
+        serialized_note,
+        "deposit",
+    )
+    .await?;
 
-    /// CONSUME DEPOSIT note
-    loop {
-        match fetch_new_notes_by_tag(&mut client, &pool_contract_tag).await {
-            Ok(notes) => {
-                let number_of_notes = notes.len();
-                if number_of_notes > 0 {
-                    println!(
-                        "Found consumable DEPOSIT notes for pool contract account. Consuming them now..."
-                    );
+    tokio::time::sleep(Duration::from_secs(10)).await;
 
-                    let in_amount: u64 = amount * 10u64.pow(8 as u32);
-                    let args: Word = [
-                        Felt::new(in_amount),
-                        Felt::new(in_amount),
-                        Felt::new(in_amount),
-                        Felt::new(in_amount),
-                    ]
-                    .into();
-                    let consume_req = TransactionRequestBuilder::new()
-                        .unauthenticated_input_notes(
-                            notes
-                                .iter()
-                                .map(|deposit_note| {
-                                    (deposit_note.clone().clone(), Some(args.clone()))
-                                })
-                                .collect::<Vec<_>>(),
-                        )
-                        .build()
-                        .map_err(|e| {
-                            anyhow::anyhow!("Failed to build batch transaction request: {}", e)
-                        })?;
-                    let _tx_id = client
-                        .submit_new_transaction(config.pool_account_id, consume_req)
-                        .await?;
-
-                    println!("All DEPOSIT note consumed successfully.");
-                    break;
-                } else {
-                    println!(
-                        "Currently, pool contract has {} consumable DEPOSIT notes. Waiting...",
-                        number_of_notes
-                    );
-                    tokio::time::sleep(Duration::from_secs(3)).await;
-                }
-            }
-            Err(e) => {
-                println!("Error in listening for zoro swap notes: {}", e);
-            }
-        };
-    }
+    let lp_total_supply_after =
+        fetch_lp_total_supply_from_chain(&mut client, config.pool_account_id, 0).await?;
+    assert!(
+        lp_total_supply_after >= lp_total_supply_before + min_lp_amount_out,
+        "LP total supply didnt increase"
+    );
     Ok(())
 }
 
@@ -354,7 +323,12 @@ async fn e2e_private_note() -> Result<()> {
     println!("\n\t[STEP 5] Send note to the server\n");
 
     let serialized_note = serialize_note(&zoroswap_note)?;
-    send_to_server(&format!("http://{}", config.server_url), serialized_note).await?;
+    send_to_server(
+        &format!("http://{}", config.server_url),
+        serialized_note,
+        "orders",
+    )
+    .await?;
 
     // ---------------------------------------------------------------------------------
     println!("\n\t[STEP 6] Wait for notes back\n");
@@ -405,8 +379,8 @@ async fn e2e_private_note() -> Result<()> {
 // #[tokio::test]
 // async fn e2e_private_deposit_withdraw_test() -> Result<()> {
 
-async fn send_to_server(server_url: &str, note: String) -> Result<()> {
-    let url = Url::from_str(format!("{server_url}/orders/submit").as_str())?;
+async fn send_to_server(server_url: &str, note: String, endpoint: &str) -> Result<()> {
+    let url = Url::from_str(format!("{server_url}/{endpoint}/submit").as_str())?;
     let client = reqwest::Client::new();
     let res = client
         .post(url)
