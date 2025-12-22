@@ -8,8 +8,9 @@ use miden_client::{
     },
 };
 use miden_lib::{note::utils::build_p2id_recipient, transaction::TransactionKernel};
+use rusqlite::Connection;
 use std::{fs, path::PathBuf};
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use crate::Config;
 use zoro_miden_client::MidenClient;
@@ -34,51 +35,28 @@ pub fn print_note_info(note_id: &miden_client::note::NoteId) {
     );
 }
 
-// --------------------------------------------------------------------------
-// Zoro-Specific Storage Configuration
-// --------------------------------------------------------------------------
+/// Enables WAL mode on the SQLite database for better concurrent access.
+/// WAL mode allows multiple readers and one writer simultaneously.
+/// This should be called once at startup before any clients are created.
+pub fn enable_wal_mode(store_path: &str) -> Result<()> {
+    info!("Enabling WAL mode on database: {}", store_path);
+    let conn = Connection::open(store_path)?;
 
-#[derive(Eq, PartialEq, Debug)]
-pub enum ZoroStoragePurpose {
-    AmmState,
-    Faucet,
-    Trading,
-    Listening,
-}
+    // Enable WAL mode for better concurrent access
+    conn.pragma_update(None, "journal_mode", "WAL")?;
 
-pub struct ZoroStorageSettings {
-    path: String,
-    purpose: ZoroStoragePurpose,
-}
+    // Set busy timeout to wait for locks instead of failing immediately (5 seconds)
+    conn.pragma_update(None, "busy_timeout", 5000)?;
 
-impl ZoroStorageSettings {
-    pub fn ammstate_storage(store_path: String) -> Self {
-        ZoroStorageSettings {
-            path: store_path,
-            purpose: ZoroStoragePurpose::AmmState,
-        }
+    // Verify WAL mode was set
+    let mode: String = conn.pragma_query_value(None, "journal_mode", |row| row.get(0))?;
+    if mode.to_lowercase() != "wal" {
+        warn!("Failed to enable WAL mode, current mode: {}", mode);
+    } else {
+        info!("SQLite WAL mode enabled successfully");
     }
 
-    pub fn faucet_storage(store_path: String) -> Self {
-        ZoroStorageSettings {
-            path: store_path,
-            purpose: ZoroStoragePurpose::Faucet,
-        }
-    }
-
-    pub fn trading_storage(store_path: String) -> Self {
-        ZoroStorageSettings {
-            path: store_path,
-            purpose: ZoroStoragePurpose::Trading,
-        }
-    }
-
-    pub fn listening_storage(store_path: String) -> Self {
-        ZoroStorageSettings {
-            path: store_path,
-            purpose: ZoroStoragePurpose::Listening,
-        }
-    }
+    Ok(())
 }
 
 // --------------------------------------------------------------------------
@@ -93,7 +71,7 @@ impl ZoroStorageSettings {
 /// - Adding note tags for pool monitoring
 pub async fn instantiate_client(
     config: &Config,
-    storage: ZoroStorageSettings,
+    store_path: &str,
 ) -> Result<MidenClient, ClientError> {
     use miden_client::{
         DebugMode, builder::ClientBuilder, keystore::FilesystemKeyStore, rpc::GrpcClient,
@@ -101,8 +79,10 @@ pub async fn instantiate_client(
     use miden_client_sqlite_store::ClientBuilderSqliteExt;
     use std::sync::Arc;
 
-    info!("Creating a new Miden Client for {:?}", storage.purpose);
-    info!("Keystore path from config: {}", config.keystore_path);
+    info!("Creating a new Miden Client");
+    info!("Keystore path: {}", config.keystore_path);
+    info!("Database path: {}", store_path);
+
     let timeout_ms = 10_000;
     let rpc_api = Arc::new(GrpcClient::new(&config.miden_endpoint, timeout_ms));
     let keystore = FilesystemKeyStore::new(config.keystore_path.into())
@@ -116,28 +96,22 @@ pub async fn instantiate_client(
     let mut client = ClientBuilder::new()
         .rpc(rpc_api.clone())
         .authenticator(keystore)
-        .sqlite_store(storage.path.into())
+        .sqlite_store(store_path.into())
         .in_debug_mode(DebugMode::Enabled)
         .build()
         .await?;
-    info!(
-        "Adding accounts and tags to Miden client for {:?}.",
-        storage.purpose
-    );
+    info!("Importing pool account and faucets");
     client.import_account_by_id(config.pool_account_id).await?;
     for pool in &config.liquidity_pools {
         info!("Importing faucet: {}", pool.faucet_id.to_hex());
-        client.get_account(pool.faucet_id).await?;
+        client.import_account_by_id(pool.faucet_id).await?;
         client.sync_state().await?;
     }
     client
         .add_note_tag(NoteTag::from_account_id(config.pool_account_id))
         .await?;
     client.sync_state().await?;
-    info!(
-        "Miden client for {:?} synced and ready for use.",
-        storage.purpose
-    );
+    info!("Miden client synced and ready");
     Ok(client)
 }
 
