@@ -8,6 +8,7 @@ pub mod order;
 pub mod pool;
 pub mod server;
 pub mod trading_engine;
+pub mod websocket;
 
 pub use amm_state::*;
 pub use common::*;
