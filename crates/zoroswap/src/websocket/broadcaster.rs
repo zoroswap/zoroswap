@@ -129,6 +129,7 @@ mod tests {
                 asset_out_faucet: "faucet2".to_string(),
             },
             timestamp: 1234567890,
+            p2id_note_data: None,
         };
 
         broadcaster.broadcast_order_update(event.clone()).unwrap();

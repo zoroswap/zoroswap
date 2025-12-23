@@ -1,6 +1,7 @@
 use crate::{
     amm_state::AmmState,
     common::{instantiate_client, print_transaction_info},
+    note_serialization::serialize_note,
     order::Order,
     pool::{PoolState, get_curve_amount_out},
     websocket::{EventBroadcaster, OrderStatus, OrderUpdateDetails, OrderUpdateEvent},
@@ -18,9 +19,11 @@ use miden_client::{
 };
 use miden_objects::note::NoteDetails;
 use std::{
+    collections::HashMap,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
+use uuid::Uuid;
 use tokio::sync::broadcast::error::RecvError;
 use tracing::{error, info, warn};
 use zoro_miden_client::{MidenClient, create_p2id_note};
@@ -160,7 +163,7 @@ impl TradingEngine {
                         };
 
                         if status != OrderStatus::Matching {
-                            // Broadcast final status for non-swap orders
+                            // Broadcast final status for non-swap orders (no P2ID yet)
                             let details = match execution {
                                 OrderExecution::Swap(d)
                                 | OrderExecution::FailedSwap(d)
@@ -178,20 +181,23 @@ impl TradingEngine {
                                     asset_out_faucet: details.order.asset_out.faucet_id().to_hex(),
                                 },
                                 timestamp: Utc::now().timestamp_millis() as u64,
+                                p2id_note_data: None,
                             });
                         }
                     }
 
-                    // Execute swaps and broadcast success
+                    // Execute swaps and broadcast success with P2ID notes
                     match self.run_executions(orders_to_execute.clone(), client).await {
-                        Ok(_) => {
-                            // Broadcast Executed status for successful swaps
+                        Ok(p2id_notes_map) => {
+                            // Broadcast Executed status with serialized P2ID notes
                             for execution in &orders_to_execute {
                                 if let OrderExecution::Swap(details) = execution {
                                     let note_id = self
                                         .state
                                         .get_note_id(&details.order.id)
                                         .unwrap_or_default();
+                                    let p2id_note_data =
+                                        p2id_notes_map.get(&details.order.id).cloned();
                                     let _ =
                                         self.broadcaster.broadcast_order_update(OrderUpdateEvent {
                                             order_id: details.order.id,
@@ -212,6 +218,7 @@ impl TradingEngine {
                                                     .to_hex(),
                                             },
                                             timestamp: Utc::now().timestamp_millis() as u64,
+                                            p2id_note_data,
                                         });
                                 }
                             }
@@ -316,14 +323,20 @@ impl TradingEngine {
         &mut self,
         executions: Vec<OrderExecution>,
         client: &mut MidenClient,
-    ) -> Result<()> {
+    ) -> Result<HashMap<Uuid, String>> {
         client.sync_state().await?;
         let pool_account_id = self.state.config().pool_account_id;
         let network_id = self.state.config().miden_endpoint.to_network_id();
         let mut input_notes = Vec::new();
         let mut expected_future_notes = Vec::new();
         let mut expected_output_recipients = Vec::new();
+        let mut p2id_notes_map: HashMap<Uuid, String> = HashMap::new();
         for execution in executions {
+            let order_id = match &execution {
+                OrderExecution::Swap(d)
+                | OrderExecution::FailedSwap(d)
+                | OrderExecution::PastDeadline(d) => d.order.id,
+            };
             let (asset_out, user_account_id, serial_num, note) = match execution {
                 OrderExecution::Swap(execution_details) => (
                     FungibleAsset::new(
@@ -364,10 +377,14 @@ impl TradingEngine {
                 pool_account_id,
                 user_account_id,
                 vec![asset_out],
-                NoteType::Public,
+                NoteType::Private,
                 Felt::new(0),
                 p2id_serial_num.into(),
             )?;
+
+            // Serialize and store P2ID note for WebSocket delivery
+            let serialized_p2id = serialize_note(&p2id)?;
+            p2id_notes_map.insert(order_id, serialized_p2id);
             input_notes.push((
                 note.clone(),
                 Some(Word::new([
@@ -424,7 +441,7 @@ impl TradingEngine {
 
         print_transaction_info(&tx_id);
 
-        Ok(())
+        Ok(p2id_notes_map)
     }
 
     fn get_liq_pools_for_order(
@@ -480,6 +497,162 @@ mod tests {
     };
     use miden_lib::account::faucets::BasicFungibleFaucet;
     use uuid::Uuid;
+
+    struct TestContext {
+        state: Arc<AmmState>,
+        broadcaster: Arc<EventBroadcaster>,
+        faucet_a_id: AccountId,
+        faucet_b_id: AccountId,
+        pool_account_id: AccountId,
+        user_account_id: AccountId,
+    }
+
+    impl TestContext {
+        async fn new() -> Self {
+            Self::with_decimals(8, 8).await
+        }
+
+        async fn with_decimals(decimals_a: u8, decimals_b: u8) -> Self {
+            let faucet_a_id = AccountId::dummy(
+                [1; 15],
+                AccountIdVersion::Version0,
+                AccountType::FungibleFaucet,
+                AccountStorageMode::Public,
+            );
+            let faucet_b_id = AccountId::dummy(
+                [2; 15],
+                AccountIdVersion::Version0,
+                AccountType::FungibleFaucet,
+                AccountStorageMode::Public,
+            );
+            let pool_account_id = AccountId::dummy(
+                [3; 15],
+                AccountIdVersion::Version0,
+                AccountType::RegularAccountUpdatableCode,
+                AccountStorageMode::Public,
+            );
+            let user_account_id = AccountId::dummy(
+                [4; 15],
+                AccountIdVersion::Version0,
+                AccountType::RegularAccountUpdatableCode,
+                AccountStorageMode::Public,
+            );
+
+            let symbol_a = TokenSymbol::new("TKA").unwrap();
+            let symbol_b = TokenSymbol::new("TKB").unwrap();
+            let faucet_a =
+                BasicFungibleFaucet::new(symbol_a, decimals_a, Felt::new(1_000_000_000)).unwrap();
+            let faucet_b =
+                BasicFungibleFaucet::new(symbol_b, decimals_b, Felt::new(1_000_000_000)).unwrap();
+
+            let config = Config {
+                pool_account_id,
+                liquidity_pools: vec![
+                    LiquidityPoolConfig {
+                        name: "TokenA",
+                        symbol: "TKA",
+                        decimals: decimals_a,
+                        faucet_id: faucet_a_id,
+                        oracle_id: "oracle_a",
+                    },
+                    LiquidityPoolConfig {
+                        name: "TokenB",
+                        symbol: "TKB",
+                        decimals: decimals_b,
+                        faucet_id: faucet_b_id,
+                        oracle_id: "oracle_b",
+                    },
+                ],
+                oracle_sse: "http://localhost:8080",
+                oracle_https: "http://localhost:8080",
+                miden_endpoint: miden_client::rpc::Endpoint::localhost(),
+                server_url: "http://localhost:3000",
+                amm_tick_interval: 1000,
+                network_id: NetworkId::Testnet,
+                masm_path: "./masm",
+                keystore_path: "./keystore",
+                store_path: "./testing_store.sqlite3",
+            };
+
+            let broadcaster = Arc::new(EventBroadcaster::new());
+            let state = Arc::new(AmmState::new(config, broadcaster.clone()).await);
+
+            state.faucet_metadata().insert(faucet_a_id, faucet_a);
+            state.faucet_metadata().insert(faucet_b_id, faucet_b);
+
+            let mut pool_a = PoolState::new(pool_account_id, faucet_a_id);
+            let mut pool_b = PoolState::new(pool_account_id, faucet_b_id);
+            pool_a.update_state(PoolBalances {
+                reserve: U256::from(1_000_000_00000000u64),
+                reserve_with_slippage: U256::from(1_000_000_00000000u64),
+                total_liabilities: U256::from(1_000_000_00000000u64),
+            });
+            pool_b.update_state(PoolBalances {
+                reserve: U256::from(1_000_000_00000000u64),
+                reserve_with_slippage: U256::from(1_000_000_00000000u64),
+                total_liabilities: U256::from(1_000_000_00000000u64),
+            });
+            state.liquidity_pools().insert(faucet_a_id, pool_a);
+            state.liquidity_pools().insert(faucet_b_id, pool_b);
+
+            Self {
+                state,
+                broadcaster,
+                faucet_a_id,
+                faucet_b_id,
+                pool_account_id,
+                user_account_id,
+            }
+        }
+
+        fn create_swap_note(&self, amount_in: u64, min_amount_out: u64) -> Note {
+            let asset_in = FungibleAsset::new(self.faucet_a_id, amount_in).unwrap();
+            let deadline = Utc::now() + chrono::Duration::minutes(5);
+
+            let mut inputs: Vec<Felt> = vec![Felt::ZERO; 12];
+            inputs[0] = Felt::new(min_amount_out);
+            let faucet_b_felts: [Felt; 2] = self.faucet_b_id.into();
+            inputs[2] = faucet_b_felts[1];
+            inputs[3] = faucet_b_felts[0];
+            inputs[4] = Felt::new(deadline.timestamp_millis() as u64);
+            let user_felts: [Felt; 2] = self.user_account_id.into();
+            inputs[10] = user_felts[1];
+            inputs[11] = user_felts[0];
+
+            let note_inputs = NoteInputs::new(inputs).unwrap();
+            // Private notes use a local tag instead of pool account ID
+            let note_tag = NoteTag::for_local_use_case(0, 0).unwrap();
+            let metadata = NoteMetadata::new(
+                self.user_account_id,
+                NoteType::Private,
+                note_tag,
+                NoteExecutionHint::always(),
+                Felt::ZERO,
+            )
+            .unwrap();
+            let assets = NoteAssets::new(vec![asset_in.into()]).unwrap();
+            let serial_num: Word = [Felt::new(1), Felt::new(2), Felt::new(3), Felt::new(4)].into();
+            let recipient = NoteRecipient::new(serial_num, NoteScript::mock(), note_inputs);
+            Note::new(assets, metadata, recipient)
+        }
+
+        fn set_oracle_prices(&self, timestamp: u64, price: u64) {
+            self.state
+                .oracle_prices()
+                .insert(self.faucet_a_id, PriceData::new(timestamp, price));
+            self.state
+                .oracle_prices()
+                .insert(self.faucet_b_id, PriceData::new(timestamp, price));
+        }
+
+        fn create_engine(&self) -> TradingEngine {
+            TradingEngine::new(
+                "testing_store.sqlite3",
+                self.state.clone(),
+                self.broadcaster.clone(),
+            )
+        }
+    }
 
     #[tokio::test]
     async fn test_get_liq_pools_for_order_uses_correct_asset_ids() {

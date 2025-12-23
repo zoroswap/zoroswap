@@ -96,6 +96,7 @@ impl NotesListener {
                                         asset_out_faucet: order.asset_out.faucet_id().to_hex(),
                                     },
                                     timestamp: Utc::now().timestamp_millis() as u64,
+                                    p2id_note_data: None,
                                 };
                                 if let Err(e) = self.broadcaster.broadcast_order_update(event) {
                                     error!("Failed to broadcast order update: {}", e);

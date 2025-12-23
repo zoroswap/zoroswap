@@ -31,6 +31,8 @@ pub enum ServerMessage {
         status: OrderStatus,
         timestamp: u64,
         details: OrderUpdateDetails,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        p2id_note_data: Option<String>,
     },
     PoolStateUpdate {
         faucet_id: String,
@@ -153,6 +155,7 @@ pub struct OrderUpdateEvent {
     pub status: OrderStatus,
     pub details: OrderUpdateDetails,
     pub timestamp: u64,
+    pub p2id_note_data: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -212,6 +215,7 @@ mod tests {
                 asset_in_faucet: "faucet1".to_string(),
                 asset_out_faucet: "faucet2".to_string(),
             },
+            p2id_note_data: None,
         };
 
         let json = serde_json::to_string(&msg).unwrap();
