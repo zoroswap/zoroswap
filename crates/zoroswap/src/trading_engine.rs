@@ -60,11 +60,25 @@ impl TradingEngine {
         let min_match_interval = Duration::from_millis(100); // Debounce
         let max_match_interval = Duration::from_millis(1000); // Max wait (event-driven)
 
-        let mut client = instantiate_client(self.state.config(), &self.store_path)
-            .await
-            .unwrap_or_else(|err| {
-                panic!("Failed to instantiate client in trading engine: {err:?}")
-            });
+        // Create client with retry for DB contention
+        let mut client = None;
+        for attempt in 1..=5 {
+            match instantiate_client(self.state.config(), &self.store_path).await {
+                Ok(c) => {
+                    client = Some(c);
+                    break;
+                }
+                Err(e) => {
+                    if attempt < 5 {
+                        warn!("Trading engine client creation attempt {}/5 failed: {e}, retrying...", attempt);
+                        tokio::time::sleep(Duration::from_millis(500 * attempt as u64)).await;
+                    } else {
+                        panic!("Failed to instantiate client in trading engine after 5 attempts: {e}");
+                    }
+                }
+            }
+        }
+        let mut client = client.unwrap();
 
         info!(
             "Starting event-driven trading engine (min: {:?}, max: {:?})",

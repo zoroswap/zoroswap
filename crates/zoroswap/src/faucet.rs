@@ -35,10 +35,25 @@ impl GuardedFaucet {
     }
 
     pub async fn start(&mut self) -> Result<()> {
-        // Create our own client for faucet operations
-        let mut client = instantiate_client(&self.config, self.config.store_path)
-            .await
-            .map_err(|e| anyhow::anyhow!("Failed to create faucet client: {e}"))?;
+        // Create our own client for faucet operations (with retry for DB contention)
+        let mut client = None;
+        for attempt in 1..=5 {
+            match instantiate_client(&self.config, self.config.store_path).await {
+                Ok(c) => {
+                    client = Some(c);
+                    break;
+                }
+                Err(e) => {
+                    if attempt < 5 {
+                        tracing::warn!("Faucet client creation attempt {}/5 failed: {e}, retrying...", attempt);
+                        tokio::time::sleep(std::time::Duration::from_millis(500 * attempt as u64)).await;
+                    } else {
+                        return Err(anyhow::anyhow!("Failed to create faucet client after 5 attempts: {e}"));
+                    }
+                }
+            }
+        }
+        let mut client = client.unwrap();
 
         while let Some(mint_instruction) = self.rx.recv().await {
             let last_mint = self

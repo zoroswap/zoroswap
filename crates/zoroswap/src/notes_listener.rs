@@ -30,30 +30,34 @@ impl NotesListener {
             pool_id.to_hex()
         );
 
-        // Create our own client for notes listening
-        let mut client =
+        // Create our own client for notes listening (with retry for DB contention)
+        let mut client = None;
+        for attempt in 1..=5 {
             match instantiate_client(self.state.config(), self.state.config().store_path).await {
-                Ok(c) => c,
-                Err(e) => {
-                    error!("Failed to create notes listener client: {e}");
-                    return;
+                Ok(c) => {
+                    client = Some(c);
+                    break;
                 }
-            };
+                Err(e) => {
+                    if attempt < 5 {
+                        warn!("Notes listener client creation attempt {}/5 failed: {e}, retrying...", attempt);
+                        tokio::time::sleep(Duration::from_millis(500 * attempt as u64)).await;
+                    } else {
+                        error!("Failed to create notes listener client after 5 attempts: {e}");
+                        return;
+                    }
+                }
+            }
+        }
+        let mut client = client.unwrap();
 
         let mut failed_notes: HashSet<NoteId> = HashSet::new();
         let tick_interval = self.state.config().amm_tick_interval;
 
-        let mut tick_count = 0u64;
         loop {
-            tick_count += 1;
             // Sync state
             if let Err(e) = client.sync_state().await {
                 warn!("Error on sync in notes listener: {e}");
-            }
-
-            // Log every 10 ticks to show listener is alive
-            if tick_count % 10 == 1 {
-                debug!("Notes listener tick #{}, looking for tag: {}", tick_count, tag);
             }
 
             // Fetch notes and filter by tag
@@ -131,20 +135,6 @@ impl NotesListener {
         tag: Option<NoteTag>,
     ) -> Result<Vec<Note>, anyhow::Error> {
         let all_notes = client.get_input_notes(filter).await?;
-
-        if !all_notes.is_empty() {
-            debug!(
-                "get_notes_filtered: {} total notes before tag filter, looking for tag {:?}",
-                all_notes.len(),
-                tag
-            );
-            for n in &all_notes {
-                if let Some(metadata) = n.metadata() {
-                    debug!("  Note {} has tag {}", n.id().to_hex(), metadata.tag());
-                }
-            }
-        }
-
         let notes: Vec<Note> = all_notes
             .iter()
             .filter_map(|n| {
