@@ -23,7 +23,6 @@ use server::{AppState, create_router};
 use std::{sync::Arc, thread};
 use tokio::{runtime::Builder, sync::mpsc::Sender};
 use tracing::{error, info};
-use tracing_subscriber::EnvFilter;
 use trading_engine::TradingEngine;
 use websocket::{ConnectionManager, EventBroadcaster};
 use zoro_miden_client::delete_client_store;
@@ -51,9 +50,9 @@ struct Args {
 
 fn main() {
     let args = Args::parse();
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info,server=debug,miden_client=info"));
-    tracing_subscriber::fmt().with_env_filter(filter).init();
+    tracing_subscriber::fmt()
+        .with_env_filter("info,zoro=debug,miden-client=info")
+        .init();
     dotenv().ok();
     let runtime = tokio::runtime::Runtime::new()
         .unwrap_or_else(|err| panic!("Failed to create tokio runtime: {err:?}"));
