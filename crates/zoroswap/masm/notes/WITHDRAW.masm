@@ -182,16 +182,16 @@ proc.create_p2id_reverse_note
     # => [tag, aux, public_note, execution_hint_always, P2ID_RECIPIENT, pad(8)]
     # => [tag, aux, note_type, execution_hint, RECIPIENT, pad(8)]
     call.output_note::create
-    # => [note_idx, pad(15)]
+    # => [note_idx, 0, 0, 0, liabilities,reserve, reserve,reserve_with_slippage]
     mem_load.WITHDRAW_AMOUNT_OUT
     push.0
     mem_load.ASSET_ID_SUFFIX
     mem_load.ASSET_ID_PREFIX
-    # => [ASSET, note_idx, 0, 0, 0, liabilities,reserve, reserve,reserve_with_slippage, 0]
+    # => [ASSET, note_idx, 0, 0, 0, liabilities,reserve, reserve,reserve_with_slippage]
     push.0 mem_load.LP_WITHDRAW_AMOUNT mem_load.CREATOR_ID_SUFFIX mem_load.CREATOR_ID_PREFIX
-    # => [user_id_prefix, user_id_suffix, lp_withdraw_amount, 0, ASSET, noteid, 0,0,0, liabilities, reserve, reserve_with_slippage, 0]
+    # => [user_id_prefix, user_id_suffix, lp_withdraw_amount, 0, ASSET, noteid, 0,0,0, liabilities, reserve, reserve_with_slippage]
     
-    call.two_asset_pool::move_asset_to_note
+    call.two_asset_pool::withdraw
 
     # => []
 end
@@ -206,7 +206,7 @@ proc.execute_WITHDRAW
     mem_load.MIN_ASSET_AMOUNT_OUT
     lt assert.err=ERR_WITHDRAW_MIN_ASSET_OUT_NOT_MET 
     # min amount out is not met
-
+    
     mem_load.RESERVE_WITH_SLIPPAGE
     mem_load.RESERVE
     mem_load.LIABILITIES

@@ -3,8 +3,8 @@ use crate::{
     amm_state::AmmState,
     common::{instantiate_client, print_transaction_info},
     order::{Order, OrderType},
-    pool::get_deposit_lp_amount_out,
     pool::{PoolBalances, PoolState, get_curve_amount_out},
+    pool::{get_deposit_lp_amount_out, get_withdraw_asset_amount_out},
 };
 use alloy::primitives::U256;
 use anyhow::{Result, anyhow};
@@ -199,7 +199,7 @@ impl TradingEngine {
                     }
                 }
                 OrderType::Withdraw => {
-                    let (amount_out, new_pool_balance) = get_deposit_lp_amount_out(
+                    let (amount_out, new_pool_balance) = get_withdraw_asset_amount_out(
                         &base_pool_state,
                         U256::from(order.asset_in.amount()),
                         U256::from(base_pool_state.lp_total_supply), // total supply
@@ -391,13 +391,18 @@ impl TradingEngine {
             info!("Expected future note P2ID id: {:?}", note.0.id());
             for asset in note.0.assets().iter_fungible() {
                 info!(
-                    "Expected future note P2ID asset with faucet_id: {}: {:?}",
+                    "Expected future note P2ID asset with faucet_id: {} {}{}: {:?}",
                     asset.faucet_id().to_bech32(network_id.clone()),
+                    asset.faucet_id().prefix(),
+                    asset.faucet_id().suffix(),
                     asset.amount()
                 );
             }
         }
-
+        println!(
+            "----------------------------------------------------------------------input_notes: {:?}",
+            input_notes
+        );
         let consume_req = TransactionRequestBuilder::new()
             .extend_advice_map(advice_map)
             .unauthenticated_input_notes(input_notes.clone())
@@ -451,6 +456,10 @@ impl TradingEngine {
         let serial_num = execution_details.note.serial_num();
         let note = execution_details.note;
         let asset_out = Asset::Fungible(asset_out);
+        println!(
+            "######################################prepare_payout###################################### asset_out: {:?}",
+            asset_out
+        );
         let p2id_serial_num = [
             serial_num[0],
             serial_num[1],

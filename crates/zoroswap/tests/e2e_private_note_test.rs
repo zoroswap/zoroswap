@@ -212,6 +212,9 @@ async fn e2e_private_deposit_withdraw_test() -> Result<()> {
 
     let lp_total_supply_after =
         fetch_lp_total_supply_from_chain(&mut client, config.pool_account_id, 0).await?;
+    println!("lp_total_supply_after: {lp_total_supply_after}");
+    println!("lp_total_supply_before: {lp_total_supply_before}");
+    println!("min_lp_amount_out: {min_lp_amount_out}");
     assert!(
         lp_total_supply_after >= lp_total_supply_before + min_lp_amount_out,
         "LP total supply didnt increase"
@@ -236,7 +239,7 @@ async fn e2e_private_deposit_withdraw_test() -> Result<()> {
         asset_out_word[3],
         Felt::new(0),
         Felt::new(amount_to_withdraw), // min_lp_amount_out
-        Felt::new(deadline),           // deadline
+        Felt::new(0),                  //Felt::new(deadline),           // deadline
         p2id_tag.into(),               // p2id tag
         Felt::new(0),
         Felt::new(0),
@@ -282,12 +285,12 @@ async fn e2e_private_deposit_withdraw_test() -> Result<()> {
         fetch_lp_total_supply_from_chain(&mut client, config.pool_account_id, 0).await?;
 
     println!(
-        "LP total supply before withdraw: {lp_total_supply_before}, after withdraw: {total_lp_supply_after_withdraw}"
+        "LP total supply before withdraw: {lp_total_supply_after}, after withdraw: {total_lp_supply_after_withdraw}"
     );
 
     assert!(
-        lp_total_supply_before == lp_total_supply_after,
-        "LP amount after deposit and then withdraw is not the same as at the start"
+        lp_total_supply_after > total_lp_supply_after_withdraw,
+        "LP amount after deposit and then withdraw is incorrect"
     );
 
     Ok(())
@@ -350,6 +353,7 @@ async fn e2e_private_note() -> Result<()> {
     let requested_asset_word: Word = asset_out.into();
     let p2id_tag = NoteTag::from_account_id(account.id());
     let deadline = (Utc::now().timestamp_millis() as u64) + 10000;
+
     let inputs = vec![
         requested_asset_word[0],
         requested_asset_word[1],

@@ -3,6 +3,9 @@ use.miden::native_account
 use.miden::output_note
 
 
+use.std::sys
+
+
 #! CONSTANTS
 const.MAX_COVERAGE_RATIO = 0x0002 # 200%
 
@@ -374,11 +377,12 @@ export.deposit
     # => [amount]
     exec.compute_deposit_shares
     # => [share_amount]
-    mem_store.LP_SHARES_AMOUNT_ADDR
+    dup mem_store.LP_SHARES_AMOUNT_ADDR
     push.0.0.0
     # => [SHARE_AMOUNT]
     padw
     mem_loadw_be.DEPOSIT_KEY_LOC
+    debug.stack.16
     # => [KEY, SHARE_AMOUNT]
     push.USER_DEPOSITS_MAPPING_SLOT 
     # => [slot, KEY, SHARE_AMOUNT]
@@ -395,10 +399,10 @@ export.deposit
     # => []
 end
 
-#! Inputs:  [user_id_prefix, user_id_suffix, lp_withdraw_amount, 0, ASSET, noteid, 0,0,0, liabilities, reserve, reserve_with_slippage, 0]
+#! Inputs:  [user_id_prefix, user_id_suffix, lp_withdraw_amount, 0, ASSET, noteid, 0,0,0, liabilities, reserve, reserve_with_slippage]
 export.withdraw
     dupw
-    # => [user_id_prefix, user_id_suffix, lp_withdraw_amount, 0, user_id_prefix, user_id_suffix, lp_lp_withdraw_amountamount, 0, ASSET, noteid, 0,0,0, liabilities, reserve, reserve_with_slippage, 0]
+    # => [user_id_prefix, user_id_suffix, lp_withdraw_amount, 0, user_id_prefix, user_id_suffix, lp_withdraw_amount, 0, ASSET, noteid, 0,0,0, liabilities, reserve, reserve_with_slippage, 0]
     dupw.2
     # => [ASSET, user_id_prefix, user_id_suffix, lp_withdraw_amount, 0, user_id_prefix, user_id_suffix, lp_withdraw_amount, 0, ASSET, noteid, 0,0,0, liabilities, reserve, reserve_with_slippage, 0]
     exec.get_user_deposit_key
@@ -406,8 +410,8 @@ export.withdraw
     mem_storew_be.WITHDRAW_KEY_LOC
     exec.get_user_deposit
     # => [user_lp_shares, lp_withdraw_amount, 0, user_id_prefix, user_id_suffix, lp_withdraw_amount, 0, ASSET, noteid, 0,0,0, liabilities, reserve, reserve_with_slippage, 0]
-    sub
-    # => [new_user_lp_shares, 0,user_id_prefix, user_id_suffix, lp_withdraw_amount, 0, ASSET, noteid, 0,0,0, liabilities, reserve, reserve_with_slippage, 0 ]
+    swap sub
+    # => [new_user_lp_shares, 0, user_id_prefix, user_id_suffix, lp_withdraw_amount, 0, ASSET, noteid, 0,0,0, liabilities, reserve, reserve_with_slippage, 0 ]
     dup 
     # => [new_user_lp_shares, new_user_lp_shares, 0, user_id_prefix, user_id_suffix, lp_withdraw_amount, 0, ASSET, noteid, 0,0,0, liabilities, reserve, reserve_with_slippage, 0]
     padw mem_loadw_be.WITHDRAW_KEY_LOC
@@ -427,8 +431,10 @@ export.withdraw
     # => [user_id_prefix, user_id_suffix, lp_withdraw_amount, 0, ASSET, noteid, 0,0,0, liabilities, reserve, reserve_with_slippage, 0]
     drop drop swap drop
     # => [lp_withdraw_amount, ASSET, noteid, 0,0,0, liabilities, reserve, reserve_with_slippage, 0]
-    exec.compute_withdraw_shares
-    # => [UPDATED_ASSET, noteid, 0,0,0, liabilities, reserve, reserve_with_slippage, 0]
+    exec.compute_withdraw_amount
+    #=> [UPDATED_ASSET, noteid, 0,0,0, liabilities, reserve, reserve_with_slippage, 0]
+
+    debug.stack.14
     exec.move_asset_to_note
 
 end
@@ -445,6 +451,7 @@ proc.add_to_map_item
     movdn.8
     # => [ slot, KEY, 0,0,0, new_value]
     # => [ slot, KEY, NEW_VALUE]
+    debug.stack.12
     exec.native_account::set_map_item dropw dropw
 
 end
@@ -456,7 +463,8 @@ proc.sub_from_map_item
     # => [slot, KEY, slot, KEY, VALUE]
     exec.active_account::get_map_item drop drop drop
     # => [old_value, slot, KEY, VALUE]
-    movup.9 sub
+    movup.9 
+    #sub
     # => [new_value, slot, KEY, 0,0,0]
     movdn.8
     # => [ slot, KEY, 0,0,0, new_value]
@@ -513,7 +521,7 @@ end
 #! Inputs: [share_amount, ASSET]
 #! Outputs: [UPDATED_ASSET]
 #!
-proc.compute_withdraw_shares
+proc.compute_withdraw_amount
     # @todo: implement
     swap.4 drop
 end

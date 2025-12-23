@@ -157,6 +157,11 @@ impl Order {
         let creator_id = AccountId::try_from([creator_prefix, creator_suffix])
             .or(Err(anyhow!("Couldn't parse creator_id from order note")))?;
 
+        println!("creator_id: {:?}", creator_id);
+        println!("deadline: {:?}", deadline);
+        println!("p2id_tag: {:?}", p2id_tag);
+        println!("asset_in: {:?}", asset_in);
+        println!("asset_out: {:?}", asset_out);
         let order = Order {
             created_at: Utc::now(),
             updated_at: Utc::now(),
