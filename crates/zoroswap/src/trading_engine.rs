@@ -23,9 +23,9 @@ use std::{
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
-use uuid::Uuid;
 use tokio::sync::broadcast::error::RecvError;
 use tracing::{error, info, warn};
+use uuid::Uuid;
 use zoro_miden_client::{MidenClient, create_p2id_note};
 
 #[derive(Debug, Clone)]
