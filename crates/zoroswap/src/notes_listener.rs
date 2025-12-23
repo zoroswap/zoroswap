@@ -63,9 +63,6 @@ impl NotesListener {
             // Fetch notes and filter by tag
             match Self::get_notes_filtered(&mut client, NoteFilter::Committed, Some(tag)).await {
                 Ok(notes) => {
-                    if !notes.is_empty() {
-                        debug!("Notes listener found {} committed notes with pool tag", notes.len());
-                    }
                     let valid_notes: Vec<&Note> = notes
                         .iter()
                         .filter(|n| !failed_notes.contains(&n.id()))
@@ -102,14 +99,9 @@ impl NotesListener {
                                     || error_msg.contains("Note has no assets")
                                     || error_msg.contains("Note has no fungible assets")
                                 {
-                                    // This is likely not a swap order note (e.g., mint note)
-                                    // Log at debug level and skip without marking as failed
-                                    debug!(
-                                        "Skipping note {} - not a swap order note: {e}",
-                                        note.id().to_hex()
-                                    );
+                                    // Not a swap order note (e.g., mint note), skip silently
                                 } else {
-                                    // This is a real error with a malformed swap order
+                                    // Real error with a malformed swap order
                                     error!(
                                         "Error parsing swap order from note {}: {e}",
                                         note.id().to_hex()
