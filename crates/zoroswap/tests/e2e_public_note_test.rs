@@ -38,11 +38,7 @@ async fn e2e_public_note() -> Result<()> {
         config.liquidity_pools.len() > 1,
         "Less than 2 liquidity pools configured"
     );
-    let mut client = instantiate_client(
-        &config,
-        ZoroStorageSettings::trading_storage("../../testing_store.sqlite3".to_string()),
-    )
-    .await?;
+    let mut client = instantiate_client(&config, "../../testing_store.sqlite3").await?;
     let endpoint = config.miden_endpoint;
     let keystore = FilesystemKeyStore::new(config.keystore_path.into()).unwrap();
     let sync_summary = client.sync_state().await?;

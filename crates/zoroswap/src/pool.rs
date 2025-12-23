@@ -18,11 +18,21 @@ use zoro_miden_client::{MidenClient, create_library};
 use zoro_primitives::dummy_curve::DummyCurve as ConfiguredCurve;
 use zoro_primitives::traits::Curve;
 
-#[derive(Clone, Debug, Copy, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Copy, serde::Serialize)]
 pub struct PoolBalances {
+    #[serde(serialize_with = "serialize_u256")]
     pub reserve: U256,
+    #[serde(serialize_with = "serialize_u256")]
     pub reserve_with_slippage: U256,
+    #[serde(serialize_with = "serialize_u256")]
     pub total_liabilities: U256,
+}
+
+fn serialize_u256<S>(value: &U256, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    serializer.serialize_str(&value.to_string())
 }
 
 #[derive(Clone, Debug, Copy)]

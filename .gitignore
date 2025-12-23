@@ -9,7 +9,6 @@ faucet_store.sqlite3
 listening_store.sqlite3
 trading_store.sqlite3
 testing_store.sqlite3
-
-
-
 .DS_Store*
+store.sqlite3-wal
+store.sqlite3-shm

@@ -14,17 +14,23 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::mpsc::Sender;
 use tower_http::cors::CorsLayer;
-use tracing::{error, info};
+use tracing::{debug, error, info};
 
 use crate::{
-    amm_state::AmmState, config::RawLiquidityPoolConfig, faucet::FaucetMintInstruction,
-    note_serialization::deserialize_note, order::OrderType,
+    amm_state::AmmState,
+    config::RawLiquidityPoolConfig,
+    faucet::FaucetMintInstruction,
+    note_serialization::deserialize_note,
+    order::OrderType,
+    websocket::{ConnectionManager, EventBroadcaster, websocket_handler},
 };
 
 #[derive(Clone)]
 pub struct AppState {
     pub amm_state: Arc<AmmState>,
     pub faucet_tx: Sender<FaucetMintInstruction>,
+    pub connection_manager: Arc<ConnectionManager>,
+    pub event_broadcaster: Arc<EventBroadcaster>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -70,6 +76,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/withdraw/submit", post(submit_withdraw))
         .route("/faucets/mint", post(mint_faucet))
         .route("/stats", get(get_stats))
+        .route("/ws", get(websocket_handler))
         .layer(CorsLayer::permissive())
         .with_state(state)
 }
@@ -173,7 +180,7 @@ async fn mint_faucet(
     State(state): State<AppState>,
     Json(payload): Json<MintRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
-    info!(
+    debug!(
         "Address {} requesting mint from {}",
         &payload.address, &payload.faucet_id
     );
@@ -203,7 +210,7 @@ async fn submit_swap(
     State(state): State<AppState>,
     Json(payload): Json<SubmitOrderRequest>,
 ) -> Json<SubmitOrderResponse> {
-    info!("Received order submission request");
+    debug!("Received order submission request");
     // Deserialize the note from base64
     let note = match deserialize_note(&payload.note_data) {
         Ok(note) => note,
@@ -218,11 +225,11 @@ async fn submit_swap(
     };
 
     match state.amm_state.add_order(note, OrderType::Swap) {
-        Ok(order_id) => {
-            info!("Successfully added swap order: {}", order_id);
+        Ok((_, order_id, _)) => {
+            info!("Successfully added swap order: {:?}", order_id);
             Json(SubmitOrderResponse {
                 success: true,
-                order_id,
+                order_id: order_id.to_string(),
                 message:
                     "Swap order submitted successfully. Matching engine will process it automatically."
                         .to_string(),
@@ -258,11 +265,12 @@ async fn submit_deposit(
     };
 
     match state.amm_state.add_order(note, OrderType::Deposit) {
-        Ok(order_id) => {
-            info!("Successfully added order: {}", order_id);
+        Ok((_, order_id, _)) => {
+            info!("Successfully added order: {:?}", order_id);
             Json(SubmitOrderResponse {
                 success: true,
-                order_id,
+                //order_id: note_id,
+                order_id: order_id.to_string(),
                 message:
                     "Deposit order submitted successfully. Matching engine will process it automatically."
                         .to_string(),
@@ -298,11 +306,11 @@ async fn submit_withdraw(
     };
 
     match state.amm_state.add_order(note, OrderType::Withdraw) {
-        Ok(order_id) => {
+        Ok((_, order_id, _)) => {
             info!("Successfully added withdraw order: {}", order_id);
             Json(SubmitOrderResponse {
                 success: true,
-                order_id,
+                order_id: order_id.to_string(),
                 message:
                     "Withdraw order submitted successfully. Matching engine will process it automatically."
                         .to_string(),
@@ -325,7 +333,11 @@ async fn get_stats(State(state): State<AppState>) -> impl IntoResponse {
     let response = serde_json::json!({
         "open_orders": open_orders.len(),
         "closed_orders": closed_orders.len(),
-        "timestamp": chrono::Utc::now()
+        "timestamp": chrono::Utc::now(),
+        "websocket": {
+            "active_connections": state.connection_manager.get_connection_count(),
+            "subscriptions": state.connection_manager.get_subscription_stats(),
+        }
     });
     let mut headers = HeaderMap::new();
     headers.insert(

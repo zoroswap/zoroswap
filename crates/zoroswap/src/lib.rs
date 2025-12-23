@@ -3,11 +3,13 @@ pub mod common;
 pub mod config;
 pub mod faucet;
 pub mod note_serialization;
+pub mod notes_listener;
 pub mod oracle_sse;
 pub mod order;
 pub mod pool;
 pub mod server;
 pub mod trading_engine;
+pub mod websocket;
 
 pub use amm_state::*;
 pub use common::*;
