@@ -1,18 +1,21 @@
 use chrono::{Duration, Utc};
 use miden_client::{
+    Felt, Word,
     account::{AccountId, AccountStorageMode, AccountType},
     asset::FungibleAsset,
-    note::{Note, NoteAssets, NoteExecutionHint, NoteMetadata, NoteRecipient, NoteScript, NoteTag, NoteType},
-    Felt, Word,
+    note::{
+        Note, NoteAssets, NoteExecutionHint, NoteMetadata, NoteRecipient, NoteScript, NoteTag,
+        NoteType,
+    },
 };
-use miden_objects::{account::AccountIdVersion, FieldElement};
+use miden_objects::{FieldElement, account::AccountIdVersion};
 use std::sync::Arc;
 use zoroswap::{
+    AmmState,
     config::{Config, LiquidityPoolConfig},
     oracle_sse::PriceData,
     pool::PoolState,
     websocket::EventBroadcaster,
-    AmmState,
 };
 
 /// Integration test: Verify that stale oracle prices prevent order matching.
@@ -125,11 +128,7 @@ async fn test_matching_skipped_with_stale_prices() {
     .unwrap();
     let assets = NoteAssets::new(vec![asset_in.into()]).unwrap();
     let serial_num: Word = [Felt::new(1), Felt::new(2), Felt::new(3), Felt::new(4)].into();
-    let recipient = NoteRecipient::new(
-        serial_num,
-        NoteScript::mock(),
-        note_inputs,
-    );
+    let recipient = NoteRecipient::new(serial_num, NoteScript::mock(), note_inputs);
     let note = Note::new(assets, metadata, recipient);
 
     // Add order to state
@@ -149,10 +148,7 @@ async fn test_matching_skipped_with_stale_prices() {
     // Verify prices are detected as stale
     const MAX_AGE_SECS: u64 = 2;
     let stale_age = state.oldest_stale_price(MAX_AGE_SECS);
-    assert!(
-        stale_age.is_some(),
-        "Prices should be detected as stale"
-    );
+    assert!(stale_age.is_some(), "Prices should be detected as stale");
     assert!(
         stale_age.unwrap() >= 10,
         "Stale age should be at least 10 seconds"
@@ -183,7 +179,11 @@ async fn test_matching_skipped_with_stale_prices() {
     // Now matching would proceed (prices are fresh)
     // Orders would be flushed and processed
     let orders = state.flush_open_orders();
-    assert_eq!(orders.len(), 1, "Should flush the order when prices are fresh");
+    assert_eq!(
+        orders.len(),
+        1,
+        "Should flush the order when prices are fresh"
+    );
     assert_eq!(
         state.get_open_orders().len(),
         0,
