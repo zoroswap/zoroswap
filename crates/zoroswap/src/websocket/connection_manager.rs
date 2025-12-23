@@ -6,11 +6,14 @@ use std::{
     sync::{Arc, Mutex},
     time::Duration,
 };
-use tokio::sync::mpsc;
-use tracing::{debug, trace, warn};
+use tokio::sync::{broadcast::error::RecvError, mpsc};
+use tracing::{debug, error, trace, warn};
 use uuid::Uuid;
 
-use super::messages::{ServerMessage, SubscriptionChannel};
+use super::{
+    broadcaster::EventBroadcaster,
+    messages::{ServerMessage, SubscriptionChannel},
+};
 
 /// Metadata about a WebSocket connection
 pub struct ConnectionMetadata {
@@ -46,14 +49,25 @@ pub struct SubscriptionStats {
 pub struct ConnectionManager {
     connections: Arc<DashMap<Uuid, WebSocketSender>>,
     subscriptions: Arc<DashMap<SubscriptionChannel, HashSet<Uuid>>>,
+    broadcaster: Option<Arc<EventBroadcaster>>,
 }
 
 impl ConnectionManager {
-    /// Create a new ConnectionManager
+    /// Create a new ConnectionManager without event broadcasting (for tests)
     pub fn new() -> Self {
         Self {
             connections: Arc::new(DashMap::new()),
             subscriptions: Arc::new(DashMap::new()),
+            broadcaster: None,
+        }
+    }
+
+    /// Create a new ConnectionManager with event broadcasting
+    pub fn with_broadcaster(broadcaster: Arc<EventBroadcaster>) -> Self {
+        Self {
+            connections: Arc::new(DashMap::new()),
+            subscriptions: Arc::new(DashMap::new()),
+            broadcaster: Some(broadcaster),
         }
     }
 
@@ -208,6 +222,151 @@ impl ConnectionManager {
                 self.check_stale_connections();
             }
         });
+    }
+
+    /// Start event forwarding tasks that subscribe to EventBroadcaster
+    /// and forward events to WebSocket clients
+    pub fn start_event_forwarding(self: Arc<Self>) {
+        let Some(broadcaster) = &self.broadcaster else {
+            warn!("No broadcaster configured, skipping event forwarding");
+            return;
+        };
+
+        // Order updates
+        {
+            let broadcaster = broadcaster.clone();
+            let conn_mgr = self.clone();
+            tokio::spawn(async move {
+                let mut rx = broadcaster.subscribe_order_updates();
+                loop {
+                    match rx.recv().await {
+                        Ok(event) => {
+                            let message = ServerMessage::OrderUpdate {
+                                order_id: event.order_id.to_string(),
+                                note_id: event.note_id.clone(),
+                                status: event.status,
+                                timestamp: event.timestamp,
+                                details: event.details.clone(),
+                            };
+                            conn_mgr.broadcast_to_channel(
+                                &SubscriptionChannel::OrderUpdates { order_id: None },
+                                message.clone(),
+                            );
+                            conn_mgr.broadcast_to_channel(
+                                &SubscriptionChannel::OrderUpdates {
+                                    order_id: Some(event.order_id.to_string()),
+                                },
+                                message,
+                            );
+                        }
+                        Err(RecvError::Lagged(n)) => warn!("Order updates lagged, skipped {n}"),
+                        Err(RecvError::Closed) => {
+                            error!("Order updates channel closed");
+                            break;
+                        }
+                    }
+                }
+            });
+        }
+
+        // Oracle price updates
+        {
+            let broadcaster = broadcaster.clone();
+            let conn_mgr = self.clone();
+            tokio::spawn(async move {
+                let mut rx = broadcaster.subscribe_oracle_prices();
+                loop {
+                    match rx.recv().await {
+                        Ok(event) => {
+                            let message = ServerMessage::OraclePriceUpdate {
+                                oracle_id: event.oracle_id.clone(),
+                                faucet_id: event.faucet_id,
+                                price: event.price,
+                                timestamp: event.timestamp,
+                            };
+                            conn_mgr.broadcast_to_channel(
+                                &SubscriptionChannel::OraclePrices { oracle_id: None },
+                                message.clone(),
+                            );
+                            conn_mgr.broadcast_to_channel(
+                                &SubscriptionChannel::OraclePrices {
+                                    oracle_id: Some(event.oracle_id),
+                                },
+                                message,
+                            );
+                        }
+                        Err(RecvError::Lagged(n)) => warn!("Oracle prices lagged, skipped {n}"),
+                        Err(RecvError::Closed) => {
+                            error!("Oracle prices channel closed");
+                            break;
+                        }
+                    }
+                }
+            });
+        }
+
+        // Pool state updates
+        {
+            let broadcaster = broadcaster.clone();
+            let conn_mgr = self.clone();
+            tokio::spawn(async move {
+                let mut rx = broadcaster.subscribe_pool_state();
+                loop {
+                    match rx.recv().await {
+                        Ok(event) => {
+                            let message = ServerMessage::PoolStateUpdate {
+                                faucet_id: event.faucet_id.clone(),
+                                balances: event.balances,
+                                timestamp: event.timestamp,
+                            };
+                            conn_mgr.broadcast_to_channel(
+                                &SubscriptionChannel::PoolState { faucet_id: None },
+                                message.clone(),
+                            );
+                            conn_mgr.broadcast_to_channel(
+                                &SubscriptionChannel::PoolState {
+                                    faucet_id: Some(event.faucet_id),
+                                },
+                                message,
+                            );
+                        }
+                        Err(RecvError::Lagged(n)) => warn!("Pool state lagged, skipped {n}"),
+                        Err(RecvError::Closed) => {
+                            error!("Pool state channel closed");
+                            break;
+                        }
+                    }
+                }
+            });
+        }
+
+        // Stats updates
+        {
+            let broadcaster = broadcaster.clone();
+            let conn_mgr = self.clone();
+            tokio::spawn(async move {
+                let mut rx = broadcaster.subscribe_stats();
+                loop {
+                    match rx.recv().await {
+                        Ok(event) => {
+                            let message = ServerMessage::StatsUpdate {
+                                open_orders: event.open_orders,
+                                closed_orders: event.closed_orders,
+                                timestamp: event.timestamp,
+                            };
+                            conn_mgr.broadcast_to_channel(&SubscriptionChannel::Stats, message);
+                        }
+                        Err(RecvError::Lagged(n)) => warn!("Stats lagged, skipped {n}"),
+                        Err(RecvError::Closed) => {
+                            error!("Stats channel closed");
+                            break;
+                        }
+                    }
+                }
+            });
+        }
+
+        debug!("Event forwarding tasks started");
     }
 
     /// Check for and remove stale connections
