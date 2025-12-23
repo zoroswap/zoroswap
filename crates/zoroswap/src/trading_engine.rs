@@ -501,7 +501,7 @@ mod tests {
         },
     };
     use miden_lib::account::faucets::BasicFungibleFaucet;
-    use miden_objects::{account::AccountIdVersion, FieldElement};
+    use miden_objects::{FieldElement, account::AccountIdVersion};
     use uuid::Uuid;
 
     struct TestContext {
@@ -651,7 +651,11 @@ mod tests {
         }
 
         fn create_engine(&self) -> TradingEngine {
-            TradingEngine::new("testing_store.sqlite3", self.state.clone(), self.broadcaster.clone())
+            TradingEngine::new(
+                "testing_store.sqlite3",
+                self.state.clone(),
+                self.broadcaster.clone(),
+            )
         }
     }
 
@@ -679,8 +683,14 @@ mod tests {
         assert!(result.is_ok(), "Unable to get liquidity pools");
         let ((_base_pool, base_decimals), (_quote_pool, quote_decimals)) = result.unwrap();
 
-        assert_eq!(base_decimals, 6, "Base pool (asset_in) must have 6 decimals");
-        assert_eq!(quote_decimals, 12, "Quote pool (asset_out) must have 12 decimals");
+        assert_eq!(
+            base_decimals, 6,
+            "Base pool (asset_in) must have 6 decimals"
+        );
+        assert_eq!(
+            quote_decimals, 12,
+            "Quote pool (asset_out) must have 12 decimals"
+        );
     }
 
     #[tokio::test]
@@ -702,7 +712,11 @@ mod tests {
             ctx.state.oldest_stale_price(MAX_PRICE_AGE_SECS).is_some(),
             "Prices should be detected as stale"
         );
-        assert_eq!(ctx.state.get_open_orders().len(), 1, "Orders should remain when prices are stale");
+        assert_eq!(
+            ctx.state.get_open_orders().len(),
+            1,
+            "Orders should remain when prices are stale"
+        );
 
         // Set FRESH oracle prices
         let fresh_time = Utc::now().timestamp() as u64;
@@ -715,9 +729,15 @@ mod tests {
 
         // Run matching cycle - should process the order
         let engine = ctx.create_engine();
-        let executions = engine.run_matching_cycle().expect("Matching should succeed");
+        let executions = engine
+            .run_matching_cycle()
+            .expect("Matching should succeed");
 
         assert_eq!(executions.len(), 1, "Should have processed 1 order");
-        assert_eq!(ctx.state.get_open_orders().len(), 0, "Open orders should be empty after matching");
+        assert_eq!(
+            ctx.state.get_open_orders().len(),
+            0,
+            "Open orders should be empty after matching"
+        );
     }
 }
