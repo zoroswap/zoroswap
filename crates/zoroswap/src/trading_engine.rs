@@ -1,9 +1,9 @@
 use crate::{
-    ZoroStorageSettings,
     amm_state::AmmState,
     common::{instantiate_client, print_transaction_info},
     order::Order,
     pool::{PoolState, get_curve_amount_out},
+    websocket::{EventBroadcaster, OrderStatus, OrderUpdateDetails, OrderUpdateEvent},
 };
 use alloy::primitives::U256;
 use anyhow::{Result, anyhow};
@@ -17,18 +17,22 @@ use miden_client::{
     transaction::TransactionRequestBuilder,
 };
 use miden_objects::note::NoteDetails;
-use std::{sync::Arc, thread::sleep, time::Duration};
+use std::{
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
+};
+use tokio::sync::broadcast::error::RecvError;
 use tracing::{error, info, warn};
 use zoro_miden_client::{MidenClient, create_p2id_note};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct ExecutionDetails {
     note: Note,
     order: Order,
     amount_out: u64,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum OrderExecution {
     Swap(ExecutionDetails),
     FailedSwap(ExecutionDetails),
@@ -38,39 +42,189 @@ enum OrderExecution {
 pub struct TradingEngine {
     state: Arc<AmmState>,
     store_path: String,
+    broadcaster: Arc<EventBroadcaster>,
+    last_match_time: Arc<Mutex<Instant>>,
 }
 
 impl TradingEngine {
-    pub fn new(store_path: &str, state: Arc<AmmState>) -> Self {
+    pub fn new(store_path: &str, state: Arc<AmmState>, broadcaster: Arc<EventBroadcaster>) -> Self {
         Self {
             store_path: store_path.to_string(),
             state,
+            broadcaster,
+            last_match_time: Arc::new(Mutex::new(Instant::now())),
         }
     }
 
     pub async fn start(&mut self) {
-        let tick_interval = self.state.config().amm_tick_interval;
-        let mut client = instantiate_client(
-            self.state.config(),
-            ZoroStorageSettings::trading_storage(self.store_path.to_string()),
-        )
-        .await
-        .unwrap_or_else(|err| panic!("Failed to instantiate client in trading engine: {err:?}"));
-        info!("Starting trading engine with {tick_interval} ms interval.");
-        loop {
-            match self.run_matching_cycle() {
-                Ok(orders_to_execute) => {
-                    if !orders_to_execute.is_empty()
-                        && let Err(e) = self.run_executions(orders_to_execute, &mut client).await
-                    {
-                        error!("{e}");
-                    }
+        let min_match_interval = Duration::from_millis(100); // Debounce
+        let max_match_interval = Duration::from_millis(1000); // Max wait (event-driven)
+
+        // Create client with retry for DB contention
+        let mut client = None;
+        for attempt in 1..=5 {
+            match instantiate_client(self.state.config(), &self.store_path).await {
+                Ok(c) => {
+                    client = Some(c);
+                    break;
                 }
                 Err(e) => {
-                    error!("{e}")
+                    if attempt < 5 {
+                        warn!(
+                            "Trading engine client creation attempt {}/5 failed: {e}, retrying...",
+                            attempt
+                        );
+                        tokio::time::sleep(Duration::from_millis(500 * attempt as u64)).await;
+                    } else {
+                        panic!(
+                            "Failed to instantiate client in trading engine after 5 attempts: {e}"
+                        );
+                    }
                 }
-            };
-            sleep(Duration::from_millis(tick_interval));
+            }
+        }
+        let mut client = client.unwrap();
+
+        info!(
+            "Starting event-driven trading engine (min: {:?}, max: {:?})",
+            min_match_interval, max_match_interval
+        );
+
+        // Subscribe to events that should trigger matching
+        let mut order_rx = self.broadcaster.subscribe_order_updates();
+        let mut price_rx = self.broadcaster.subscribe_oracle_prices();
+
+        let mut interval = tokio::time::interval(max_match_interval);
+
+        loop {
+            tokio::select! {
+                _ = interval.tick() => {
+                    // Periodic matching (every 1s max)
+                    self.run_matching_if_ready(min_match_interval, &mut client).await;
+                }
+                result = order_rx.recv() => {
+                    match result {
+                        Ok(order_event) => {
+                            if order_event.status == OrderStatus::Pending {
+                                info!("New order received, triggering match cycle");
+                                self.run_matching_if_ready(min_match_interval, &mut client).await;
+                            }
+                        }
+                        Err(RecvError::Lagged(skipped)) => {
+                            warn!("Trading engine lagged, skipped {} order updates", skipped);
+                        }
+                        Err(_) => break,
+                    }
+                }
+                result = price_rx.recv() => {
+                    match result {
+                        Ok(_price_event) => {
+                            // Price update: trigger match
+                            self.run_matching_if_ready(min_match_interval, &mut client).await;
+                        }
+                        Err(RecvError::Lagged(skipped)) => {
+                            warn!("Trading engine lagged, skipped {} price updates", skipped);
+                        }
+                        Err(_) => break,
+                    }
+                }
+            }
+        }
+    }
+
+    async fn run_matching_if_ready(&mut self, min_interval: Duration, client: &mut MidenClient) {
+        // Debouncing: prevent excessive matching
+        let mut last_match = self.last_match_time.lock().unwrap();
+        if last_match.elapsed() < min_interval {
+            return; // Skip this match cycle
+        }
+        *last_match = Instant::now();
+        drop(last_match);
+
+        // Run existing matching logic
+        match self.run_matching_cycle() {
+            Ok(orders_to_execute) => {
+                if !orders_to_execute.is_empty() {
+                    // Broadcast order status updates before execution
+                    for execution in &orders_to_execute {
+                        let (order_id, status) = match execution {
+                            OrderExecution::Swap(details) => {
+                                (details.order.id, OrderStatus::Matching)
+                            }
+                            OrderExecution::FailedSwap(details) => {
+                                (details.order.id, OrderStatus::Failed)
+                            }
+                            OrderExecution::PastDeadline(details) => {
+                                (details.order.id, OrderStatus::Expired)
+                            }
+                        };
+
+                        if status != OrderStatus::Matching {
+                            // Broadcast final status for non-swap orders
+                            let details = match execution {
+                                OrderExecution::Swap(d)
+                                | OrderExecution::FailedSwap(d)
+                                | OrderExecution::PastDeadline(d) => d,
+                            };
+                            let note_id = self.state.get_note_id(&order_id).unwrap_or_default();
+                            let _ = self.broadcaster.broadcast_order_update(OrderUpdateEvent {
+                                order_id,
+                                note_id,
+                                status,
+                                details: OrderUpdateDetails {
+                                    amount_in: details.order.asset_in.amount(),
+                                    amount_out: Some(details.amount_out),
+                                    asset_in_faucet: details.order.asset_in.faucet_id().to_hex(),
+                                    asset_out_faucet: details.order.asset_out.faucet_id().to_hex(),
+                                },
+                                timestamp: Utc::now().timestamp_millis() as u64,
+                            });
+                        }
+                    }
+
+                    // Execute swaps and broadcast success
+                    match self.run_executions(orders_to_execute.clone(), client).await {
+                        Ok(_) => {
+                            // Broadcast Executed status for successful swaps
+                            for execution in &orders_to_execute {
+                                if let OrderExecution::Swap(details) = execution {
+                                    let note_id = self
+                                        .state
+                                        .get_note_id(&details.order.id)
+                                        .unwrap_or_default();
+                                    let _ =
+                                        self.broadcaster.broadcast_order_update(OrderUpdateEvent {
+                                            order_id: details.order.id,
+                                            note_id,
+                                            status: OrderStatus::Executed,
+                                            details: OrderUpdateDetails {
+                                                amount_in: details.order.asset_in.amount(),
+                                                amount_out: Some(details.amount_out),
+                                                asset_in_faucet: details
+                                                    .order
+                                                    .asset_in
+                                                    .faucet_id()
+                                                    .to_hex(),
+                                                asset_out_faucet: details
+                                                    .order
+                                                    .asset_out
+                                                    .faucet_id()
+                                                    .to_hex(),
+                                            },
+                                            timestamp: Utc::now().timestamp_millis() as u64,
+                                        });
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            error!("{e}");
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                error!("{e}")
+            }
         }
     }
 
@@ -317,6 +471,7 @@ mod tests {
     use crate::{
         config::{Config, LiquidityPoolConfig},
         pool::PoolState,
+        websocket::EventBroadcaster,
     };
     use chrono::Utc;
     use miden_client::{
@@ -413,7 +568,8 @@ mod tests {
         };
 
         // Create trading engine, call method
-        let engine = TradingEngine::new("testing_store.sqlite3", state.clone());
+        let broadcaster = Arc::new(EventBroadcaster::new());
+        let engine = TradingEngine::new("testing_store.sqlite3", state.clone(), broadcaster);
         let result = engine.get_liq_pools_for_order(&state.liquidity_pools(), &order);
 
         // Verify result

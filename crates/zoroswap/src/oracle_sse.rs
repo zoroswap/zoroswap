@@ -1,4 +1,8 @@
-use crate::{amm_state::AmmState, order::OracleId};
+use crate::{
+    amm_state::AmmState,
+    order::OracleId,
+    websocket::{EventBroadcaster, OraclePriceEvent},
+};
 use anyhow::Result;
 use chrono::Utc;
 use futures_util::StreamExt;
@@ -35,6 +39,7 @@ pub struct ParsedEvent {
 
 pub struct OracleSSEClient {
     state: Arc<AmmState>,
+    broadcaster: Arc<EventBroadcaster>,
 }
 
 #[derive(Clone, Debug, Copy)]
@@ -57,8 +62,8 @@ impl PriceData {
 }
 
 impl OracleSSEClient {
-    pub fn new(state: Arc<AmmState>) -> Self {
-        Self { state }
+    pub fn new(state: Arc<AmmState>, broadcaster: Arc<EventBroadcaster>) -> Self {
+        Self { state, broadcaster }
     }
 
     pub async fn start(&mut self) -> Result<String> {
@@ -115,7 +120,22 @@ impl OracleSSEClient {
 
     fn update_prices_in_state(&self, message: &str) -> Result<()> {
         let parsed_json = serde_json::from_str::<ParsedEvent>(message)?;
-        self.state.update_oracle_prices(parsed_json.parsed);
+
+        // Update in-memory state
+        self.state.update_oracle_prices(parsed_json.parsed.clone());
+
+        // Broadcast to WebSocket clients
+        for price_update in parsed_json.parsed {
+            if let Ok(faucet_id) = self.state.config().oracle_id_to_faucet_id(&price_update.id) {
+                let _ = self.broadcaster.broadcast_oracle_price(OraclePriceEvent {
+                    oracle_id: price_update.id.clone(),
+                    faucet_id: faucet_id.to_hex(),
+                    price: price_update.price.price,
+                    timestamp: price_update.price.publish_time,
+                });
+            }
+        }
+
         Ok(())
     }
 }

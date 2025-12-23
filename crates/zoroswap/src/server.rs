@@ -14,17 +14,22 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::mpsc::Sender;
 use tower_http::cors::CorsLayer;
-use tracing::{error, info};
+use tracing::{debug, error};
 
 use crate::{
-    amm_state::AmmState, config::RawLiquidityPoolConfig, faucet::FaucetMintInstruction,
+    amm_state::AmmState,
+    config::RawLiquidityPoolConfig,
+    faucet::FaucetMintInstruction,
     note_serialization::deserialize_note,
+    websocket::{ConnectionManager, EventBroadcaster, websocket_handler},
 };
 
 #[derive(Clone)]
 pub struct AppState {
     pub amm_state: Arc<AmmState>,
     pub faucet_tx: Sender<FaucetMintInstruction>,
+    pub connection_manager: Arc<ConnectionManager>,
+    pub event_broadcaster: Arc<EventBroadcaster>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -66,6 +71,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/orders/submit", post(submit_order))
         .route("/faucets/mint", post(mint_faucet))
         .route("/stats", get(get_stats))
+        .route("/ws", get(websocket_handler))
         .layer(CorsLayer::permissive())
         .with_state(state)
 }
@@ -106,7 +112,7 @@ async fn mint_faucet(
     State(state): State<AppState>,
     Json(payload): Json<MintRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
-    info!(
+    debug!(
         "Address {} requesting mint from {}",
         &payload.address, &payload.faucet_id
     );
@@ -136,7 +142,7 @@ async fn submit_order(
     State(state): State<AppState>,
     Json(payload): Json<SubmitOrderRequest>,
 ) -> Json<SubmitOrderResponse> {
-    info!("Received order submission request");
+    debug!("Received order submission request");
     // Deserialize the note from base64
     let note = match deserialize_note(&payload.note_data) {
         Ok(note) => note,
@@ -151,11 +157,12 @@ async fn submit_order(
     };
 
     match state.amm_state.add_order(note) {
-        Ok(order_id) => {
-            info!("Successfully added order: {}", order_id);
+        Ok((_note_id, order_id, _order)) => {
+            debug!("Successfully added order: {:?}", order_id);
             Json(SubmitOrderResponse {
                 success: true,
-                order_id,
+                //order_id: note_id,
+                order_id: order_id.to_string(),
                 message:
                     "Order submitted successfully. Matching engine will process automatically."
                         .to_string(),
@@ -178,7 +185,11 @@ async fn get_stats(State(state): State<AppState>) -> impl IntoResponse {
     let response = serde_json::json!({
         "open_orders": open_orders.len(),
         "closed_orders": closed_orders.len(),
-        "timestamp": chrono::Utc::now()
+        "timestamp": chrono::Utc::now(),
+        "websocket": {
+            "active_connections": state.connection_manager.get_connection_count(),
+            "subscriptions": state.connection_manager.get_subscription_stats(),
+        }
     });
     let mut headers = HeaderMap::new();
     headers.insert(

@@ -23,10 +23,12 @@ tokio = { version = "1.46", features = [
   "net",
   "macros",
   "fs",
+  "sync",
 ] }
+tokio-stream = "0.1"
 
 # Web server dependencies
-axum = { version = "0.8.4", features = ["macros", "tokio"] }
+axum = { version = "0.8.4", features = ["macros", "tokio", "ws"] }
 tower = "0.5.2"
 tower-http = { version = "0.6.6", features = ["cors", "fs"] }
 tracing = "0.1"
@@ -42,6 +44,7 @@ anyhow = "1.0"
 base64 = "0.22"
 dotenv = "0.15"
 dashmap = "6.1.0"
+rusqlite = "0.36"
 alloy = { workspace = true }
 url = "2.5.4"
 toml = "0.9.4"

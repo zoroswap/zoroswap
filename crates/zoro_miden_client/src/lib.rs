@@ -31,7 +31,7 @@ use rand::RngCore;
 use rand::rngs::StdRng;
 use std::{sync::Arc, time::Duration};
 use tokio::time::sleep;
-use tracing::info;
+use tracing::{debug, info, trace, warn};
 
 // --------------------------------------------------------------------------
 // Type Aliases
@@ -110,29 +110,29 @@ pub async fn get_note_by_tag(
     tag: NoteTag,
     target_note_id: NoteId,
 ) -> Result<()> {
-    println!("Getting note by tag: {:?}", tag);
-    println!("Note ID: {:?}", target_note_id);
+    debug!("Getting note by tag: {:?}", tag);
+    debug!("Note ID: {:?}", target_note_id);
     loop {
         // Sync the state and add the tag
         client.sync_state().await?;
         client.add_note_tag(tag).await?;
 
-        println!(
+        trace!(
             "All input notes: {:?}",
             client.get_input_notes(NoteFilter::All).await?
         );
-        println!(
+        trace!(
             "All output notes: {:?}",
             client.get_output_notes(NoteFilter::All).await?
         );
         // Fetch notes
         let notes = client.get_consumable_notes(None).await?;
-        println!("Notes len: {:?}", notes.len());
+        trace!("Notes len: {:?}", notes.len());
         // Check if any note matches the target_note_id
         let found = notes.iter().any(|(note, _)| note.id() == target_note_id);
 
         if found {
-            println!("Found the note with ID: {:?}", target_note_id);
+            debug!("Found the note with ID: {:?}", target_note_id);
             break;
         }
         tokio::time::sleep(Duration::from_millis(1000)).await;
@@ -174,15 +174,14 @@ pub fn create_library(
 ///
 /// Useful for cleaning up test environments or resetting client state.
 pub async fn delete_client_store(store_path: &str) {
-    //let store_path = "../../store.sqlite3";
     if tokio::fs::metadata(store_path).await.is_ok() {
         if let Err(e) = tokio::fs::remove_file(store_path).await {
-            eprintln!("failed to remove {}: {}", store_path, e);
+            warn!("Failed to remove {}: {}", store_path, e);
         } else {
-            println!("cleared sqlite store: {}", store_path);
+            info!("Cleared sqlite store: {}", store_path);
         }
     } else {
-        println!("store not found: {}", store_path);
+        debug!("Store not found: {}", store_path);
     }
 }
 
@@ -215,7 +214,7 @@ pub async fn setup_accounts_and_faucets(
     let mut accounts = Vec::with_capacity(num_accounts);
     for i in 0..num_accounts {
         let (account, _) = create_basic_account(client, keystore.clone()).await?;
-        println!("Created Account #{i} => ID: {:?}", account.id().to_hex());
+        info!("Created Account #{i} => ID: {:?}", account.id().to_hex());
         accounts.push(account);
     }
 
@@ -225,7 +224,7 @@ pub async fn setup_accounts_and_faucets(
     let mut faucets = Vec::with_capacity(num_faucets);
     for j in 0..num_faucets {
         let faucet = create_basic_faucet(client, keystore.clone()).await?;
-        println!("Created Faucet #{j} => ID: {:?}", faucet.id().to_hex());
+        info!("Created Faucet #{j} => ID: {:?}", faucet.id().to_hex());
         faucets.push(faucet);
     }
 
@@ -245,7 +244,7 @@ pub async fn setup_accounts_and_faucets(
                 continue;
             }
 
-            println!("Minting {amount} tokens from Faucet #{faucet_idx} to Account #{acct_idx}");
+            info!("Minting {amount} tokens from Faucet #{faucet_idx} to Account #{acct_idx}");
 
             // Build & submit the mint transaction
             let asset = FungibleAsset::new(faucet.id(), amount)
@@ -286,10 +285,10 @@ pub async fn setup_accounts_and_faucets(
             wait_for_notes(client, account, expected).await?;
         }
     }
-    println!("Note received.");
+    info!("Note received.");
 
     client.sync_state().await?;
-    println!("Client sync succeeded.");
+    debug!("Client sync succeeded.");
 
     // ---------------------------------------------------------------------
     // 5)  Consume notes so the tokens live in the public vaults
@@ -300,17 +299,17 @@ pub async fn setup_accounts_and_faucets(
                 .authenticated_input_notes([(note.id(), None)])
                 .build()
                 .unwrap_or_else(|err| panic!("Failed to build consume request: {err:?}"));
-            println!("Built consume_req.");
+            debug!("Built consume_req.");
             let _tx_id = client
                 .submit_new_transaction(account.id(), consume_req)
                 .await?;
         }
     }
 
-    println!("Client sync succeeded.");
+    debug!("Client sync succeeded.");
     client.sync_state().await?;
 
-    println!("Final client sync succeeded.");
+    info!("Final client sync succeeded.");
 
     Ok((accounts, faucets))
 }
@@ -332,7 +331,7 @@ pub async fn wait_for_notes(
         if notes.len() >= expected {
             break;
         }
-        println!(
+        debug!(
             "{} consumable notes found for account {}. Waiting...",
             notes.len(),
             account.id().to_hex()
@@ -430,10 +429,10 @@ pub async fn wait_for_note(
             client.get_consumable_notes(None).await?;
         let found = notes.iter().any(|(rec, _)| rec.id() == expected.id());
         if found {
-            println!("✅ note found {}", expected.id().to_hex());
+            info!("Note found {}", expected.id().to_hex());
             break;
         }
-        println!("Note {} not found. Waiting...", expected.id().to_hex());
+        debug!("Note {} not found. Waiting...", expected.id().to_hex());
         sleep(Duration::from_secs(3)).await;
     }
     Ok(())
@@ -457,7 +456,7 @@ pub async fn wait_for_consumable_notes(
         if !notes.is_empty() {
             return Ok(notes);
         }
-        println!(
+        debug!(
             "Consumable notes for account {:?} ({}) not found. Waiting...",
             account_id,
             account_id.to_hex()
