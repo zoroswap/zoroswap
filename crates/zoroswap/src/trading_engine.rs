@@ -23,7 +23,7 @@ use std::{sync::Arc, thread::sleep, time::Duration};
 use tracing::{debug, error, info, warn};
 use zoro_miden_client::{MidenClient, create_p2id_note};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct ExecutionDetails {
     note: Note,
     order: Order,
@@ -59,7 +59,8 @@ enum NoteExecutionDetails {
 
 struct PayoutDetails {
     pub note: Note,
-    pub args: Vec<Felt>,
+    pub args: Option<Word>,
+    pub advice_map_value: Vec<Felt>,
     pub details: NoteDetails,
     pub tag: NoteTag,
     pub recipient: NoteRecipient,
@@ -322,13 +323,13 @@ impl TradingEngine {
         for execution in executions {
             let note_execution_details = match execution {
                 OrderExecution::Swap(execution_details) => {
-                    self.prepare_payout(execution_details, false)?
+                    NoteExecutionDetails::Payout(self.prepare_payout(execution_details, false)?)
                 }
                 OrderExecution::FailedOrder(execution_details) => {
-                    self.prepare_payout(execution_details, true)?
+                    NoteExecutionDetails::Payout(self.prepare_payout(execution_details, true)?)
                 }
                 OrderExecution::PastDeadline(execution_details) => {
-                    self.prepare_payout(execution_details, true)?
+                    NoteExecutionDetails::Payout(self.prepare_payout(execution_details, true)?)
                 }
                 OrderExecution::Deposit(execution_details) => {
                     NoteExecutionDetails::ConsumeWithArgs((
@@ -352,7 +353,24 @@ impl TradingEngine {
                     ))
                 }
                 OrderExecution::Withdraw(execution_details) => {
-                    self.prepare_payout(execution_details, true)?
+                    let mut details = self.prepare_payout(execution_details.clone(), false)?;
+                    details.args = Some(Word::from(&[
+                        Felt::new(execution_details.amount_out),
+                        Felt::new(
+                            execution_details
+                                .in_pool_balances
+                                .reserve_with_slippage
+                                .to::<u64>(),
+                        ),
+                        Felt::new(execution_details.in_pool_balances.reserve.to::<u64>()),
+                        Felt::new(
+                            execution_details
+                                .in_pool_balances
+                                .total_liabilities
+                                .to::<u64>(),
+                        ),
+                    ]));
+                    NoteExecutionDetails::Payout(details)
                 }
             };
 
@@ -360,8 +378,8 @@ impl TradingEngine {
                 NoteExecutionDetails::Payout(payout) => {
                     expected_future_notes.push((payout.details, payout.tag));
                     expected_output_recipients.push(payout.recipient);
-                    input_notes.push((payout.note, None /*Some(payout.args)*/));
-                    advice_map.insert(advice_key.into(), payout.args);
+                    input_notes.push((payout.note, payout.args));
+                    advice_map.insert(advice_key.into(), payout.advice_map_value);
                 }
                 NoteExecutionDetails::ConsumeWithArgs((note, args)) => {
                     input_notes.push((note, Some(args)));
@@ -420,7 +438,7 @@ impl TradingEngine {
         &self,
         execution_details: ExecutionDetails,
         return_asset_in: bool,
-    ) -> Result<NoteExecutionDetails> {
+    ) -> Result<PayoutDetails> {
         let asset_out = if return_asset_in {
             execution_details.order.asset_in
         } else {
@@ -466,7 +484,7 @@ impl TradingEngine {
             out_pool_balances
         );
 
-        let args = vec![
+        let advice_map_value = vec![
             Felt::new(asset_out.unwrap_fungible().amount()),
             Felt::new(in_pool_balances.reserve_with_slippage.to::<u64>()),
             Felt::new(in_pool_balances.reserve.to::<u64>()),
@@ -477,13 +495,14 @@ impl TradingEngine {
             Felt::new(out_pool_balances.total_liabilities.to::<u64>()),
         ];
 
-        Ok(NoteExecutionDetails::Payout(PayoutDetails {
+        Ok(PayoutDetails {
             note,
-            args,
+            args: None,
+            advice_map_value,
             details: NoteDetails::from(p2id.clone()),
             tag: p2id.metadata().tag(),
             recipient: p2id.recipient().clone(),
-        }))
+        })
     }
 
     fn get_liq_pools_for_order(
