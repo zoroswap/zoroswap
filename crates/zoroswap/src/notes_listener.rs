@@ -52,6 +52,7 @@ impl NotesListener {
         let mut client = client.unwrap();
 
         let mut failed_notes: HashSet<NoteId> = HashSet::new();
+        let mut processed_notes: HashSet<NoteId> = HashSet::new();
         let tick_interval = self.state.config().amm_tick_interval;
 
         loop {
@@ -65,12 +66,17 @@ impl NotesListener {
                 Ok(notes) => {
                     let valid_notes: Vec<&Note> = notes
                         .iter()
-                        .filter(|n| !failed_notes.contains(&n.id()))
+                        .filter(|n| {
+                            !failed_notes.contains(&n.id()) && !processed_notes.contains(&n.id())
+                        })
                         .collect();
 
                     for note in valid_notes.iter() {
+                        let note_miden_id = note.id();
                         match self.state.add_order(note.to_owned().clone()) {
                             Ok((note_id, order_id, order)) => {
+                                // Track this note as processed to avoid duplicates
+                                processed_notes.insert(note_miden_id);
                                 // Broadcast order received event
                                 debug!(
                                     "Broadcasting order update for order_id: {}, note_id: {}",
@@ -99,14 +105,15 @@ impl NotesListener {
                                     || error_msg.contains("Note has no assets")
                                     || error_msg.contains("Note has no fungible assets")
                                 {
-                                    // Not a swap order note (e.g., mint note), skip silently
+                                    // Not a swap order note (e.g., mint note), mark as processed to skip in future
+                                    processed_notes.insert(note_miden_id);
                                 } else {
                                     // Real error with a malformed swap order
                                     error!(
                                         "Error parsing swap order from note {}: {e}",
                                         note.id().to_hex()
                                     );
-                                    failed_notes.insert(note.id());
+                                    failed_notes.insert(note_miden_id);
                                 }
                             }
                         }
