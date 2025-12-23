@@ -466,6 +466,7 @@ mod tests {
     use crate::{
         config::{Config, LiquidityPoolConfig},
         pool::PoolState,
+        websocket::EventBroadcaster,
     };
     use chrono::Utc;
     use miden_client::{
@@ -562,7 +563,8 @@ mod tests {
         };
 
         // Create trading engine, call method
-        let engine = TradingEngine::new("testing_store.sqlite3", state.clone());
+        let broadcaster = Arc::new(EventBroadcaster::new());
+        let engine = TradingEngine::new("testing_store.sqlite3", state.clone(), broadcaster);
         let result = engine.get_liq_pools_for_order(&state.liquidity_pools(), &order);
 
         // Verify result

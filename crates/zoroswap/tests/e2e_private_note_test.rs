@@ -14,7 +14,7 @@ use std::str::FromStr;
 use url::Url;
 use zoro_miden_client::{create_basic_account, wait_for_consumable_notes, wait_for_note};
 use zoroswap::{
-    Config, ZoroStorageSettings, create_zoroswap_note, fetch_vault_for_account_from_chain,
+    Config, create_zoroswap_note, fetch_vault_for_account_from_chain,
     get_oracle_prices, instantiate_client, print_note_info, print_transaction_info, serialize_note,
 };
 
@@ -35,11 +35,7 @@ async fn e2e_private_note() -> Result<()> {
         config.liquidity_pools.len() > 1,
         "Less than 2 liquidity pools configured"
     );
-    let mut client = instantiate_client(
-        &config,
-        ZoroStorageSettings::trading_storage("../../testing_store.sqlite3".to_string()),
-    )
-    .await?;
+    let mut client = instantiate_client(&config, "../../testing_store.sqlite3").await?;
     let endpoint = config.miden_endpoint;
     let keystore = FilesystemKeyStore::new(config.keystore_path.into()).unwrap();
     let sync_summary = client.sync_state().await?;

@@ -110,7 +110,7 @@ impl Default for EventBroadcaster {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{pool::PoolBalances, websocket::messages::OrderStatus};
+    use crate::websocket::messages::OrderStatus;
     use uuid::Uuid;
 
     #[tokio::test]
