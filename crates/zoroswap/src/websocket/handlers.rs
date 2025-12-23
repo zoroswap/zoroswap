@@ -35,7 +35,7 @@ async fn handle_websocket_connection(socket: WebSocket, state: AppState) {
     debug!(conn_id = %conn_id, "New WebSocket connection established");
     state.connection_manager.add_connection(conn_id, tx, None); // TODO: Extract IP address from request
 
-    // Spawn sender task - forwards messages from channel to WebSocket
+    // Spawn sender task: forwards messages from channel to WebSocket
     let sender_task = tokio::spawn(async move {
         while let Some(msg) = rx.recv().await {
             if let Err(_) = ws_sender.send(msg).await {
@@ -44,7 +44,7 @@ async fn handle_websocket_connection(socket: WebSocket, state: AppState) {
         }
     });
 
-    // Receiver loop - handle messages from client
+    // Receiver loop: handle messages from client
     while let Some(msg_result) = ws_receiver.next().await {
         match msg_result {
             Ok(Message::Text(text)) => {
