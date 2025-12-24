@@ -154,6 +154,10 @@ impl AmmState {
         &self.faucet_metadata
     }
 
+    pub fn oracle_prices(&self) -> &DashMap<AccountId, PriceData> {
+        &self.oracle_prices
+    }
+
     pub fn pluck_note(&self, id: &Uuid) -> Result<(Uuid, Note)> {
         self.notes
             .remove(id)
@@ -180,5 +184,31 @@ impl AmmState {
             price_in.price, price_out.price
         );
         Ok(price)
+    }
+
+    /// Check if oracle prices for specified tokens are fresh (within max_age_secs).
+    /// Only checks tokens matching the given `oracle_ids`.
+    ///
+    /// Returns `None` if prices are fresh. Otherwise, `Some(age_secs)`
+    /// of the oldest stale price.
+    pub fn oldest_stale_price(&self, max_age_secs: u64, oracle_ids: &[&str]) -> Option<u64> {
+        let now = Utc::now().timestamp() as u64;
+        let mut oldest_age: Option<u64> = None;
+
+        let faucet_ids: Vec<AccountId> = oracle_ids
+            .iter()
+            .filter_map(|oracle_id| self.config.oracle_id_to_faucet_id(oracle_id).ok())
+            .collect();
+
+        for faucet_id in faucet_ids {
+            if let Some(price_data) = self.oracle_prices.get(&faucet_id) {
+                let age = now.saturating_sub(price_data.timestamp);
+                if age > max_age_secs {
+                    oldest_age = Some(oldest_age.map_or(age, |old| old.max(age)));
+                }
+            }
+        }
+
+        oldest_age
     }
 }
