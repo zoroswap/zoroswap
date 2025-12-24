@@ -556,7 +556,6 @@ impl TradingEngine {
         );
         let consume_req = TransactionRequestBuilder::new()
             .extend_advice_map(advice_map)
-            .ignore_invalid_input_notes()
             .unauthenticated_input_notes(input_notes.clone())
             .expected_future_notes(expected_future_notes)
             .expected_output_recipients(expected_output_recipients.clone())

@@ -117,7 +117,7 @@ impl NotesListener {
                                 } else {
                                     // Real error with a malformed swap order
                                     error!(
-                                        "Error parsing swap order from note {}: {e}",
+                                        "Error parsing order from note {}: {e}",
                                         note.id().to_hex()
                                     );
                                     failed_notes.insert(note_miden_id);
