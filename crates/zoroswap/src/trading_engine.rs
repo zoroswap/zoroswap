@@ -142,11 +142,21 @@ impl TradingEngine {
         *last_match = Instant::now();
         drop(last_match);
 
-        // Check if oracle prices are fresh (max 2 seconds old)
-        const MAX_PRICE_AGE_SECS: u64 = 2;
-        if let Some(stale_age) = self.state.oldest_stale_price(MAX_PRICE_AGE_SECS) {
+        // Check if oracle prices for high-liquidity tokens are fresh.
+        // We only check ETH and BTC here: these tokens have high liquidity
+        // and are traded often, so we should always have fresh prices.
+        //
+        // We'll add more tokens in the future, those might have lower liquidity
+        // and slower price updates, so we can't enforce the same short staleness
+        // threshold for them.
+        const MAX_PRICE_AGE_SECS: u64 = 4;
+        const CANARY_TOKENS: &[&str] = &["ETH", "BTC"];
+        if let Some(stale_age) = self
+            .state
+            .oldest_stale_price(MAX_PRICE_AGE_SECS, CANARY_TOKENS)
+        {
             warn!(
-                "Skipping matching cycle: oracle price is {}s old (max {}s)",
+                "Skipping matching cycle: oracle price for {CANARY_TOKENS:?} is {}s old (max {}s)",
                 stale_age, MAX_PRICE_AGE_SECS
             );
             return;
@@ -554,18 +564,18 @@ mod tests {
                 pool_account_id,
                 liquidity_pools: vec![
                     LiquidityPoolConfig {
-                        name: "TokenA",
-                        symbol: "TKA",
+                        name: "Wrapped Ether",
+                        symbol: "ETH",
                         decimals: decimals_a,
                         faucet_id: faucet_a_id,
-                        oracle_id: "oracle_a",
+                        oracle_id: "ETH",
                     },
                     LiquidityPoolConfig {
-                        name: "TokenB",
-                        symbol: "TKB",
+                        name: "Wrapped Bitcoin",
+                        symbol: "BTC",
                         decimals: decimals_b,
                         faucet_id: faucet_b_id,
-                        oracle_id: "oracle_b",
+                        oracle_id: "BTC",
                     },
                 ],
                 oracle_sse: "http://localhost:8080",
@@ -706,9 +716,12 @@ mod tests {
         ctx.set_oracle_prices(stale_time, 100_000_000);
 
         // Verify stale prices are detected
-        const MAX_PRICE_AGE_SECS: u64 = 2;
+        const MAX_PRICE_AGE_SECS: u64 = 4;
+        const CANARY_TOKENS: &[&str] = &["ETH", "BTC"];
         assert!(
-            ctx.state.oldest_stale_price(MAX_PRICE_AGE_SECS).is_some(),
+            ctx.state
+                .oldest_stale_price(MAX_PRICE_AGE_SECS, CANARY_TOKENS)
+                .is_some(),
             "Prices should be detected as stale"
         );
         assert_eq!(
@@ -722,7 +735,9 @@ mod tests {
         ctx.set_oracle_prices(fresh_time, 100_000_000);
 
         assert!(
-            ctx.state.oldest_stale_price(MAX_PRICE_AGE_SECS).is_none(),
+            ctx.state
+                .oldest_stale_price(MAX_PRICE_AGE_SECS, CANARY_TOKENS)
+                .is_none(),
             "Prices should be fresh"
         );
 
