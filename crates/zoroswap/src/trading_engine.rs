@@ -17,6 +17,7 @@ use miden_client::{
     transaction::TransactionRequestBuilder,
 };
 use miden_objects::note::NoteDetails;
+use rand::seq::SliceRandom;
 use std::{
     sync::{Arc, Mutex},
     time::{Duration, Instant},
@@ -33,7 +34,7 @@ struct ExecutionDetails {
 }
 
 #[derive(Debug, Clone)]
-enum OrderExecution {
+pub(crate) enum OrderExecution {
     Swap(ExecutionDetails),
     FailedSwap(ExecutionDetails),
     PastDeadline(ExecutionDetails),
@@ -141,6 +142,26 @@ impl TradingEngine {
         *last_match = Instant::now();
         drop(last_match);
 
+        // Check if oracle prices for high-liquidity tokens are fresh.
+        // We only check ETH and BTC here: these tokens have high liquidity
+        // and are traded often, so we should always have fresh prices.
+        //
+        // We'll add more tokens in the future, those might have lower liquidity
+        // and slower price updates, so we can't enforce the same short staleness
+        // threshold for them.
+        const MAX_PRICE_AGE_SECS: u64 = 4;
+        const CANARY_TOKENS: &[&str] = &["ETH", "BTC"];
+        if let Some(stale_age) = self
+            .state
+            .oldest_stale_price(MAX_PRICE_AGE_SECS, CANARY_TOKENS)
+        {
+            warn!(
+                "Skipping matching cycle: oracle price for {CANARY_TOKENS:?} is {}s old (max {}s)",
+                stale_age, MAX_PRICE_AGE_SECS
+            );
+            return;
+        }
+
         // Run existing matching logic
         match self.run_matching_cycle() {
             Ok(orders_to_execute) => {
@@ -228,9 +249,13 @@ impl TradingEngine {
         }
     }
 
-    fn run_matching_cycle(&self) -> Result<Vec<OrderExecution>> {
+    pub(crate) fn run_matching_cycle(&self) -> Result<Vec<OrderExecution>> {
         let pools = self.state.liquidity_pools().clone();
-        let orders = self.state.flush_open_orders();
+        let mut orders = self.state.flush_open_orders();
+
+        // MEV protection: randomize order processing sequence
+        orders.shuffle(&mut rand::rng());
+
         let mut order_executions = Vec::new();
         let now = Utc::now();
         for order in orders {
@@ -470,91 +495,185 @@ mod tests {
     use super::*;
     use crate::{
         config::{Config, LiquidityPoolConfig},
-        pool::PoolState,
+        oracle_sse::PriceData,
+        pool::{PoolBalances, PoolState},
         websocket::EventBroadcaster,
     };
     use chrono::Utc;
     use miden_client::{
+        account::{AccountStorageMode, AccountType},
         address::NetworkId,
         asset::{FungibleAsset, TokenSymbol},
+        note::{
+            NoteAssets, NoteExecutionHint, NoteInputs, NoteMetadata, NoteRecipient, NoteScript,
+            NoteTag, NoteType,
+        },
     };
     use miden_lib::account::faucets::BasicFungibleFaucet;
+    use miden_objects::{FieldElement, account::AccountIdVersion};
     use uuid::Uuid;
+
+    struct TestContext {
+        state: Arc<AmmState>,
+        broadcaster: Arc<EventBroadcaster>,
+        faucet_a_id: AccountId,
+        faucet_b_id: AccountId,
+        pool_account_id: AccountId,
+        user_account_id: AccountId,
+    }
+
+    impl TestContext {
+        async fn new() -> Self {
+            Self::with_decimals(8, 8).await
+        }
+
+        async fn with_decimals(decimals_a: u8, decimals_b: u8) -> Self {
+            let faucet_a_id = AccountId::dummy(
+                [1; 15],
+                AccountIdVersion::Version0,
+                AccountType::FungibleFaucet,
+                AccountStorageMode::Public,
+            );
+            let faucet_b_id = AccountId::dummy(
+                [2; 15],
+                AccountIdVersion::Version0,
+                AccountType::FungibleFaucet,
+                AccountStorageMode::Public,
+            );
+            let pool_account_id = AccountId::dummy(
+                [3; 15],
+                AccountIdVersion::Version0,
+                AccountType::RegularAccountUpdatableCode,
+                AccountStorageMode::Public,
+            );
+            let user_account_id = AccountId::dummy(
+                [4; 15],
+                AccountIdVersion::Version0,
+                AccountType::RegularAccountUpdatableCode,
+                AccountStorageMode::Public,
+            );
+
+            let symbol_a = TokenSymbol::new("TKA").unwrap();
+            let symbol_b = TokenSymbol::new("TKB").unwrap();
+            let faucet_a =
+                BasicFungibleFaucet::new(symbol_a, decimals_a, Felt::new(1_000_000_000)).unwrap();
+            let faucet_b =
+                BasicFungibleFaucet::new(symbol_b, decimals_b, Felt::new(1_000_000_000)).unwrap();
+
+            let config = Config {
+                pool_account_id,
+                liquidity_pools: vec![
+                    LiquidityPoolConfig {
+                        name: "Wrapped Ether",
+                        symbol: "ETH",
+                        decimals: decimals_a,
+                        faucet_id: faucet_a_id,
+                        oracle_id: "ETH",
+                    },
+                    LiquidityPoolConfig {
+                        name: "Wrapped Bitcoin",
+                        symbol: "BTC",
+                        decimals: decimals_b,
+                        faucet_id: faucet_b_id,
+                        oracle_id: "BTC",
+                    },
+                ],
+                oracle_sse: "http://localhost:8080",
+                oracle_https: "http://localhost:8080",
+                miden_endpoint: miden_client::rpc::Endpoint::localhost(),
+                server_url: "http://localhost:3000",
+                amm_tick_interval: 1000,
+                network_id: NetworkId::Testnet,
+                masm_path: "./masm",
+                keystore_path: "./keystore",
+                store_path: "./testing_store.sqlite3",
+            };
+
+            let broadcaster = Arc::new(EventBroadcaster::new());
+            let state = Arc::new(AmmState::new(config, broadcaster.clone()).await);
+
+            state.faucet_metadata().insert(faucet_a_id, faucet_a);
+            state.faucet_metadata().insert(faucet_b_id, faucet_b);
+
+            let mut pool_a = PoolState::new(pool_account_id, faucet_a_id);
+            let mut pool_b = PoolState::new(pool_account_id, faucet_b_id);
+            pool_a.update_state(PoolBalances {
+                reserve: U256::from(1_000_000_00000000u64),
+                reserve_with_slippage: U256::from(1_000_000_00000000u64),
+                total_liabilities: U256::from(1_000_000_00000000u64),
+            });
+            pool_b.update_state(PoolBalances {
+                reserve: U256::from(1_000_000_00000000u64),
+                reserve_with_slippage: U256::from(1_000_000_00000000u64),
+                total_liabilities: U256::from(1_000_000_00000000u64),
+            });
+            state.liquidity_pools().insert(faucet_a_id, pool_a);
+            state.liquidity_pools().insert(faucet_b_id, pool_b);
+
+            Self {
+                state,
+                broadcaster,
+                faucet_a_id,
+                faucet_b_id,
+                pool_account_id,
+                user_account_id,
+            }
+        }
+
+        fn create_swap_note(&self, amount_in: u64, min_amount_out: u64) -> Note {
+            let asset_in = FungibleAsset::new(self.faucet_a_id, amount_in).unwrap();
+            let deadline = Utc::now() + chrono::Duration::minutes(5);
+
+            let mut inputs: Vec<Felt> = vec![Felt::ZERO; 12];
+            inputs[0] = Felt::new(min_amount_out);
+            let faucet_b_felts: [Felt; 2] = self.faucet_b_id.into();
+            inputs[2] = faucet_b_felts[1];
+            inputs[3] = faucet_b_felts[0];
+            inputs[4] = Felt::new(deadline.timestamp_millis() as u64);
+            let user_felts: [Felt; 2] = self.user_account_id.into();
+            inputs[10] = user_felts[1];
+            inputs[11] = user_felts[0];
+
+            let note_inputs = NoteInputs::new(inputs).unwrap();
+            let note_tag = NoteTag::from_account_id(self.pool_account_id);
+            let metadata = NoteMetadata::new(
+                self.user_account_id,
+                NoteType::Public,
+                note_tag,
+                NoteExecutionHint::always(),
+                Felt::ZERO,
+            )
+            .unwrap();
+            let assets = NoteAssets::new(vec![asset_in.into()]).unwrap();
+            let serial_num: Word = [Felt::new(1), Felt::new(2), Felt::new(3), Felt::new(4)].into();
+            let recipient = NoteRecipient::new(serial_num, NoteScript::mock(), note_inputs);
+            Note::new(assets, metadata, recipient)
+        }
+
+        fn set_oracle_prices(&self, timestamp: u64, price: u64) {
+            self.state
+                .oracle_prices()
+                .insert(self.faucet_a_id, PriceData::new(timestamp, price));
+            self.state
+                .oracle_prices()
+                .insert(self.faucet_b_id, PriceData::new(timestamp, price));
+        }
+
+        fn create_engine(&self) -> TradingEngine {
+            TradingEngine::new(
+                "testing_store.sqlite3",
+                self.state.clone(),
+                self.broadcaster.clone(),
+            )
+        }
+    }
 
     #[tokio::test]
     async fn test_get_liq_pools_for_order_uses_correct_asset_ids() {
-        // Create two different account IDs for the faucets using dummy accounts
-        use miden_client::account::{AccountStorageMode, AccountType};
-        use miden_objects::account::AccountIdVersion;
-        let faucet_a_id = AccountId::dummy(
-            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-            AccountIdVersion::Version0,
-            AccountType::FungibleFaucet,
-            AccountStorageMode::Public,
-        );
-        let faucet_b_id = AccountId::dummy(
-            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2],
-            AccountIdVersion::Version0,
-            AccountType::FungibleFaucet,
-            AccountStorageMode::Public,
-        );
-        let pool_account_id = AccountId::dummy(
-            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3],
-            AccountIdVersion::Version0,
-            AccountType::RegularAccountImmutableCode,
-            AccountStorageMode::Public,
-        );
+        let ctx = TestContext::with_decimals(6, 12).await;
 
-        // Create faucets with different decimals
-        let symbol_a = TokenSymbol::new("TKA").unwrap();
-        let symbol_b = TokenSymbol::new("TKB").unwrap();
-        let faucet_a = BasicFungibleFaucet::new(symbol_a, 6, Felt::new(1_000_000)).unwrap();
-        let faucet_b = BasicFungibleFaucet::new(symbol_b, 12, Felt::new(1_000_000)).unwrap();
-
-        // Create config with these faucets
-        let config = Config {
-            pool_account_id,
-            liquidity_pools: vec![
-                LiquidityPoolConfig {
-                    name: "TokenA",
-                    symbol: "TKA",
-                    decimals: 6,
-                    faucet_id: faucet_a_id,
-                    oracle_id: "oracle_a",
-                },
-                LiquidityPoolConfig {
-                    name: "TokenB",
-                    symbol: "TKB",
-                    decimals: 12,
-                    faucet_id: faucet_b_id,
-                    oracle_id: "oracle_b",
-                },
-            ],
-            oracle_sse: "http://localhost:8080",
-            oracle_https: "http://localhost:8080",
-            miden_endpoint: miden_client::rpc::Endpoint::localhost(),
-            server_url: "http://localhost:3000",
-            amm_tick_interval: 1000,
-            network_id: NetworkId::Testnet,
-            masm_path: "./masm",
-            keystore_path: "./keystore",
-            store_path: "./testing_store.sqlite3",
-        };
-
-        // Create AMM state and populate it
-        let state = Arc::new(AmmState::new(config).await);
-        state.faucet_metadata().insert(faucet_a_id, faucet_a);
-        state.faucet_metadata().insert(faucet_b_id, faucet_b);
-
-        // Create pool states
-        let pool_a_state = PoolState::new(pool_account_id, faucet_a_id);
-        let pool_b_state = PoolState::new(pool_account_id, faucet_b_id);
-        state.liquidity_pools().insert(faucet_a_id, pool_a_state);
-        state.liquidity_pools().insert(faucet_b_id, pool_b_state);
-
-        // Create an order that swaps from faucet_a to faucet_b
-        let asset_in = FungibleAsset::new(faucet_a_id, 100).unwrap();
-        let asset_out = FungibleAsset::new(faucet_b_id, 200).unwrap();
+        let asset_in = FungibleAsset::new(ctx.faucet_a_id, 100).unwrap();
+        let asset_out = FungibleAsset::new(ctx.faucet_b_id, 200).unwrap();
         let order = Order {
             id: Uuid::new_v4(),
             created_at: Utc::now(),
@@ -564,26 +683,75 @@ mod tests {
             asset_in,
             asset_out,
             p2id_tag: 0,
-            creator_id: pool_account_id,
+            creator_id: ctx.pool_account_id,
         };
 
-        // Create trading engine, call method
-        let broadcaster = Arc::new(EventBroadcaster::new());
-        let engine = TradingEngine::new("testing_store.sqlite3", state.clone(), broadcaster);
-        let result = engine.get_liq_pools_for_order(&state.liquidity_pools(), &order);
+        let engine = ctx.create_engine();
+        let result = engine.get_liq_pools_for_order(&ctx.state.liquidity_pools(), &order);
 
-        // Verify result
         assert!(result.is_ok(), "Unable to get liquidity pools");
         let ((_base_pool, base_decimals), (_quote_pool, quote_decimals)) = result.unwrap();
 
         assert_eq!(
             base_decimals, 6,
-            "Base pool (asset_in) must have 6 decimals."
+            "Base pool (asset_in) must have 6 decimals"
         );
         assert_eq!(
             quote_decimals, 12,
-            "Quote pool (asset_out) must have 12 decimals, not {}.",
-            quote_decimals
+            "Quote pool (asset_out) must have 12 decimals"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_matching_skipped_with_stale_prices() {
+        let ctx = TestContext::new().await;
+
+        // Add a swap order
+        let note = ctx.create_swap_note(1000, 1);
+        ctx.state.add_order(note).expect("Should add order");
+        assert_eq!(ctx.state.get_open_orders().len(), 1);
+
+        // Set STALE oracle prices (10 seconds old)
+        let stale_time = Utc::now().timestamp() as u64 - 10;
+        ctx.set_oracle_prices(stale_time, 100_000_000);
+
+        // Verify stale prices are detected
+        const MAX_PRICE_AGE_SECS: u64 = 4;
+        const CANARY_TOKENS: &[&str] = &["ETH", "BTC"];
+        assert!(
+            ctx.state
+                .oldest_stale_price(MAX_PRICE_AGE_SECS, CANARY_TOKENS)
+                .is_some(),
+            "Prices should be detected as stale"
+        );
+        assert_eq!(
+            ctx.state.get_open_orders().len(),
+            1,
+            "Orders should remain when prices are stale"
+        );
+
+        // Set FRESH oracle prices
+        let fresh_time = Utc::now().timestamp() as u64;
+        ctx.set_oracle_prices(fresh_time, 100_000_000);
+
+        assert!(
+            ctx.state
+                .oldest_stale_price(MAX_PRICE_AGE_SECS, CANARY_TOKENS)
+                .is_none(),
+            "Prices should be fresh"
+        );
+
+        // Run matching cycle - should process the order
+        let engine = ctx.create_engine();
+        let executions = engine
+            .run_matching_cycle()
+            .expect("Matching should succeed");
+
+        assert_eq!(executions.len(), 1, "Should have processed 1 order");
+        assert_eq!(
+            ctx.state.get_open_orders().len(),
+            0,
+            "Open orders should be empty after matching"
         );
     }
 }
