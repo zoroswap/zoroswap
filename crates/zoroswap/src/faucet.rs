@@ -38,7 +38,7 @@ impl GuardedFaucet {
         // Create our own client for faucet operations (with retry for DB contention)
         let mut client = None;
         for attempt in 1..=5 {
-            match instantiate_client(&self.config, self.config.store_path).await {
+            match instantiate_client(self.config.clone(), &self.config.store_path).await {
                 Ok(c) => {
                     client = Some(c);
                     break;
@@ -60,7 +60,6 @@ impl GuardedFaucet {
             }
         }
         let mut client = client.unwrap();
-
         while let Some(mint_instruction) = self.rx.recv().await {
             let last_mint = self
                 .recipients
