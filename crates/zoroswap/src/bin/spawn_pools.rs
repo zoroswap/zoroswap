@@ -120,24 +120,38 @@ async fn main() -> Result<()> {
         .into(),
     );
 
-    let pool0_fees = StorageSlot::Value(
-        [
-            Felt::new(400), // pool0_swap_fee
-            Felt::new(600), // pool0_backstop_fee
-            Felt::new(0),   // pool0_protocol_fee
-            Felt::new(0),   // 0
-        ]
-        .into(),
-    );
-    let pool0_curve = StorageSlot::Value(
-        [
-            Felt::new(17075887234393789126), // c
-            Felt::new(5000000000000000),     // beta
-            Felt::new(0),
-            Felt::new(0),
-        ]
-        .into(),
-    );
+    // let pool0_fees = StorageSlot::Value(
+    //     [
+    //         Felt::new(400), // pool0_swap_fee
+    //         Felt::new(600), // pool0_backstop_fee
+    //         Felt::new(0),   // pool0_protocol_fee
+    //         Felt::new(0),   // 0
+    //     ]
+    //     .into(),
+    // );
+    let pool0_fees: Word = [
+        Felt::new(0),   // pool0_protocol_fee
+        Felt::new(0),   // 0
+        Felt::new(600), // pool0_backstop_fee
+        Felt::new(400), // pool0_swap_fee
+    ]
+    .into();
+    // let pool0_curve = StorageSlot::Value(
+    //     [
+    //         Felt::new(17075887234393789126), // c
+    //         Felt::new(5000000000000000),     // beta
+    //         Felt::new(0),
+    //         Felt::new(0),
+    //     ]
+    //     .into(),
+    // );
+    let pool0_curve: Word = [
+        Felt::new(0),
+        Felt::new(0),
+        Felt::new(5000000000000000),     // beta
+        Felt::new(17075887234393789126), // c
+    ]
+    .into();
     let pool1_asset = StorageSlot::Value(
         [
             Felt::new(0),
@@ -147,26 +161,42 @@ async fn main() -> Result<()> {
         ]
         .into(),
     );
-    let pool1_fees = StorageSlot::Value(
-        [
-            Felt::new(200), // pool1_swap_fee
-            Felt::new(300), // pool1_backstop_fee
-            Felt::new(0),   // pool1_protocol_fee
-            Felt::new(0),   // 0
-        ]
-        .into(),
-    );
-    let pool1_curve = StorageSlot::Value(
-        [
-            Felt::new(17075887234393789127), // c
-            Felt::new(5000000000000001),     // beta
-            Felt::new(0),
-            Felt::new(0),
-        ]
-        .into(),
-    );
+    // let pool1_fees = StorageSlot::Value(
+    //     [
+    //         Felt::new(200), // pool1_swap_fee
+    //         Felt::new(300), // pool1_backstop_fee
+    //         Felt::new(0),   // pool1_protocol_fee
+    //         Felt::new(0),   // 0
+    //     ]
+    //     .into(),
+    // );
+    let pool1_fees: Word = [
+        Felt::new(0),   // pool1_protocol_fee
+        Felt::new(0),   // 0
+        Felt::new(300), // pool1_backstop_fee
+        Felt::new(200), // pool1_swap_fee
+    ]
+    .into();
+    // let pool1_curve = StorageSlot::Value(
+    //     [
+    //         Felt::new(17075887234393789127), // c
+    //         Felt::new(5000000000000001),     // beta
+    //         Felt::new(0),
+    //         Felt::new(0),
+    //     ]
+    //     .into(),
+    // );
+    let pool1_curve: Word = [
+        Felt::new(0),
+        Felt::new(0),
+        Felt::new(5000000000000001),     // beta
+        Felt::new(17075887234393789127), // c
+    ]
+    .into();
 
     let mut assets_mapping = StorageMap::new();
+    let mut curves_mapping = StorageMap::new();
+    let mut fees_mapping = StorageMap::new();
     let asset0_index = [Felt::new(0), Felt::new(0), Felt::new(0), Felt::new(0)];
     let asset0_id = [
         // pool0.faucet_id.prefix().as_felt(),
@@ -192,6 +222,20 @@ async fn main() -> Result<()> {
         .insert(asset1_index.into(), asset1_id.into())
         .unwrap_or_else(|err| panic!("Failed to insert asset1 into mapping: {err:?}"));
     let assets_mapping = StorageSlot::Map(assets_mapping);
+    curves_mapping
+        .insert(asset0_id.into(), pool0_curve)
+        .unwrap_or_else(|err| panic!("Failed to insert curve0 into mapping: {err:?}"));
+    curves_mapping
+        .insert(asset1_id.into(), pool1_curve)
+        .unwrap_or_else(|err| panic!("Failed to insert curve1 into mapping: {err:?}"));
+    let curves_mapping = StorageSlot::Map(curves_mapping);
+    fees_mapping
+        .insert(asset0_id.into(), pool0_fees)
+        .unwrap_or_else(|err| panic!("Failed to insert fees0 into mapping: {err:?}"));
+    fees_mapping
+        .insert(asset1_id.into(), pool1_fees)
+        .unwrap_or_else(|err| panic!("Failed to insert fees1 into mapping: {err:?}"));
+    let fees_mapping = StorageSlot::Map(fees_mapping);
     let pool_states_mapping = StorageSlot::Map(StorageMap::new());
     let user_deposits_mapping = StorageSlot::Map(StorageMap::new());
     info!(
@@ -209,15 +253,17 @@ async fn main() -> Result<()> {
         vec![
             pool0_asset,
             pool1_asset,
-            StorageSlot::empty_value(), // pool0 balances, we set them later
-            StorageSlot::empty_value(), // pool1 balances, we set them later
-            pool0_fees,
-            pool1_fees,
-            pool0_curve,
-            pool1_curve,
             assets_mapping,
             pool_states_mapping,
             user_deposits_mapping,
+            curves_mapping,
+            fees_mapping,
+            StorageSlot::empty_value(), // pool0 balances, we set them later
+            StorageSlot::empty_value(), // pool1 balances, we set them later
+            StorageSlot::empty_value(), // pool0_fees,
+            StorageSlot::empty_value(), // pool1_fees,
+            StorageSlot::empty_value(), // pool0_curve,
+            StorageSlot::empty_value(), // pool1_curve,
         ],
     )?
     .with_supports_all_types();

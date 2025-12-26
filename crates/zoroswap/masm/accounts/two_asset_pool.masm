@@ -3,7 +3,7 @@ use.miden::native_account
 use.miden::output_note
 
 
-use.std::sys
+#use.std::sys
 
 
 #! CONSTANTS
@@ -37,23 +37,27 @@ const.LP_SHARES_AMOUNT_ADDR = LP_SHARES_LOC + 3
 #! fees: [swap_fee, backstop_fee, protocol_fee, 0 ]
 #! curve: c, beta
 
-const.ASSET0_ID_ADDR = 0x0000
-const.ASSET1_ID_ADDR = 0x0001
+#const.ASSET0_ID_ADDR = 0x0000
+#const.ASSET1_ID_ADDR = 0x0001
+#
+#const.POOL0_STATE_ADDR = 0x0002
+#const.POOL1_STATE_ADDR = 0x0003
+#
+#const.POOL0_FEES_ADDR = 0x0004
+#const.POOL1_FEES_ADDR = 0x0005
+#
+#const.POOL0_CURVE_ADDR = 0x0006
+#const.POOL1_CURVE_ADDR = 0x0007
 
-const.POOL0_STATE_ADDR = 0x0002
-const.POOL1_STATE_ADDR = 0x0003
 
-const.POOL0_FEES_ADDR = 0x0004
-const.POOL1_FEES_ADDR = 0x0005
+const.ASSETS_MAPPING_SLOT = 0x0002
+const.POOL_STATE_MAPPING_SLOT = 0x0003
 
-const.POOL0_CURVE_ADDR = 0x0006
-const.POOL1_CURVE_ADDR = 0x0007
+const.USER_DEPOSITS_MAPPING_SLOT = 0x0004
 
 
-const.ASSETS_MAPPING_SLOT = 0x0008
-const.POOL_STATE_MAPPING_SLOT = 0x0009
-
-const.USER_DEPOSITS_MAPPING_SLOT = 0x000A
+const.POOL_CURVE_MAPPING_SLOT = 0x0005
+const.POOL_FEES_MAPPING_SLOT = 0x0006
 
 
 #! INDEXES
@@ -166,42 +170,25 @@ export.set_pool1_state
 end
 
 
-proc.debug_storage
-    push.POOL1_CURVE_ADDR exec.active_account::get_item
-    push.POOL0_CURVE_ADDR exec.active_account::get_item
-    push.POOL1_FEES_ADDR exec.active_account::get_item
-    push.POOL0_FEES_ADDR exec.active_account::get_item
-    push.POOL1_STATE_ADDR exec.active_account::get_item
-    push.POOL0_STATE_ADDR exec.active_account::get_item
-    push.ASSET1_ID_ADDR exec.active_account::get_item
-    push.ASSET0_ID_ADDR exec.active_account::get_item
-    debug.stack
-    dropw
-    dropw
-    dropw
-    dropw
-    dropw
-    dropw
-    dropw
-    dropw
-end
-
-
-
-#! GETTERS
-#! Returns ASSET ADDRESS
-#!
-#! Inputs: [0, 0, 0, 0]
-#! Outputs: [asset_accout_prefix, asset_account_suffix, 0, 0]
-#!
-export.get_asset0
-    push.ASSET0_ID_ADDR exec.active_account::get_item
-    swapw dropw
-end
-export.get_asset1
-    push.ASSET1_ID_ADDR exec.active_account::get_item
-    swapw dropw
-end
+#proc.debug_storage
+#    push.POOL1_CURVE_ADDR exec.active_account::get_item
+#    push.POOL0_CURVE_ADDR exec.active_account::get_item
+#    push.POOL1_FEES_ADDR exec.active_account::get_item
+#    push.POOL0_FEES_ADDR exec.active_account::get_item
+#    push.POOL1_STATE_ADDR exec.active_account::get_item
+#    push.POOL0_STATE_ADDR exec.active_account::get_item
+#    push.ASSET1_ID_ADDR exec.active_account::get_item
+#    push.ASSET0_ID_ADDR exec.active_account::get_item
+#    debug.stack
+#    dropw
+#    dropw
+#    dropw
+#    dropw
+#    dropw
+#    dropw
+#    dropw
+#    dropw
+#end
 
 
 
@@ -233,7 +220,7 @@ end
 #! Returns POOL ASSET ID
 #!
 #! Inputs: [pool_index]
-#! Outputs: [asset_id_prefix, asset_id_suffix, 0, 0]
+#! Outputs: [asset_id_prefix, asset_id_suffix]
 #!
 export.get_pool_asset
     # fill in the index to a word to server as the mapping key
@@ -241,28 +228,35 @@ export.get_pool_asset
     # => [POOL_IMDEX]
     push.ASSETS_MAPPING_SLOT
     exec.active_account::get_map_item
+    swap.2 drop
+    swap.2 drop
 end
 
 #! Returns POOL FEES
 #!
-#! Inputs: [0, 0, 0, 0]
+#! Inputs: [0, 0, 0, index]
 #! Outputs: [swap_fee, backstop_fee, protocol_fee, 0]
 #!
-export.get_pool0_fees
-    push.POOL0_FEES_ADDR
-    # => [pool0_fees_addr]
-    
-    exec.active_account::get_item
-    # => [swap_fee, backstop_fee, protocol_fee, 0]
-    swapw dropw
-end
-export.get_pool1_fees
-    push.POOL1_FEES_ADDR
-    # => [pool1_fees_addr]
-    
-    exec.active_account::get_item
-    # => [swap_fee, backstop_fee, protocol_fee, 0]
-    swapw dropw
+#export.get_pool0_fees
+#    push.POOL0_FEES_ADDR
+#    # => [pool0_fees_addr]
+#    
+#    exec.active_account::get_item
+#    # => [swap_fee, backstop_fee, protocol_fee, 0]
+#    swapw dropw
+#end
+#export.get_pool1_fees
+#    push.POOL1_FEES_ADDR
+#    # => [pool1_fees_addr]
+#    
+#    exec.active_account::get_item
+#    # => [swap_fee, backstop_fee, protocol_fee, 0]
+#    swapw dropw
+#end
+export.get_pool_fees
+    push.0.0.0
+    push.POOL_FEES_MAPPING_SLOT
+    exec.active_account::get_map_item
 end
 
 
@@ -271,24 +265,13 @@ end
 #! Inputs: [0, 0, 0, 0]
 #! Outputs: [c, beta, 0, 0]
 #!
-
-export.get_pool0_curve
-    push.POOL0_CURVE_ADDR
-    # => [pool0_curve_addr]
-    
-    exec.active_account::get_item
-    # => [c, beta, 0, 0]
-    swapw dropw
+export.get_pool_curve
+    push.0.0.0
+    push.POOL_CURVE_MAPPING_SLOT
+    exec.active_account::get_map_item
+    swap.2 drop
+    swap.2 drop
 end
-export.get_pool1_curve
-    push.POOL1_CURVE_ADDR
-    # => [pool1_curve_addr]
-    
-    exec.active_account::get_item
-    # => [c, beta, 0, 0]
-    swapw dropw
-end
-
 
 
 

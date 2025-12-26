@@ -108,8 +108,8 @@ pub async fn fetch_lp_total_supply_from_chain(
         Felt::new(0),
         Felt::new(0),
     ];
-    let asset_address = account_storage.get_map_item(9, asset_mapping_index.into())?;
-    let total_supply = account_storage.get_map_item(11, asset_address)?;
+    let asset_address = account_storage.get_map_item(3, asset_mapping_index.into())?;
+    let total_supply = account_storage.get_map_item(5, asset_address)?;
     Ok(total_supply[0].as_int())
 }
 
@@ -130,12 +130,13 @@ pub async fn fetch_pool_state_from_chain(
         Felt::new(0),
         Felt::new(0),
     ];
-    let asset_address = account_storage.get_map_item(9, asset_mapping_index.into())?;
-    let pool_balances = account_storage.get_map_item(10, asset_address)?;
-
+    let asset_address = account_storage.get_map_item(3, asset_mapping_index.into())?;
+    let pool_balances = account_storage.get_map_item(4, asset_address)?;
+    let pool_curve = account_storage.get_map_item(6, asset_address)?;
+    let pool_fees = account_storage.get_map_item(7, asset_address)?;
     // let pool_balances = account_storage.get_item(3 + index_in_pool)?;
-    let pool_fees = account_storage.get_item(5 + index_in_pool)?;
-    let pool_curve = account_storage.get_item(7 + index_in_pool)?;
+    // let pool_fees = account_storage.get_item(5 + index_in_pool)?;
+    // let pool_curve = account_storage.get_item(7 + index_in_pool)?;
 
     let pool_balances = PoolBalances {
         reserve_with_slippage: U256::from(pool_balances[1].as_int()),
