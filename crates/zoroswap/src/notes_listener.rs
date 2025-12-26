@@ -76,7 +76,7 @@ impl NotesListener {
 
                     for note in valid_notes.iter() {
                         let note_miden_id = note.id();
-                        match self.state.add_order(note.to_owned().clone()) {
+                        match self.state.add_order(note.clone()) {
                             Ok((note_id, order_id, order)) => {
                                 // Track this note as processed to avoid duplicates
                                 processed_notes.insert(note_miden_id);
