@@ -46,12 +46,12 @@ impl AmmState {
 
     pub async fn init_liquidity_pool_states(&self, client: &mut MidenClient) -> Result<()> {
         info!("Starting initiation of liq pool states.");
-        for (index, liq_pool_config) in self.config.liquidity_pools.iter().enumerate() {
+        for liq_pool_config in &self.config.liquidity_pools {
             let mut new_liq_pool_state =
                 PoolState::new(self.config.pool_account_id, liq_pool_config.faucet_id);
             {
                 new_liq_pool_state
-                    .sync_from_chain(client, index as u8)
+                    .sync_from_chain(client, liq_pool_config.faucet_id)
                     .await?;
             }
             self.liquidity_pools
