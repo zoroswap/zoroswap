@@ -12,7 +12,7 @@ use rusqlite::Connection;
 use std::{fs, path::PathBuf};
 use tracing::{debug, info, warn};
 
-use crate::Config;
+use crate::{Config, order::OrderType};
 use zoro_miden_client::{MidenClient, create_library};
 
 // --------------------------------------------------------------------------
@@ -312,4 +312,36 @@ pub fn create_withdraw_note(
     let note = Note::new(assets.clone(), metadata, recipient.clone());
 
     Ok(note)
+}
+
+pub fn get_script_root_for_order_type(order_type: OrderType) -> Word {
+    let script = match order_type {
+        OrderType::Deposit => "DEPOSIT.masm",
+        OrderType::Withdraw => "WITHDRAW.masm",
+        OrderType::Swap => "ZOROSWAP.masm",
+    };
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    let assembler = TransactionKernel::assembler()
+        .with_debug_mode(true)
+        .with_warnings_as_errors(true);
+
+    let path: PathBuf = [manifest_dir, "masm", "notes", script].iter().collect();
+    let note_code = fs::read_to_string(&path)
+        .unwrap_or_else(|err| panic!("Error reading {}: {}", path.display(), err));
+    let pool_code_path: PathBuf = [manifest_dir, "masm", "accounts", "two_asset_pool.masm"]
+        .iter()
+        .collect();
+    let pool_code = fs::read_to_string(&pool_code_path)
+        .unwrap_or_else(|err| panic!("Error reading {}: {}", pool_code_path.display(), err));
+
+    let pool_component_lib =
+        create_library(assembler.clone(), "zoro::two_asset_pool", &pool_code).unwrap();
+
+    let note_script = ScriptBuilder::new(true)
+        .with_dynamically_linked_library(&pool_component_lib)
+        .unwrap()
+        .compile_note_script(note_code)
+        .unwrap();
+
+    note_script.root()
 }

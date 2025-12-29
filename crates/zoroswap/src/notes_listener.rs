@@ -1,11 +1,13 @@
 use crate::{
     amm_state::AmmState,
-    common::instantiate_client,
+    common::{get_script_root_for_order_type, instantiate_client},
     order::OrderType,
     websocket::{EventBroadcaster, OrderStatus, OrderUpdateDetails, OrderUpdateEvent},
 };
+use anyhow::Result;
 use chrono::Utc;
 use miden_client::{
+    Word,
     note::{Note, NoteId, NoteTag},
     store::NoteFilter,
 };
@@ -15,11 +17,18 @@ use tracing::{debug, error, warn};
 pub struct NotesListener {
     state: Arc<AmmState>,
     broadcaster: Arc<EventBroadcaster>,
+    note_roots: NoteRoots,
 }
 
 impl NotesListener {
     pub fn new(state: Arc<AmmState>, broadcaster: Arc<EventBroadcaster>) -> Self {
-        Self { state, broadcaster }
+        let note_roots = NoteRoots::generate_from_notes()
+            .unwrap_or_else(|e| panic!("Error creating script roots from: {e}"));
+        Self {
+            state,
+            broadcaster,
+            note_roots,
+        }
     }
 
     pub async fn start(&mut self) {
@@ -66,21 +75,21 @@ impl NotesListener {
             }
 
             // Fetch notes and filter by tag
-            match Self::get_notes_filtered(&mut client, NoteFilter::Committed, Some(tag)).await {
+            match self
+                .get_notes_filtered(&mut client, NoteFilter::Committed, Some(tag))
+                .await
+            {
                 Ok(notes) => {
-                    let valid_notes: Vec<&Note> = notes
+                    let valid_notes: Vec<&(Note, OrderType)> = notes
                         .iter()
-                        .filter(|n| {
+                        .filter(|(n, _)| {
                             !failed_notes.contains(&n.id()) && !processed_notes.contains(&n.id())
                         })
                         .collect();
 
-                    for note in valid_notes.iter() {
+                    for (note, order_type) in valid_notes.iter() {
                         let note_miden_id = note.id();
-                        match self
-                            .state
-                            .add_order(note.to_owned().clone(), OrderType::Swap)
-                        {
+                        match self.state.add_order(note.to_owned().clone(), *order_type) {
                             Ok((note_id, order_id, order)) => {
                                 // Track this note as processed to avoid duplicates
                                 processed_notes.insert(note_miden_id);
@@ -136,25 +145,33 @@ impl NotesListener {
     }
 
     async fn get_notes_filtered(
+        &self,
         client: &mut zoro_miden_client::MidenClient,
         filter: NoteFilter,
         tag: Option<NoteTag>,
-    ) -> Result<Vec<Note>, anyhow::Error> {
+    ) -> Result<Vec<(Note, OrderType)>, anyhow::Error> {
         let all_notes = client.get_input_notes(filter).await?;
-        let notes: Vec<Note> = all_notes
+        let notes: Vec<(Note, OrderType)> = all_notes
             .iter()
             .filter_map(|n| {
-                if let Some(metadata) = n.metadata() {
+                if let Some(metadata) = n.metadata()
+                    && let Some(order_type) =
+                        self.note_roots.get_order_type(&n.details().script().root())
+                {
                     // If tag filter provided, check it matches
                     if let Some(ref required_tag) = tag
                         && !metadata.tag().eq(required_tag)
                     {
                         return None;
                     }
-                    Some(Note::new(
-                        n.assets().clone(),
-                        *metadata,
-                        n.details().recipient().clone(),
+
+                    Some((
+                        Note::new(
+                            n.assets().clone(),
+                            *metadata,
+                            n.details().recipient().clone(),
+                        ),
+                        order_type,
                     ))
                 } else {
                     None
@@ -163,5 +180,33 @@ impl NotesListener {
             .collect();
 
         Ok(notes)
+    }
+}
+
+struct NoteRoots {
+    deposit: Word,
+    withdraw: Word,
+    swap: Word,
+}
+
+impl NoteRoots {
+    pub fn generate_from_notes() -> Result<Self> {
+        Ok(Self {
+            deposit: get_script_root_for_order_type(OrderType::Deposit),
+            withdraw: get_script_root_for_order_type(OrderType::Withdraw),
+            swap: get_script_root_for_order_type(OrderType::Swap),
+        })
+    }
+
+    pub fn get_order_type(&self, root: &Word) -> Option<OrderType> {
+        if root.eq(&self.deposit) {
+            Some(OrderType::Deposit)
+        } else if root.eq(&self.withdraw) {
+            Some(OrderType::Withdraw)
+        } else if root.eq(&self.swap) {
+            Some(OrderType::Swap)
+        } else {
+            None
+        }
     }
 }
