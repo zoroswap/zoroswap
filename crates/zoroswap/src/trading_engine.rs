@@ -317,6 +317,7 @@ impl TradingEngine {
             debug!("---------------order: {:?}", order);
             debug!("---------------base_pool_state: {:?}", base_pool_state);
             debug!("---------------quote_pool_state: {:?}", quote_pool_state);
+
             if order.deadline < now {
                 let (_, note) = self.state.pluck_note(&order.id)?;
                 warn!(
@@ -425,26 +426,34 @@ impl TradingEngine {
 
                     // Check if order is past deadline
                     info!(
-                        "SWAP: decimals base: {}, quote: {}, amount_in: {:?}, price: {:?}",
-                        base_pool_decimals,
-                        quote_pool_decimals,
+                        "SWAP: in {} from faucet {}, out {} from faucet {} at price {}",
                         order.asset_in.amount(),
+                        order
+                            .asset_in
+                            .faucet_id()
+                            .to_bech32(self.network_id.clone()),
+                        order.asset_out.amount(),
+                        order
+                            .asset_out
+                            .faucet_id()
+                            .to_bech32(self.network_id.clone()),
                         price
                     );
+                    let amount_in = order.asset_in.amount();
                     let (amount_out, new_base_pool_balance, new_quote_pool_balance) =
                         get_curve_amount_out(
                             &base_pool_state,
                             &quote_pool_state,
                             U256::from(base_pool_decimals),
                             U256::from(quote_pool_decimals),
-                            U256::from(order.asset_in.amount()),
+                            U256::from(amount_in),
                             price,
                         )?;
                     let amount_out = amount_out.to::<u64>();
                     if amount_out > 0 && amount_out >= order.asset_out.amount() {
                         // Swap successful - create execution order for swap
                         info!(
-                            "Swap successful! New balances: {new_base_pool_balance:?}, {new_quote_pool_balance:?}"
+                            "Swap successful! Amount {amount_in:?} -> {amount_out:?}, New balances: {new_base_pool_balance:?}, {new_quote_pool_balance:?}"
                         );
                         pools
                             .get_mut(&order.asset_in.faucet_id())
@@ -498,7 +507,7 @@ impl TradingEngine {
     ) -> Result<()> {
         client.sync_state().await?;
         let pool_account_id = self.state.config().pool_account_id;
-        let network_id = self.state.config().miden_endpoint.to_network_id();
+        let network_id = self.state.config().network_id;
         let mut input_notes = Vec::new();
         let mut expected_future_notes = Vec::new();
         let mut expected_output_recipients = Vec::new();
@@ -603,19 +612,20 @@ impl TradingEngine {
             info!("Expected future note P2ID id: {:?}", note.0.id());
             for asset in note.0.assets().iter_fungible() {
                 info!(
-                    "Expected future note P2ID asset with faucet_id: {:?}, {:?}, {:?}",
-                    // asset.faucet_id().to_bech32(network_id.clone()),
+                    "Expected future note P2ID asset (amount: {}) with faucet_id ({:?}), prefix|suffix: {:?} | {:?}",
+                    asset.amount(),
+                    asset.faucet_id().to_bech32(network_id.clone()),
                     asset.faucet_id().prefix().as_felt(),
-                    asset.faucet_id().suffix(),
-                    asset.amount()
+                    asset.faucet_id().suffix()
                 );
             }
         }
 
         println!(
             "----------------------------------------------------------------------input_notes: {:?}",
-            input_notes
+            input_notes.len()
         );
+
         let consume_req = TransactionRequestBuilder::new()
             .extend_advice_map(advice_map)
             .unauthenticated_input_notes(input_notes.clone())
@@ -624,7 +634,7 @@ impl TradingEngine {
             .build()
             .map_err(|e| anyhow::anyhow!("Failed to build batch transaction request: {}", e))?;
 
-        info!("All Recipients: {:?}", expected_output_recipients);
+        info!("All Recipients: {:?}", expected_output_recipients.len());
         for recipient in expected_output_recipients.clone() {
             info!("Recipient digest: {:?}", recipient.digest());
         }
@@ -668,6 +678,7 @@ impl TradingEngine {
         let user_account_id = execution_details.order.creator_id;
         let serial_num = execution_details.note.serial_num();
         let note = execution_details.note;
+        let asset_out_faucet_id = asset_out.faucet_id().to_bech32(self.network_id.clone());
         let asset_out = Asset::Fungible(asset_out);
         println!(
             "######################################prepare_payout###################################### asset_out: {:?}",
@@ -681,7 +692,8 @@ impl TradingEngine {
         ];
 
         info!(
-            "Calculated {asset_out:?} asset_out for recipient {} {} {} with serial number {:?}",
+            "Calculated {asset_out:?} asset_out from faucet: {}, for recipient {} {} {} with serial number {:?}",
+            asset_out_faucet_id,
             user_account_id.to_bech32(self.network_id.clone()),
             user_account_id.prefix().as_felt(),
             user_account_id.suffix(),

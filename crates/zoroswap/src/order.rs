@@ -71,6 +71,16 @@ impl Order {
         let creator_id = AccountId::try_from([creator_prefix, creator_suffix])
             .or(Err(anyhow!("Couldn't parse creator_id from order note")))?;
 
+        info!(
+            "Asset in: {}, asset out: {}",
+            asset_in
+                .faucet_id()
+                .to_bech32(miden_client::address::NetworkId::Testnet),
+            asset_out
+                .faucet_id()
+                .to_bech32(miden_client::address::NetworkId::Testnet)
+        );
+
         let order = Order {
             created_at: Utc::now(),
             updated_at: Utc::now(),
