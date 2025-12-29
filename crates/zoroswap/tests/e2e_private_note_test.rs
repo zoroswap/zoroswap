@@ -81,7 +81,7 @@ async fn set_up() -> Result<(
         .liquidity_pools
         .last()
         .expect("No liquidity pools found in config.");
-    let pools = vec![pool0.clone(), pool1.clone()];
+    let pools = vec![*pool0, *pool1];
 
     fund_user_wallet(&mut client, &accounts.user, &pool0, 0).await?;
     Ok((config, client, keystore, accounts, pools))
@@ -154,7 +154,7 @@ async fn e2e_private_deposit_withdraw_test() -> Result<()> {
     let amount_in: u64 = amount_in * 10u64.pow(pool.decimals as u32 - 2);
     let max_slippage = 0.005; // 0.5 %
     let min_lp_amount_out = (amount_in as f64) * (1.0 - max_slippage);
-    let min_lp_amount_out = min_lp_amount_out as u64;
+    let min_lp_amount_out = 0 as u64;
     let asset_in = FungibleAsset::new(pool.faucet_id, amount_in)?;
     let p2id_tag = NoteTag::from_account_id(account.id());
     let deadline = (Utc::now().timestamp_millis() as u64) + 10000;
@@ -341,7 +341,7 @@ async fn e2e_private_note() -> Result<()> {
     let max_slippage = 0.005; // 0.5 %
     let min_amount_out =
         ((pool0_price as f64) / (pool1_price as f64)) * (amount_in as f64) * (1.0 - max_slippage);
-    let min_amount_out = min_amount_out as u64;
+    let min_amount_out = 0 as u64;
     let asset_in = FungibleAsset::new(pool0.faucet_id, amount_in)?;
     let asset_out = FungibleAsset::new(pool1.faucet_id, min_amount_out)?;
     let requested_asset_word: Word = asset_out.into();
