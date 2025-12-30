@@ -440,15 +440,39 @@ impl TradingEngine {
                         price
                     );
                     let amount_in = order.asset_in.amount();
+                    let curve_result = get_curve_amount_out(
+                        &base_pool_state,
+                        &quote_pool_state,
+                        U256::from(base_pool_decimals),
+                        U256::from(quote_pool_decimals),
+                        U256::from(order.asset_in.amount()),
+                        price,
+                    );
                     let (amount_out, new_base_pool_balance, new_quote_pool_balance) =
-                        get_curve_amount_out(
-                            &base_pool_state,
-                            &quote_pool_state,
-                            U256::from(base_pool_decimals),
-                            U256::from(quote_pool_decimals),
-                            U256::from(amount_in),
-                            price,
-                        )?;
+                        match curve_result {
+                            Ok(result) => result,
+                            Err(e) => {
+                                warn!("Swap calculation failed: {e}");
+                                let pool_in = pools
+                                    .get(&order.asset_in.faucet_id())
+                                    .ok_or(anyhow!("Missing pool in state"))?;
+
+                                let pool_out = pools
+                                    .get_mut(&order.asset_out.faucet_id())
+                                    .ok_or(anyhow!("Missing pool in state"))?;
+                                let (_, note) = self.state.pluck_note(&order.id)?;
+                                order_executions.push(OrderExecution::FailedOrder(
+                                    ExecutionDetails {
+                                        in_pool_balances: pool_in.balances,
+                                        out_pool_balances: pool_out.balances,
+                                        note,
+                                        order,
+                                        amount_out: order.asset_in.amount(),
+                                    },
+                                ));
+                                continue;
+                            }
+                        };
                     let amount_out = amount_out.to::<u64>();
                     if amount_out > 0 && amount_out >= order.asset_out.amount() {
                         // Swap successful - create execution order for swap
