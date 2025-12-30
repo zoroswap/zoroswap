@@ -7279,7 +7279,7 @@ dependencies = [
 
 [[package]]
 name = "zoro_miden_client"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "miden-assembly",
@@ -7294,14 +7294,14 @@ dependencies = [
 
 [[package]]
 name = "zoro_primitives"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "alloy",
 ]
 
 [[package]]
 name = "zoroswap"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "alloy",
  "anyhow",
