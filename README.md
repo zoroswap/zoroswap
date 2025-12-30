@@ -88,7 +88,7 @@ cp faucets-example.toml faucets.toml
 cargo run --release --bin spawn_faucets
 ```
 
-It will print out 2 faucet ids. Put them in corresponding entries `faucet_id` under `[[liquidity_pools]]` section in `config.toml` file.
+It create faucets defined in `faucets.toml` and print out their faucet ids. Put them in corresponding entries `faucet_id` under `[[liquidity_pools]]` section in `config.toml` file.
 
 ### 3. Spawn pool
 
@@ -96,7 +96,7 @@ It will print out 2 faucet ids. Put them in corresponding entries `faucet_id` un
 cargo run --release --bin spawn_pools
 ```
 
-It will print out pool id (at the start of program output). Put it into corresponding entry `pool_account_id` section in `config.toml` file.
+It will print out pool id (at the end of program output). Put it into corresponding entry `pool_account_id` section in `config.toml` file.
 
 ### 4. Run the server
 

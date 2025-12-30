@@ -13,3 +13,10 @@ symbol = "ETH"
 decimals = 8
 faucet_id = "mlcl1arqwrapl5sqasgqhj8t6jsh0p5ynxw7s"
 oracle_id = "ff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace"
+
+[[liquidity_pools]]
+name = "USDC pool"
+symbol = "USDC"
+decimals = 8
+faucet_id = "mtst1ar3e09f53xfh2gp7aj7vnjsuyshhx5q2"
+oracle_id = "eaa020c61cc479712813461ce153894a96a6c00b21ed0cfc2798d1f9a9e9c94a"

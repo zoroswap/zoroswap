@@ -7,3 +7,8 @@ max_supply = 1_000_000_000_000_000_000
 symbol = "ETH"
 decimals = 8
 max_supply = 1_000_000_000_000_000_000
+
+[[faucets]]
+symbol = "USDC"
+decimals = 8
+max_supply = 1_000_000_000_000_000_000
