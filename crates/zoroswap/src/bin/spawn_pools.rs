@@ -21,7 +21,6 @@ use miden_lib::{
 use miden_objects::{account::AccountComponent, assembly::Assembler};
 use rand::RngCore;
 use std::{fs, path::Path, time::Duration};
-use tracing::info;
 use zoro_miden_client::{MidenClient, create_basic_account, instantiate_simple_client};
 use zoroswap::{
     Config, create_deposit_note, fetch_lp_total_supply_from_chain, fetch_pool_state_from_chain,
@@ -103,160 +102,63 @@ async fn main() -> Result<()> {
     // Prepare assembler (debug mode = true)
     let assembler: Assembler = TransactionKernel::assembler().with_debug_mode(true);
 
-    if config.liquidity_pools.len() != 2 {
-        panic!("There should be exactly 2 pools defined in config")
-    }
-    let pool0 = config.liquidity_pools.first().expect("Pool0 from config");
-    let pool1 = config.liquidity_pools.last().expect("pool0 from config");
-    let key_pair = AuthSecretKey::new_rpo_falcon512_with_rng(client.rng());
-
-    let pool0_asset = StorageSlot::Value(
-        [
-            Felt::new(0),
-            Felt::new(0),
-            pool0.faucet_id.suffix(),
-            pool0.faucet_id.prefix().as_felt(),
-        ]
-        .into(),
-    );
-
-    // let pool0_fees = StorageSlot::Value(
-    //     [
-    //         Felt::new(400), // pool0_swap_fee
-    //         Felt::new(600), // pool0_backstop_fee
-    //         Felt::new(0),   // pool0_protocol_fee
-    //         Felt::new(0),   // 0
-    //     ]
-    //     .into(),
-    // );
-    let pool0_fees: Word = [
-        Felt::new(0),   // pool0_protocol_fee
-        Felt::new(0),   // 0
-        Felt::new(600), // pool0_backstop_fee
-        Felt::new(400), // pool0_swap_fee
-    ]
-    .into();
-    // let pool0_curve = StorageSlot::Value(
-    //     [
-    //         Felt::new(17075887234393789126), // c
-    //         Felt::new(5000000000000000),     // beta
-    //         Felt::new(0),
-    //         Felt::new(0),
-    //     ]
-    //     .into(),
-    // );
-    let pool0_curve: Word = [
-        Felt::new(0),
-        Felt::new(0),
-        Felt::new(5000000000000000),     // beta
-        Felt::new(17075887234393789126), // c
-    ]
-    .into();
-    let pool1_asset = StorageSlot::Value(
-        [
-            Felt::new(0),
-            Felt::new(0),
-            pool1.faucet_id.suffix(),
-            pool1.faucet_id.prefix().as_felt(),
-        ]
-        .into(),
-    );
-    // let pool1_fees = StorageSlot::Value(
-    //     [
-    //         Felt::new(200), // pool1_swap_fee
-    //         Felt::new(300), // pool1_backstop_fee
-    //         Felt::new(0),   // pool1_protocol_fee
-    //         Felt::new(0),   // 0
-    //     ]
-    //     .into(),
-    // );
-    let pool1_fees: Word = [
-        Felt::new(0),   // pool1_protocol_fee
-        Felt::new(0),   // 0
-        Felt::new(300), // pool1_backstop_fee
-        Felt::new(200), // pool1_swap_fee
-    ]
-    .into();
-    // let pool1_curve = StorageSlot::Value(
-    //     [
-    //         Felt::new(17075887234393789127), // c
-    //         Felt::new(5000000000000001),     // beta
-    //         Felt::new(0),
-    //         Felt::new(0),
-    //     ]
-    //     .into(),
-    // );
-    let pool1_curve: Word = [
-        Felt::new(0),
-        Felt::new(0),
-        Felt::new(5000000000000001),     // beta
-        Felt::new(17075887234393789127), // c
-    ]
-    .into();
-
     let mut assets_mapping = StorageMap::new();
     let mut curves_mapping = StorageMap::new();
     let mut fees_mapping = StorageMap::new();
-    let asset0_index = [Felt::new(0), Felt::new(0), Felt::new(0), Felt::new(0)];
-    let asset0_id = [
-        // pool0.faucet_id.prefix().as_felt(),
-        // pool0.faucet_id.suffix(),
-        Felt::new(0),
-        Felt::new(0),
-        pool0.faucet_id.suffix(),
-        pool0.faucet_id.prefix().as_felt(),
-    ];
-    let asset1_index = [Felt::new(1), Felt::new(0), Felt::new(0), Felt::new(0)];
-    let asset1_id = [
-        // pool1.faucet_id.prefix().as_felt(),
-        // pool1.faucet_id.suffix(),
-        Felt::new(0),
-        Felt::new(0),
-        pool1.faucet_id.suffix(),
-        pool1.faucet_id.prefix().as_felt(),
-    ];
-    assets_mapping
-        .insert(asset0_index.into(), asset0_id.into())
-        .unwrap_or_else(|err| panic!("Failed to insert asset0 into mapping: {err:?}"));
-    assets_mapping
-        .insert(asset1_index.into(), asset1_id.into())
-        .unwrap_or_else(|err| panic!("Failed to insert asset1 into mapping: {err:?}"));
-    let assets_mapping = StorageSlot::Map(assets_mapping);
-    curves_mapping
-        .insert(asset0_id.into(), pool0_curve)
-        .unwrap_or_else(|err| panic!("Failed to insert curve0 into mapping: {err:?}"));
-    curves_mapping
-        .insert(asset1_id.into(), pool1_curve)
-        .unwrap_or_else(|err| panic!("Failed to insert curve1 into mapping: {err:?}"));
-    let curves_mapping = StorageSlot::Map(curves_mapping);
-    fees_mapping
-        .insert(asset0_id.into(), pool0_fees)
-        .unwrap_or_else(|err| panic!("Failed to insert fees0 into mapping: {err:?}"));
-    fees_mapping
-        .insert(asset1_id.into(), pool1_fees)
-        .unwrap_or_else(|err| panic!("Failed to insert fees1 into mapping: {err:?}"));
+
+    for (i, pool) in config.liquidity_pools.iter().enumerate() {
+        let fees: Word = [
+            Felt::new(200), // swap_fee
+            Felt::new(300), // backstop_fee
+            Felt::new(0),   // protocol_fee
+            Felt::new(0),   // 0
+        ]
+        .into();
+        let curve: Word = [
+            Felt::new(17075887234393789126 + i as u64), // c
+            Felt::new(5000000000000000),                // beta
+            Felt::new(0),
+            Felt::new(0),
+        ]
+        .into();
+        let asset_index = [
+            Felt::new(i as u64),
+            Felt::new(0),
+            Felt::new(0),
+            Felt::new(0),
+        ];
+        let asset_id = [
+            Felt::new(0),
+            Felt::new(0),
+            pool.faucet_id.suffix(),
+            pool.faucet_id.prefix().as_felt(),
+        ];
+        assets_mapping
+            .insert(asset_index.into(), asset_id.into())
+            .unwrap_or_else(|err| panic!("Failed to insert asset into mapping: {err:?}"));
+        fees_mapping
+            .insert(asset_id.into(), fees)
+            .unwrap_or_else(|err| panic!("Failed to insert fees into mapping: {err:?}"));
+        curves_mapping
+            .insert(asset_id.into(), curve)
+            .unwrap_or_else(|err| panic!("Failed to insert curve into mapping: {err:?}"));
+    }
+
     let fees_mapping = StorageSlot::Map(fees_mapping);
     let pool_states_mapping = StorageSlot::Map(StorageMap::new());
     let user_deposits_mapping = StorageSlot::Map(StorageMap::new());
-    info!(
-        "Asset0: prefix {:?} suffix {:?} , Asset1: prefix {:?} suffix {:?}",
-        pool0.faucet_id.prefix().as_felt(),
-        pool0.faucet_id.suffix(),
-        pool1.faucet_id.prefix().as_felt(),
-        pool1.faucet_id.suffix()
-    );
 
     // Compile the account code into `AccountComponent` with one storage slot
     let pool_component = AccountComponent::compile(
         pool_code.clone(),
         assembler.clone(),
         vec![
-            pool0_asset,
-            pool1_asset,
-            assets_mapping,
+            StorageSlot::empty_value(),
+            StorageSlot::empty_value(),
+            StorageSlot::Map(assets_mapping),
             pool_states_mapping,
             user_deposits_mapping,
-            curves_mapping,
+            StorageSlot::Map(curves_mapping),
             fees_mapping,
             StorageSlot::empty_value(), // pool0 balances, we set them later
             StorageSlot::empty_value(), // pool1 balances, we set them later
@@ -271,6 +173,8 @@ async fn main() -> Result<()> {
     // Init seed for the pool contract
     let mut init_seed = [0_u8; 32];
     client.rng().fill_bytes(&mut init_seed);
+
+    let key_pair = AuthSecretKey::new_rpo_falcon512_with_rng(client.rng());
 
     // Build the new `Account` with the component
     let pool_contract = AccountBuilder::new(init_seed)
@@ -291,13 +195,8 @@ async fn main() -> Result<()> {
     );
 
     keystore.add_key(&key_pair)?;
-
     client.add_account(&pool_contract.clone(), false).await?;
-
     client.sync_state().await?;
-
-    println!("State synced");
-
     tokio::time::sleep(Duration::from_secs(2)).await;
 
     println!("\n[STEP 2] Mint tokens from our faucet to two_pools_account");
@@ -393,7 +292,7 @@ async fn main() -> Result<()> {
         let deposit_serial_num = client.rng().draw_word();
         println!(
             "Made an deposit note for {amount_in} {} expecting  at least {min_lp_amount_out} lp amount out.",
-            pool0.symbol
+            pool.symbol
         );
         let deposit_note = create_deposit_note(
             inputs,
@@ -499,22 +398,23 @@ async fn main() -> Result<()> {
     //     client.sync_state().await?;
     // }
 
-    let (balances_pool_0, settings_pool_0) =
-        fetch_pool_state_from_chain(&mut client, pool_contract.id(), 0).await?;
-    let vault = fetch_vault_for_account_from_chain(&mut client, pool_contract.id()).await?;
-    let (balances_pool_1, settings_pool_1) =
-        fetch_pool_state_from_chain(&mut client, pool_contract.id(), 1).await?;
-    let total_supply = fetch_lp_total_supply_from_chain(&mut client, pool_contract.id(), 1).await?;
-    println!(
-        "pool account 0: {:?}\n{:?}",
-        balances_pool_0, settings_pool_0
-    );
-    println!(
-        "pool account 1: {:?}\n{:?}",
-        balances_pool_1, settings_pool_1
-    );
-    println!("pool vault: {vault:?}");
-    println!("pool lp total supply: {total_supply}");
+    for pool in config.liquidity_pools.iter() {
+        let (balances_pool, settings_pool) =
+            fetch_pool_state_from_chain(&mut client, pool_contract.id(), pool.faucet_id).await?;
+        let vault = fetch_vault_for_account_from_chain(&mut client, pool_contract.id()).await?;
+        let total_supply =
+            fetch_lp_total_supply_from_chain(&mut client, pool_contract.id(), pool.faucet_id)
+                .await?;
+        println!(
+            "Liquidity {} ({})",
+            pool.name,
+            pool.faucet_id.to_bech32(config.network_id.clone())
+        );
+        println!("Balances {:?}", balances_pool,);
+        println!("Settings {:?}", settings_pool);
+        println!("pool vault: {vault:?}");
+        println!("pool lp total supply: {total_supply}");
+    }
     println!(
         "\n------\n New pool created: {:?}\n-----\n",
         pool_contract.id().to_bech32(endpoint.to_network_id())

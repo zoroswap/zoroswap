@@ -2,7 +2,7 @@ use alloy::primitives::{I256, U256};
 use anyhow::{Result, anyhow};
 use miden_assembly::Assembler;
 use miden_client::{
-    Felt,
+    Felt, Word,
     account::AccountId,
     transaction::{TransactionRequest, TransactionRequestBuilder, TransactionScript},
 };
@@ -70,12 +70,12 @@ impl PoolState {
     pub async fn sync_from_chain(
         &mut self,
         client: &mut MidenClient,
-        index_in_pool: u8,
+        faucet_id: AccountId,
     ) -> Result<()> {
         let (new_pool_balances, new_pool_settings) =
-            fetch_pool_state_from_chain(client, self.pool_account_id, index_in_pool).await?;
+            fetch_pool_state_from_chain(client, self.pool_account_id, faucet_id).await?;
         let lp_total_supply =
-            fetch_lp_total_supply_from_chain(client, self.pool_account_id, index_in_pool).await?;
+            fetch_lp_total_supply_from_chain(client, self.pool_account_id, faucet_id).await?;
         self.balances = new_pool_balances;
         self.settings = new_pool_settings;
         self.lp_total_supply = lp_total_supply;
@@ -94,7 +94,7 @@ impl PoolState {
 pub async fn fetch_lp_total_supply_from_chain(
     client: &mut MidenClient,
     pool_account_id: AccountId,
-    index_in_pool: u8,
+    faucet_id: AccountId,
 ) -> Result<u64> {
     client.sync_state().await?;
     let account = client.get_account(pool_account_id).await?.ok_or(anyhow!(
@@ -102,13 +102,13 @@ pub async fn fetch_lp_total_supply_from_chain(
         pool_account_id
     ))?;
     let account_storage = account.account().storage();
-    let asset_mapping_index = [
-        Felt::new(index_in_pool as u64),
+    let asset_address: Word = [
         Felt::new(0),
         Felt::new(0),
-        Felt::new(0),
-    ];
-    let asset_address = account_storage.get_map_item(3, asset_mapping_index.into())?;
+        faucet_id.suffix(),
+        faucet_id.prefix().as_felt(),
+    ]
+    .into();
     let total_supply = account_storage.get_map_item(5, asset_address)?;
     Ok(total_supply[0].as_int())
 }
@@ -116,7 +116,7 @@ pub async fn fetch_lp_total_supply_from_chain(
 pub async fn fetch_pool_state_from_chain(
     client: &mut MidenClient,
     pool_account_id: AccountId,
-    index_in_pool: u8,
+    faucet_id: AccountId,
 ) -> Result<(PoolBalances, PoolSettings)> {
     client.sync_state().await?;
     let account = client.get_account(pool_account_id).await?.ok_or(anyhow!(
@@ -124,19 +124,17 @@ pub async fn fetch_pool_state_from_chain(
         pool_account_id
     ))?;
     let account_storage = account.account().storage();
-    let asset_mapping_index = [
-        Felt::new(index_in_pool as u64),
+    let asset_address: Word = [
         Felt::new(0),
         Felt::new(0),
-        Felt::new(0),
-    ];
-    let asset_address = account_storage.get_map_item(3, asset_mapping_index.into())?;
+        faucet_id.suffix(),
+        faucet_id.prefix().as_felt(),
+    ]
+    .into();
+
     let pool_balances = account_storage.get_map_item(4, asset_address)?;
     let pool_curve = account_storage.get_map_item(6, asset_address)?;
     let pool_fees = account_storage.get_map_item(7, asset_address)?;
-    // let pool_balances = account_storage.get_item(3 + index_in_pool)?;
-    // let pool_fees = account_storage.get_item(5 + index_in_pool)?;
-    // let pool_curve = account_storage.get_item(7 + index_in_pool)?;
 
     let pool_balances = PoolBalances {
         reserve_with_slippage: U256::from(pool_balances[1].as_int()),
