@@ -14,13 +14,14 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::mpsc::Sender;
 use tower_http::cors::CorsLayer;
-use tracing::{debug, error};
+use tracing::{debug, error, info};
 
 use crate::{
     amm_state::AmmState,
     config::RawLiquidityPoolConfig,
     faucet::FaucetMintInstruction,
     note_serialization::deserialize_note,
+    order::OrderType,
     websocket::{ConnectionManager, EventBroadcaster, websocket_handler},
 };
 
@@ -68,7 +69,11 @@ pub fn create_router(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health_check))
         .route("/pools/info", get(pool_info))
-        .route("/orders/submit", post(submit_order))
+        .route("/pools/balance", get(pool_balances))
+        .route("/pools/settings", get(pool_settings))
+        .route("/orders/submit", post(submit_swap))
+        .route("/deposit/submit", post(submit_deposit))
+        .route("/withdraw/submit", post(submit_withdraw))
         .route("/faucets/mint", post(mint_faucet))
         .route("/stats", get(get_stats))
         .route("/ws", get(websocket_handler))
@@ -108,6 +113,69 @@ async fn pool_info(State(state): State<AppState>) -> impl IntoResponse {
     (headers, Json(response))
 }
 
+#[derive(Clone, Debug, Serialize)]
+struct PoolBalancesResponse {
+    faucet_id: String,
+    reserve: String,
+    reserve_with_slippage: String,
+    total_liabilities: String,
+}
+#[derive(Clone, Debug, Serialize)]
+struct PoolSettingsResponse {
+    faucet_id: String,
+    swap_fee: String,
+    backstop_fee: String,
+    protocol_fee: String,
+}
+
+async fn pool_balances(State(state): State<AppState>) -> impl IntoResponse {
+    let config = state.amm_state.config();
+    let network_id = config.network_id;
+    let pools = state.amm_state.liquidity_pools();
+    let pool_states: Vec<PoolBalancesResponse> = pools
+        .iter()
+        .map(|s| PoolBalancesResponse {
+            faucet_id: s.faucet_account_id.to_bech32(network_id.clone()),
+            reserve: s.balances.reserve.to_string(),
+            reserve_with_slippage: s.balances.reserve_with_slippage.to_string(),
+            total_liabilities: s.balances.total_liabilities.to_string(),
+        })
+        .collect();
+    let response = serde_json::json!({
+        "data": pool_states
+    });
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("max-age=15, must-revalidate"),
+    );
+    (headers, Json(response))
+}
+
+async fn pool_settings(State(state): State<AppState>) -> impl IntoResponse {
+    let config = state.amm_state.config();
+    let network_id = config.network_id;
+    let pools = state.amm_state.liquidity_pools();
+    let pool_states: Vec<PoolSettingsResponse> = pools
+        .iter()
+        .map(|s| PoolSettingsResponse {
+            faucet_id: s.faucet_account_id.to_bech32(network_id.clone()),
+            swap_fee: s.settings.swap_fee.to_string(),
+            backstop_fee: s.settings.backstop_fee.to_string(),
+            protocol_fee: s.settings.protocol_fee.to_string(),
+        })
+        .collect();
+    let response = serde_json::json!({
+        "data": pool_states
+    });
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("max-age=15, must-revalidate"),
+    );
+    (headers, Json(response))
+}
+
 async fn mint_faucet(
     State(state): State<AppState>,
     Json(payload): Json<MintRequest>,
@@ -138,7 +206,7 @@ async fn mint_faucet(
     Ok(resp)
 }
 
-async fn submit_order(
+async fn submit_swap(
     State(state): State<AppState>,
     Json(payload): Json<SubmitOrderRequest>,
 ) -> Json<SubmitOrderResponse> {
@@ -156,24 +224,104 @@ async fn submit_order(
         }
     };
 
-    match state.amm_state.add_order(note) {
-        Ok((_note_id, order_id, _order)) => {
-            debug!("Successfully added order: {:?}", order_id);
+    match state.amm_state.add_order(note, OrderType::Swap) {
+        Ok((_, order_id, _)) => {
+            info!("Successfully added swap order: {:?}", order_id);
+            Json(SubmitOrderResponse {
+                success: true,
+                order_id: order_id.to_string(),
+                message:
+                    "Swap order submitted successfully. Matching engine will process it automatically."
+                        .to_string(),
+            })
+        }
+        Err(e) => {
+            error!("Failed to add swap order: {}", e);
+            Json(SubmitOrderResponse {
+                success: false,
+                order_id: "".to_string(),
+                message: format!("Failed to submit order: {}", e),
+            })
+        }
+    }
+}
+
+async fn submit_deposit(
+    State(state): State<AppState>,
+    Json(payload): Json<SubmitOrderRequest>,
+) -> Json<SubmitOrderResponse> {
+    info!("Received order submission request");
+    // Deserialize the note from base64
+    let note = match deserialize_note(&payload.note_data) {
+        Ok(note) => note,
+        Err(e) => {
+            error!("Failed to deserialize note: {}", e);
+            return Json(SubmitOrderResponse {
+                success: false,
+                order_id: "".to_string(),
+                message: format!("Invalid note data: {}", e),
+            });
+        }
+    };
+
+    match state.amm_state.add_order(note, OrderType::Deposit) {
+        Ok((_, order_id, _)) => {
+            info!("Successfully added order: {:?}", order_id);
             Json(SubmitOrderResponse {
                 success: true,
                 //order_id: note_id,
                 order_id: order_id.to_string(),
                 message:
-                    "Order submitted successfully. Matching engine will process automatically."
+                    "Deposit order submitted successfully. Matching engine will process it automatically."
                         .to_string(),
             })
         }
         Err(e) => {
-            error!("Failed to add order: {}", e);
+            error!("Failed to add deposit order: {}", e);
             Json(SubmitOrderResponse {
                 success: false,
                 order_id: "".to_string(),
-                message: format!("Failed to submit order: {}", e),
+                message: format!("Failed to submit deposit order: {}", e),
+            })
+        }
+    }
+}
+
+async fn submit_withdraw(
+    State(state): State<AppState>,
+    Json(payload): Json<SubmitOrderRequest>,
+) -> Json<SubmitOrderResponse> {
+    info!("Received order submission request");
+    // Deserialize the note from base64
+    let note = match deserialize_note(&payload.note_data) {
+        Ok(note) => note,
+        Err(e) => {
+            error!("Failed to deserialize note: {}", e);
+            return Json(SubmitOrderResponse {
+                success: false,
+                order_id: "".to_string(),
+                message: format!("Invalid note data: {}", e),
+            });
+        }
+    };
+
+    match state.amm_state.add_order(note, OrderType::Withdraw) {
+        Ok((_, order_id, _)) => {
+            info!("Successfully added withdraw order: {}", order_id);
+            Json(SubmitOrderResponse {
+                success: true,
+                order_id: order_id.to_string(),
+                message:
+                    "Withdraw order submitted successfully. Matching engine will process it automatically."
+                        .to_string(),
+            })
+        }
+        Err(e) => {
+            error!("Failed to add withdraw order: {}", e);
+            Json(SubmitOrderResponse {
+                success: false,
+                order_id: "".to_string(),
+                message: format!("Failed to submit withdraw order: {}", e),
             })
         }
     }

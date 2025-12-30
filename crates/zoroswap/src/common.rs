@@ -1,10 +1,10 @@
 use anyhow::Result;
 use miden_client::{
-    ClientError, Felt, Word,
+    ClientError, Felt, ScriptBuilder, Word,
     account::AccountId,
     note::{
-        Note, NoteAssets, NoteError, NoteExecutionHint, NoteMetadata, NoteRecipient, NoteScript,
-        NoteTag, NoteType,
+        Note, NoteAssets, NoteError, NoteExecutionHint, NoteMetadata, NoteRecipient, NoteTag,
+        NoteType,
     },
 };
 use miden_lib::{note::utils::build_p2id_recipient, transaction::TransactionKernel};
@@ -12,8 +12,8 @@ use rusqlite::Connection;
 use std::{fs, path::PathBuf};
 use tracing::{debug, info, warn};
 
-use crate::Config;
-use zoro_miden_client::MidenClient;
+use crate::{Config, order::OrderType};
+use zoro_miden_client::{MidenClient, create_library};
 
 // --------------------------------------------------------------------------
 // Zoro-Specific Helper Functions
@@ -70,7 +70,7 @@ pub fn enable_wal_mode(store_path: &str) -> Result<()> {
 /// - Importing all faucets from liquidity pools
 /// - Adding note tags for pool monitoring
 pub async fn instantiate_client(
-    config: &Config,
+    config: Config,
     store_path: &str,
 ) -> Result<MidenClient, ClientError> {
     use miden_client::{
@@ -160,21 +160,32 @@ pub fn create_zoroswap_note(
     use miden_client::note::NoteInputs;
 
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    let assembler = TransactionKernel::assembler()
+        .with_debug_mode(true)
+        .with_warnings_as_errors(true);
+
     let path: PathBuf = [manifest_dir, "masm", "notes", "ZOROSWAP.masm"]
         .iter()
         .collect();
     let note_code = fs::read_to_string(&path)
         .unwrap_or_else(|err| panic!("Error reading {}: {}", path.display(), err));
-    let assembler = TransactionKernel::assembler()
-        .with_debug_mode(true)
-        .with_warnings_as_errors(true);
-    let program = assembler
-        .assemble_program(note_code)
-        .unwrap_or_else(|err| panic!("Failed to assemble program: {err:?}"));
-    let note_script = NoteScript::new(program);
-    let aux = Felt::new(0);
+    let pool_code_path: PathBuf = [manifest_dir, "masm", "accounts", "two_asset_pool.masm"]
+        .iter()
+        .collect();
+    let pool_code = fs::read_to_string(&pool_code_path)
+        .unwrap_or_else(|err| panic!("Error reading {}: {}", pool_code_path.display(), err));
+
+    let pool_component_lib =
+        create_library(assembler.clone(), "zoro::two_asset_pool", &pool_code).unwrap();
+
+    let note_script = ScriptBuilder::new(true)
+        .with_dynamically_linked_library(&pool_component_lib)
+        .unwrap()
+        .compile_note_script(note_code)
+        .unwrap();
 
     let inputs = NoteInputs::new(inputs)?;
+    let aux = Felt::new(0);
     // build the outgoing note
     let metadata = NoteMetadata::new(
         creator,
@@ -189,4 +200,148 @@ pub fn create_zoroswap_note(
     let note = Note::new(assets.clone(), metadata, recipient.clone());
 
     Ok(note)
+}
+
+/// Creates a DEPOSIT note using the DEPOSIT.masm script.
+///
+/// This is specific to the Zoro AMM protocol.
+pub fn create_deposit_note(
+    inputs: Vec<Felt>,
+    assets: Vec<miden_client::asset::Asset>,
+    creator: AccountId,
+    swap_serial_num: Word,
+    note_tag: NoteTag,
+    note_type: NoteType,
+) -> Result<Note, NoteError> {
+    use miden_client::note::NoteInputs;
+
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    let assembler = TransactionKernel::assembler()
+        .with_debug_mode(true)
+        .with_warnings_as_errors(true);
+
+    let path: PathBuf = [manifest_dir, "masm", "notes", "DEPOSIT.masm"]
+        .iter()
+        .collect();
+    let note_code = fs::read_to_string(&path)
+        .unwrap_or_else(|err| panic!("Error reading {}: {}", path.display(), err));
+    let pool_code_path: PathBuf = [manifest_dir, "masm", "accounts", "two_asset_pool.masm"]
+        .iter()
+        .collect();
+    let pool_code = fs::read_to_string(&pool_code_path)
+        .unwrap_or_else(|err| panic!("Error reading {}: {}", pool_code_path.display(), err));
+
+    let pool_component_lib =
+        create_library(assembler.clone(), "zoro::two_asset_pool", &pool_code).unwrap();
+
+    let note_script = ScriptBuilder::new(true)
+        .with_dynamically_linked_library(&pool_component_lib)
+        .unwrap()
+        .compile_note_script(note_code)
+        .unwrap();
+
+    let inputs = NoteInputs::new(inputs)?;
+    let aux = Felt::new(0);
+    // build the outgoing note
+    let metadata = NoteMetadata::new(
+        creator,
+        note_type,
+        note_tag,
+        NoteExecutionHint::always(),
+        aux,
+    )?;
+
+    let assets = NoteAssets::new(assets)?;
+    let recipient = NoteRecipient::new(swap_serial_num, note_script.clone(), inputs.clone());
+    let note = Note::new(assets.clone(), metadata, recipient.clone());
+
+    Ok(note)
+}
+
+/// Creates a WITHDRAW note using the WITHDRAW.masm script.
+///
+/// This is specific to the Zoro AMM protocol.
+pub fn create_withdraw_note(
+    inputs: Vec<Felt>,
+    assets: Vec<miden_client::asset::Asset>,
+    creator: AccountId,
+    swap_serial_num: Word,
+    note_tag: NoteTag,
+    note_type: NoteType,
+) -> Result<Note, NoteError> {
+    use miden_client::note::NoteInputs;
+
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    let assembler = TransactionKernel::assembler()
+        .with_debug_mode(true)
+        .with_warnings_as_errors(true);
+
+    let path: PathBuf = [manifest_dir, "masm", "notes", "WITHDRAW.masm"]
+        .iter()
+        .collect();
+    let note_code = fs::read_to_string(&path)
+        .unwrap_or_else(|err| panic!("Error reading {}: {}", path.display(), err));
+    let pool_code_path: PathBuf = [manifest_dir, "masm", "accounts", "two_asset_pool.masm"]
+        .iter()
+        .collect();
+    let pool_code = fs::read_to_string(&pool_code_path)
+        .unwrap_or_else(|err| panic!("Error reading {}: {}", pool_code_path.display(), err));
+
+    let pool_component_lib =
+        create_library(assembler.clone(), "zoro::two_asset_pool", &pool_code).unwrap();
+
+    let note_script = ScriptBuilder::new(true)
+        .with_dynamically_linked_library(&pool_component_lib)
+        .unwrap()
+        .compile_note_script(note_code)
+        .unwrap();
+
+    let inputs = NoteInputs::new(inputs)?;
+    let aux = Felt::new(0);
+    // build the outgoing note
+    let metadata = NoteMetadata::new(
+        creator,
+        note_type,
+        note_tag,
+        NoteExecutionHint::always(),
+        aux,
+    )?;
+
+    let assets = NoteAssets::new(assets)?;
+    let recipient = NoteRecipient::new(swap_serial_num, note_script.clone(), inputs.clone());
+    let note = Note::new(assets.clone(), metadata, recipient.clone());
+
+    Ok(note)
+}
+
+pub fn get_script_root_for_order_type(order_type: OrderType) -> Word {
+    let script = match order_type {
+        OrderType::Deposit => "DEPOSIT.masm",
+        OrderType::Withdraw => "WITHDRAW.masm",
+        OrderType::Swap => "ZOROSWAP.masm",
+    };
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    let assembler = TransactionKernel::assembler()
+        .with_debug_mode(true)
+        .with_warnings_as_errors(true);
+
+    let path: PathBuf = [manifest_dir, "masm", "notes", script].iter().collect();
+    let note_code = fs::read_to_string(&path)
+        .unwrap_or_else(|err| panic!("Error reading {}: {}", path.display(), err));
+    let pool_code_path: PathBuf = [manifest_dir, "masm", "accounts", "two_asset_pool.masm"]
+        .iter()
+        .collect();
+    let pool_code = fs::read_to_string(&pool_code_path)
+        .unwrap_or_else(|err| panic!("Error reading {}: {}", pool_code_path.display(), err));
+
+    let pool_component_lib =
+        create_library(assembler.clone(), "zoro::two_asset_pool", &pool_code).unwrap();
+
+    let note_script = ScriptBuilder::new(true)
+        .with_dynamically_linked_library(&pool_component_lib)
+        .unwrap()
+        .compile_note_script(note_code)
+        .unwrap();
+
+    note_script.root()
 }

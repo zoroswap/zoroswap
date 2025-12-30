@@ -23,6 +23,7 @@ use server::{AppState, create_router};
 use std::{sync::Arc, thread};
 use tokio::{runtime::Builder, sync::mpsc::Sender};
 use tracing::{error, info, warn};
+use tracing_subscriber::EnvFilter;
 use trading_engine::TradingEngine;
 use websocket::{ConnectionManager, EventBroadcaster};
 use zoro_miden_client::delete_client_store;
@@ -50,10 +51,11 @@ struct Args {
 
 fn main() {
     let args = Args::parse();
-    let filter = tracing_subscriber::EnvFilter::new(
-        "info,server=info,miden_client=warn,rusqlite_migration=warn,h2=warn,rustls=warn,hyper=warn",
-    );
-    tracing_subscriber::fmt().with_env_filter(filter).init();
+    let filter_layer = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new("info,server=info,miden_client=warn,rusqlite_migration=warn,h2=warn,rustls=warn,hyper=warn"));
+    tracing_subscriber::fmt()
+        .with_env_filter(filter_layer)
+        .init();
     dotenv().ok();
     let runtime = tokio::runtime::Runtime::new()
         .unwrap_or_else(|err| panic!("Failed to create tokio runtime: {err:?}"));
@@ -75,7 +77,7 @@ fn main() {
             &args.keystore_path,
             &args.store_path,
         ).map_err(|e| e.to_string())?;
-        let mut init_client = instantiate_client(&config, config.store_path)
+        let mut init_client = instantiate_client(config.clone(), config.store_path)
             .await
             .unwrap_or_else(|err| panic!("Failed to instantiate init client: {err:?}"));
         info!(
@@ -112,7 +114,6 @@ fn main() {
             .init_prices_in_state()
             .await
             .map_err(|e| e.to_string())?;
-
         let (guarded_faucet, faucet_tx) = GuardedFaucet::new(amm_state.config().clone());
         let notes_listener = NotesListener::new(amm_state.clone(), event_broadcaster.clone());
         Ok::<
@@ -228,8 +229,12 @@ async fn run_main_tokio(
     println!("📡 Available endpoints:");
     println!("  GET  /health                    - Health check");
     println!("  GET  /pools/info                - Pool AccountId & liq. pools info");
+    println!("  GET  /pools/balance             - Pool balances");
+    println!("  GET  /pools/settings            - Pool fee settings");
     println!("  GET  /stats                     - Runtime statistics");
-    println!("  POST /orders/submit             - Submit a new order");
+    println!("  POST /orders/submit             - Submit a new swap order");
+    println!("  POST /deposit/submit            - Submit a new deposit");
+    println!("  POST /withdraw/submit           - Submit a new withdrawal");
     println!("  POST /faucets/mint              - Mint from a faucet");
     println!("  GET  /ws                        - WebSocket connection");
     println!("🌐 Server address: {}", server_url);

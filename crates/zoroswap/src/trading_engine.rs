@@ -1,8 +1,11 @@
 use crate::{
     amm_state::AmmState,
     common::{instantiate_client, print_transaction_info},
-    order::Order,
-    pool::{PoolState, get_curve_amount_out},
+    order::{Order, OrderType},
+    pool::{
+        PoolBalances, PoolState, get_curve_amount_out, get_deposit_lp_amount_out,
+        get_withdraw_asset_amount_out,
+    },
     websocket::{EventBroadcaster, OrderStatus, OrderUpdateDetails, OrderUpdateEvent},
 };
 use alloy::primitives::U256;
@@ -12,48 +15,78 @@ use dashmap::DashMap;
 use miden_client::{
     Felt, Word,
     account::AccountId,
+    address::NetworkId,
     asset::{Asset, FungibleAsset},
-    note::{Note, NoteType},
+    note::{Note, NoteRecipient, NoteTag, NoteType},
     transaction::TransactionRequestBuilder,
 };
-use miden_objects::note::NoteDetails;
+use miden_objects::{note::NoteDetails, vm::AdviceMap};
 use rand::seq::SliceRandom;
 use std::{
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
 use tokio::sync::broadcast::error::RecvError;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 use zoro_miden_client::{MidenClient, create_p2id_note};
 
 #[derive(Debug, Clone)]
-struct ExecutionDetails {
+pub(crate) struct ExecutionDetails {
     note: Note,
     order: Order,
     amount_out: u64,
+    in_pool_balances: PoolBalances,
+    out_pool_balances: PoolBalances,
 }
 
 #[derive(Debug, Clone)]
 pub(crate) enum OrderExecution {
     Swap(ExecutionDetails),
-    FailedSwap(ExecutionDetails),
+    Deposit(ExecutionDetails),
+    Withdraw(ExecutionDetails),
+    FailedOrder(ExecutionDetails),
     PastDeadline(ExecutionDetails),
 }
 
+pub(crate) struct MatchingCycle {
+    executions: Vec<OrderExecution>,
+    new_pool_states: DashMap<AccountId, PoolState>,
+}
 pub struct TradingEngine {
     state: Arc<AmmState>,
     store_path: String,
     broadcaster: Arc<EventBroadcaster>,
     last_match_time: Arc<Mutex<Instant>>,
+    network_id: NetworkId,
+    pool_account_id: AccountId,
+}
+
+enum NoteExecutionDetails {
+    Payout(PayoutDetails),
+    ConsumeWithArgs((Note, Word)),
+}
+
+struct PayoutDetails {
+    pub note: Note,
+    pub args: Option<Word>,
+    pub advice_map_value: Vec<Felt>,
+    pub details: NoteDetails,
+    pub tag: NoteTag,
+    pub recipient: NoteRecipient,
 }
 
 impl TradingEngine {
     pub fn new(store_path: &str, state: Arc<AmmState>, broadcaster: Arc<EventBroadcaster>) -> Self {
+        let config = state.config();
+        let pool_account_id = config.pool_account_id;
+        let network_id = config.miden_endpoint.to_network_id();
         Self {
             store_path: store_path.to_string(),
             state,
             broadcaster,
             last_match_time: Arc::new(Mutex::new(Instant::now())),
+            network_id,
+            pool_account_id,
         }
     }
 
@@ -135,7 +168,7 @@ impl TradingEngine {
 
     async fn run_matching_if_ready(&mut self, min_interval: Duration, client: &mut MidenClient) {
         // Debouncing: prevent excessive matching
-        let mut last_match = self.last_match_time.lock().unwrap();
+        let mut last_match = { self.last_match_time.lock().unwrap() };
         if last_match.elapsed() < min_interval {
             return; // Skip this match cycle
         }
@@ -164,15 +197,22 @@ impl TradingEngine {
 
         // Run existing matching logic
         match self.run_matching_cycle() {
-            Ok(orders_to_execute) => {
-                if !orders_to_execute.is_empty() {
+            Ok(matching_cycle) => {
+                let executions = matching_cycle.executions;
+                if !executions.is_empty() {
                     // Broadcast order status updates before execution
-                    for execution in &orders_to_execute {
+                    for execution in &executions {
                         let (order_id, status) = match execution {
                             OrderExecution::Swap(details) => {
                                 (details.order.id, OrderStatus::Matching)
                             }
-                            OrderExecution::FailedSwap(details) => {
+                            OrderExecution::Deposit(details) => {
+                                (details.order.id, OrderStatus::Matching)
+                            }
+                            OrderExecution::Withdraw(details) => {
+                                (details.order.id, OrderStatus::Matching)
+                            }
+                            OrderExecution::FailedOrder(details) => {
                                 (details.order.id, OrderStatus::Failed)
                             }
                             OrderExecution::PastDeadline(details) => {
@@ -184,7 +224,9 @@ impl TradingEngine {
                             // Broadcast final status for non-swap orders
                             let details = match execution {
                                 OrderExecution::Swap(d)
-                                | OrderExecution::FailedSwap(d)
+                                | OrderExecution::FailedOrder(d)
+                                | OrderExecution::Deposit(d)
+                                | OrderExecution::Withdraw(d)
                                 | OrderExecution::PastDeadline(d) => d,
                             };
                             let note_id = self.state.get_note_id(&order_id).unwrap_or_default();
@@ -204,36 +246,47 @@ impl TradingEngine {
                     }
 
                     // Execute swaps and broadcast success
-                    match self.run_executions(orders_to_execute.clone(), client).await {
+                    match self.execute_orders(executions.clone(), client).await {
                         Ok(_) => {
+                            for (faucet_id, pool_state) in matching_cycle.new_pool_states {
+                                self.state
+                                    .update_pool_state(&faucet_id, pool_state.balances);
+                            }
+
                             // Broadcast Executed status for successful swaps
-                            for execution in &orders_to_execute {
-                                if let OrderExecution::Swap(details) = execution {
-                                    let note_id = self
-                                        .state
-                                        .get_note_id(&details.order.id)
-                                        .unwrap_or_default();
-                                    let _ =
-                                        self.broadcaster.broadcast_order_update(OrderUpdateEvent {
-                                            order_id: details.order.id,
-                                            note_id,
-                                            status: OrderStatus::Executed,
-                                            details: OrderUpdateDetails {
-                                                amount_in: details.order.asset_in.amount(),
-                                                amount_out: Some(details.amount_out),
-                                                asset_in_faucet: details
-                                                    .order
-                                                    .asset_in
-                                                    .faucet_id()
-                                                    .to_hex(),
-                                                asset_out_faucet: details
-                                                    .order
-                                                    .asset_out
-                                                    .faucet_id()
-                                                    .to_hex(),
+                            for execution in &executions {
+                                match &execution {
+                                    &OrderExecution::Swap(details)
+                                    | &OrderExecution::Deposit(details)
+                                    | &OrderExecution::Withdraw(details) => {
+                                        let note_id = self
+                                            .state
+                                            .get_note_id(&details.order.id)
+                                            .unwrap_or_default();
+                                        let _ = self.broadcaster.broadcast_order_update(
+                                            OrderUpdateEvent {
+                                                order_id: details.order.id,
+                                                note_id,
+                                                status: OrderStatus::Executed,
+                                                details: OrderUpdateDetails {
+                                                    amount_in: details.order.asset_in.amount(),
+                                                    amount_out: Some(details.amount_out),
+                                                    asset_in_faucet: details
+                                                        .order
+                                                        .asset_in
+                                                        .faucet_id()
+                                                        .to_hex(),
+                                                    asset_out_faucet: details
+                                                        .order
+                                                        .asset_out
+                                                        .faucet_id()
+                                                        .to_hex(),
+                                                },
+                                                timestamp: Utc::now().timestamp_millis() as u64,
                                             },
-                                            timestamp: Utc::now().timestamp_millis() as u64,
-                                        });
+                                        );
+                                    }
+                                    _ => {}
                                 }
                             }
                         }
@@ -249,7 +302,7 @@ impl TradingEngine {
         }
     }
 
-    pub(crate) fn run_matching_cycle(&self) -> Result<Vec<OrderExecution>> {
+    pub(crate) fn run_matching_cycle(&self) -> Result<MatchingCycle> {
         let pools = self.state.liquidity_pools().clone();
         let mut orders = self.state.flush_open_orders();
 
@@ -259,185 +312,353 @@ impl TradingEngine {
         let mut order_executions = Vec::new();
         let now = Utc::now();
         for order in orders {
-            // TODO: check for
-            //       ERR_MAX_COVERAGE_RATIO_EXCEEDED +
-            //       ERR_RESERVE_WITH_SLIPPAGE_EXCEEDS_ASSET_BALANCE
+            let ((base_pool_state, base_pool_decimals), (quote_pool_state, quote_pool_decimals)) =
+                self.get_liq_pools_for_order(&pools, &order)?;
+            debug!("---------------order: {:?}", order);
+            debug!("---------------base_pool_state: {:?}", base_pool_state);
+            debug!("---------------quote_pool_state: {:?}", quote_pool_state);
 
-            // Check if order is past deadline
             if order.deadline < now {
                 let (_, note) = self.state.pluck_note(&order.id)?;
-                warn!("Swap past deadline (by {})", now - order.deadline);
+                warn!(
+                    "Order {:?} is past deadline (by {})",
+                    order.order_type,
+                    now - order.deadline
+                );
                 order_executions.push(OrderExecution::PastDeadline(ExecutionDetails {
                     note,
                     order,
                     amount_out: order.asset_in.amount(),
+                    in_pool_balances: base_pool_state.balances,
+                    out_pool_balances: quote_pool_state.balances,
                 }));
                 continue;
             }
-            let ((base_pool_state, base_pool_decimals), (quote_pool_state, quote_pool_decimals)) =
-                self.get_liq_pools_for_order(&pools, &order)?;
             let price = {
                 self.state.oracle_price_for_pair(
                     order.asset_in.faucet_id(),
                     order.asset_out.faucet_id(),
                 )?
             };
-            info!(
-                "SWAP: decimals base: {}, quote: {}, amount_in: {:?}, price: {:?}",
-                base_pool_decimals,
-                quote_pool_decimals,
-                order.asset_in.amount(),
-                price
-            );
-            let curve_result = get_curve_amount_out(
-                &base_pool_state,
-                &quote_pool_state,
-                U256::from(base_pool_decimals),
-                U256::from(quote_pool_decimals),
-                U256::from(order.asset_in.amount()),
-                price,
-            );
-            let (amount_out, new_base_pool_balance, new_quote_pool_balance) = match curve_result {
-                Ok(result) => result,
-                Err(e) => {
-                    warn!("Swap calculation failed: {e}");
-                    let (_, note) = self.state.pluck_note(&order.id)?;
-                    order_executions.push(OrderExecution::FailedSwap(ExecutionDetails {
-                        note,
-                        order,
-                        amount_out: order.asset_in.amount(),
-                    }));
-                    continue;
+
+            match order.order_type {
+                OrderType::Deposit => {
+                    let (amount_out, new_pool_balance) = get_deposit_lp_amount_out(
+                        &base_pool_state,
+                        U256::from(order.asset_in.amount()),
+                        U256::from(base_pool_state.lp_total_supply), // total supply
+                        U256::from(base_pool_decimals),
+                    )?;
+                    let amount_out = amount_out.to::<u64>();
+                    if amount_out > 0 && amount_out >= order.asset_out.amount() {
+                        let (_, note) = self.state.pluck_note(&order.id)?;
+                        pools
+                            .get_mut(&order.asset_in.faucet_id())
+                            .ok_or(anyhow!("Missing pool in state"))?
+                            .update_state(new_pool_balance);
+                        order_executions.push(OrderExecution::Deposit(ExecutionDetails {
+                            note,
+                            order,
+                            amount_out: order.asset_in.amount(),
+                            in_pool_balances: new_pool_balance,
+                            out_pool_balances: quote_pool_state.balances,
+                        }));
+                    } else {
+                        warn!("Deposit unsuccessful.");
+                        if amount_out == 0 {
+                            info!("LP amount out calculated to be 0.")
+                        } else if amount_out < order.asset_out.amount() {
+                            info!(
+                                "User would get {} lp but it wanted at least {}.",
+                                amount_out,
+                                order.asset_out.amount()
+                            );
+                        }
+                        let (_, note) = self.state.pluck_note(&order.id)?;
+                        order_executions.push(OrderExecution::FailedOrder(ExecutionDetails {
+                            note,
+                            order,
+                            amount_out: order.asset_in.amount(),
+                            in_pool_balances: base_pool_state.balances,
+                            out_pool_balances: quote_pool_state.balances,
+                        }));
+                    }
                 }
-            };
-            let amount_out = amount_out.to::<u64>();
-            if amount_out > 0 && amount_out >= order.asset_out.amount() {
-                // Swap successful - create execution order for swap
-                info!("Swap successful!");
-                pools
-                    .get_mut(&order.asset_in.faucet_id())
-                    .ok_or(anyhow!("Missing pool in state"))?
-                    .update_state(new_base_pool_balance);
-                pools
-                    .get_mut(&order.asset_out.faucet_id())
-                    .ok_or(anyhow!("Missing pool in state"))?
-                    .update_state(new_quote_pool_balance);
-                let (_, note) = self.state.pluck_note(&order.id)?;
-                order_executions.push(OrderExecution::Swap(ExecutionDetails {
-                    note,
-                    order,
-                    amount_out,
-                }));
-            } else {
-                warn!("Swap unsuccessful.");
-                if amount_out == 0 {
-                    info!("Amount out calculated to be 0.")
-                } else if amount_out < order.asset_out.amount() {
+                OrderType::Withdraw => {
+                    let (amount_out, new_pool_balance) = get_withdraw_asset_amount_out(
+                        &base_pool_state,
+                        U256::from(order.asset_in.amount()),
+                        U256::from(base_pool_state.lp_total_supply), // total supply
+                        U256::from(base_pool_decimals),
+                    )?;
+                    let amount_out = amount_out.to::<u64>();
+                    if amount_out > 0 && amount_out >= order.asset_out.amount() {
+                        let (_, note) = self.state.pluck_note(&order.id)?;
+                        pools
+                            .get_mut(&order.asset_out.faucet_id())
+                            .ok_or(anyhow!("Missing pool in state"))?
+                            .update_state(new_pool_balance);
+                        order_executions.push(OrderExecution::Withdraw(ExecutionDetails {
+                            note,
+                            order,
+                            amount_out,
+                            in_pool_balances: new_pool_balance,
+                            out_pool_balances: quote_pool_state.balances,
+                        }));
+                    } else {
+                        warn!("Withdraw unsuccessful.");
+                        if amount_out == 0 {
+                            info!("LP amount out calculated to be 0.")
+                        } else if amount_out < order.asset_out.amount() {
+                            info!(
+                                "User would get {} but it wanted at least {}.",
+                                amount_out,
+                                order.asset_out.amount()
+                            );
+                        }
+                        self.state.pluck_note(&order.id)?;
+                    }
+                }
+                OrderType::Swap => {
+                    // TODO: check for
+                    //       ERR_MAX_COVERAGE_RATIO_EXCEEDED +
+                    //       ERR_RESERVE_WITH_SLIPPAGE_EXCEEDS_ASSET_BALANCE
+
+                    // Check if order is past deadline
                     info!(
-                        "User would get {} but it wanted at least {}.",
-                        amount_out,
-                        order.asset_out.amount()
+                        "SWAP: in {} from faucet {}, out {} from faucet {} at price {}",
+                        order.asset_in.amount(),
+                        order
+                            .asset_in
+                            .faucet_id()
+                            .to_bech32(self.network_id.clone()),
+                        order.asset_out.amount(),
+                        order
+                            .asset_out
+                            .faucet_id()
+                            .to_bech32(self.network_id.clone()),
+                        price
                     );
+                    let amount_in = order.asset_in.amount();
+                    let curve_result = get_curve_amount_out(
+                        &base_pool_state,
+                        &quote_pool_state,
+                        U256::from(base_pool_decimals),
+                        U256::from(quote_pool_decimals),
+                        U256::from(order.asset_in.amount()),
+                        price,
+                    );
+                    let (amount_out, new_base_pool_balance, new_quote_pool_balance) =
+                        match curve_result {
+                            Ok(result) => result,
+                            Err(e) => {
+                                warn!("Swap calculation failed: {e}");
+                                let pool_in = pools
+                                    .get(&order.asset_in.faucet_id())
+                                    .ok_or(anyhow!("Missing pool in state"))?;
+
+                                let pool_out = pools
+                                    .get_mut(&order.asset_out.faucet_id())
+                                    .ok_or(anyhow!("Missing pool in state"))?;
+                                let (_, note) = self.state.pluck_note(&order.id)?;
+                                order_executions.push(OrderExecution::FailedOrder(
+                                    ExecutionDetails {
+                                        in_pool_balances: pool_in.balances,
+                                        out_pool_balances: pool_out.balances,
+                                        note,
+                                        order,
+                                        amount_out: order.asset_in.amount(),
+                                    },
+                                ));
+                                continue;
+                            }
+                        };
+                    let amount_out = amount_out.to::<u64>();
+                    if amount_out > 0 && amount_out >= order.asset_out.amount() {
+                        // Swap successful - create execution order for swap
+                        info!(
+                            "Swap successful! Amount {amount_in:?} -> {amount_out:?}, New balances: {new_base_pool_balance:?}, {new_quote_pool_balance:?}"
+                        );
+                        pools
+                            .get_mut(&order.asset_in.faucet_id())
+                            .ok_or(anyhow!("Missing pool in state"))?
+                            .update_state(new_base_pool_balance);
+                        pools
+                            .get_mut(&order.asset_out.faucet_id())
+                            .ok_or(anyhow!("Missing pool in state"))?
+                            .update_state(new_quote_pool_balance);
+                        let (_, note) = self.state.pluck_note(&order.id)?;
+                        order_executions.push(OrderExecution::Swap(ExecutionDetails {
+                            note,
+                            order,
+                            amount_out,
+                            in_pool_balances: new_base_pool_balance,
+                            out_pool_balances: new_quote_pool_balance,
+                        }));
+                    } else {
+                        warn!("Swap unsuccessful.");
+                        if amount_out == 0 {
+                            info!("Amount out calculated to be 0.")
+                        } else if amount_out < order.asset_out.amount() {
+                            info!(
+                                "User would get {} but it wanted at least {}.",
+                                amount_out,
+                                order.asset_out.amount()
+                            );
+                        }
+                        let (_, note) = self.state.pluck_note(&order.id)?;
+                        order_executions.push(OrderExecution::FailedOrder(ExecutionDetails {
+                            note,
+                            order,
+                            amount_out: order.asset_in.amount(),
+                            in_pool_balances: base_pool_state.balances,
+                            out_pool_balances: quote_pool_state.balances,
+                        }));
+                    }
                 }
-                let (_, note) = self.state.pluck_note(&order.id)?;
-                order_executions.push(OrderExecution::FailedSwap(ExecutionDetails {
-                    note,
-                    order,
-                    amount_out: order.asset_in.amount(),
-                }));
             }
         }
-        Ok(order_executions)
+        Ok(MatchingCycle {
+            executions: order_executions,
+            new_pool_states: pools,
+        })
     }
 
-    async fn run_executions(
+    async fn execute_orders(
         &mut self,
         executions: Vec<OrderExecution>,
         client: &mut MidenClient,
     ) -> Result<()> {
         client.sync_state().await?;
         let pool_account_id = self.state.config().pool_account_id;
-        let network_id = self.state.config().miden_endpoint.to_network_id();
+        let network_id = self.state.config().network_id;
         let mut input_notes = Vec::new();
         let mut expected_future_notes = Vec::new();
         let mut expected_output_recipients = Vec::new();
-        for execution in executions {
-            let (asset_out, user_account_id, serial_num, note) = match execution {
-                OrderExecution::Swap(execution_details) => (
-                    FungibleAsset::new(
-                        execution_details.order.asset_out.faucet_id(),
-                        execution_details.amount_out,
-                    )?,
-                    execution_details.order.creator_id,
-                    execution_details.note.serial_num(),
-                    execution_details.note,
-                ),
-                OrderExecution::FailedSwap(execution_details) => (
-                    execution_details.order.asset_in,
-                    execution_details.order.creator_id,
-                    execution_details.note.serial_num(),
-                    execution_details.note,
-                ),
-                OrderExecution::PastDeadline(execution_details) => (
-                    execution_details.order.asset_in,
-                    execution_details.order.creator_id,
-                    execution_details.note.serial_num(),
-                    execution_details.note,
-                ),
-            };
-            let asset_out = Asset::Fungible(asset_out);
-            let p2id_serial_num = [
-                serial_num[0],
-                serial_num[1],
-                serial_num[2],
-                Felt::new(serial_num[3].as_int() + 1),
-            ];
-            info!(
-                "Calculated {asset_out:?} asset_out for recipient {} with serial number {:?}",
-                user_account_id.to_bech32(network_id.clone()),
-                p2id_serial_num
-            );
+        let mut advice_map = AdviceMap::default();
+        let advice_key = [Felt::new(6000), Felt::new(0), Felt::new(0), Felt::new(0)];
 
-            let p2id = create_p2id_note(
-                pool_account_id,
-                user_account_id,
-                vec![asset_out],
-                NoteType::Public,
-                Felt::new(0),
-                p2id_serial_num.into(),
-            )?;
-            input_notes.push((
-                note.clone(),
-                Some(Word::new([
-                    Felt::new(asset_out.unwrap_fungible().amount()),
-                    Felt::new(0),
-                    Felt::new(0),
-                    Felt::new(0),
-                ])),
-            ));
-            expected_future_notes.push((NoteDetails::from(p2id.clone()), p2id.metadata().tag()));
-            expected_output_recipients.push(p2id.recipient().clone());
+        for execution in executions {
+            let note_execution_details = match execution {
+                OrderExecution::Swap(execution_details) => {
+                    NoteExecutionDetails::Payout(self.prepare_payout(execution_details, false)?)
+                }
+                OrderExecution::FailedOrder(execution_details) => {
+                    NoteExecutionDetails::Payout(self.prepare_payout(execution_details, true)?)
+                }
+                OrderExecution::PastDeadline(execution_details) => {
+                    NoteExecutionDetails::Payout(self.prepare_payout(execution_details, true)?)
+                }
+                OrderExecution::Deposit(execution_details) => {
+                    NoteExecutionDetails::ConsumeWithArgs((
+                        execution_details.note,
+                        Word::from(&[
+                            Felt::new(execution_details.amount_out),
+                            Felt::new(
+                                execution_details
+                                    .in_pool_balances
+                                    .reserve_with_slippage
+                                    .to::<u64>(),
+                            ),
+                            Felt::new(execution_details.in_pool_balances.reserve.to::<u64>()),
+                            Felt::new(
+                                execution_details
+                                    .in_pool_balances
+                                    .total_liabilities
+                                    .to::<u64>(),
+                            ),
+                        ]),
+                    ))
+                }
+                OrderExecution::Withdraw(execution_details) => {
+                    let mut details = self.prepare_payout(execution_details.clone(), false)?;
+                    details.args = Some(Word::from(&[
+                        Felt::new(execution_details.amount_out),
+                        Felt::new(
+                            execution_details
+                                .in_pool_balances
+                                .reserve_with_slippage
+                                .to::<u64>(),
+                        ),
+                        Felt::new(execution_details.in_pool_balances.reserve.to::<u64>()),
+                        Felt::new(
+                            execution_details
+                                .in_pool_balances
+                                .total_liabilities
+                                .to::<u64>(),
+                        ),
+                    ]));
+                    println!(
+                        "-----------------------------------&&&&&&&&&&&&&&&&&&&&&& details.args: {:?}",
+                        details.args
+                    );
+                    NoteExecutionDetails::Payout(details)
+                    // NoteExecutionDetails::ConsumeWithArgs((
+                    //     execution_details.note,
+                    //     Word::from(&[
+                    //         Felt::new(execution_details.amount_out),
+                    //         Felt::new(
+                    //             execution_details
+                    //                 .in_pool_balances
+                    //                 .reserve_with_slippage
+                    //                 .to::<u64>(),
+                    //         ),
+                    //         Felt::new(execution_details.in_pool_balances.reserve.to::<u64>()),
+                    //         Felt::new(
+                    //             execution_details
+                    //                 .in_pool_balances
+                    //                 .total_liabilities
+                    //                 .to::<u64>(),
+                    //         ),
+                    //     ]),
+                    // ))
+                }
+            };
+
+            match note_execution_details {
+                NoteExecutionDetails::Payout(payout) => {
+                    println!(
+                        "-----------------------------------&&&&&&&&&&&&&&&&&&&&&& Payout: {:?}",
+                        payout.args
+                    );
+                    expected_future_notes.push((payout.details, payout.tag));
+                    expected_output_recipients.push(payout.recipient);
+                    input_notes.push((payout.note, payout.args));
+                    advice_map.insert(advice_key.into(), payout.advice_map_value);
+                }
+                NoteExecutionDetails::ConsumeWithArgs((note, args)) => {
+                    input_notes.push((note, Some(args)));
+                }
+            }
         }
 
         for note in &expected_future_notes {
             info!("Expected future note P2ID id: {:?}", note.0.id());
             for asset in note.0.assets().iter_fungible() {
                 info!(
-                    "Expected future note P2ID asset with faucet_id: {}: {:?}",
+                    "Expected future note P2ID asset (amount: {}) with faucet_id ({:?}), prefix|suffix: {:?} | {:?}",
+                    asset.amount(),
                     asset.faucet_id().to_bech32(network_id.clone()),
-                    asset.amount()
+                    asset.faucet_id().prefix().as_felt(),
+                    asset.faucet_id().suffix()
                 );
             }
         }
 
+        println!(
+            "----------------------------------------------------------------------input_notes: {:?}",
+            input_notes.len()
+        );
+
         let consume_req = TransactionRequestBuilder::new()
+            .extend_advice_map(advice_map)
             .unauthenticated_input_notes(input_notes.clone())
             .expected_future_notes(expected_future_notes)
             .expected_output_recipients(expected_output_recipients.clone())
             .build()
             .map_err(|e| anyhow::anyhow!("Failed to build batch transaction request: {}", e))?;
 
-        info!("All Recipients: {:?}", expected_output_recipients);
+        info!("All Recipients: {:?}", expected_output_recipients.len());
         for recipient in expected_output_recipients.clone() {
             info!("Recipient digest: {:?}", recipient.digest());
         }
@@ -463,6 +684,85 @@ impl TradingEngine {
         print_transaction_info(&tx_id);
 
         Ok(())
+    }
+
+    fn prepare_payout(
+        &self,
+        execution_details: ExecutionDetails,
+        return_asset_in: bool,
+    ) -> Result<PayoutDetails> {
+        let asset_out = if return_asset_in {
+            execution_details.order.asset_in
+        } else {
+            FungibleAsset::new(
+                execution_details.order.asset_out.faucet_id(),
+                execution_details.amount_out,
+            )?
+        };
+        let user_account_id = execution_details.order.creator_id;
+        let serial_num = execution_details.note.serial_num();
+        let note = execution_details.note;
+        let asset_out_faucet_id = asset_out.faucet_id().to_bech32(self.network_id.clone());
+        let asset_out = Asset::Fungible(asset_out);
+        println!(
+            "######################################prepare_payout###################################### asset_out: {:?}",
+            asset_out
+        );
+        let p2id_serial_num = [
+            serial_num[0],
+            serial_num[1],
+            serial_num[2],
+            Felt::new(serial_num[3].as_int() + 1),
+        ];
+
+        info!(
+            "Calculated {asset_out:?} asset_out from faucet: {}, for recipient {} {} {} with serial number {:?}",
+            asset_out_faucet_id,
+            user_account_id.to_bech32(self.network_id.clone()),
+            user_account_id.prefix().as_felt(),
+            user_account_id.suffix(),
+            p2id_serial_num
+        );
+
+        let p2id = create_p2id_note(
+            self.pool_account_id,
+            user_account_id,
+            vec![asset_out],
+            NoteType::Public,
+            Felt::new(0),
+            p2id_serial_num.into(),
+        )?;
+
+        let in_pool_balances = execution_details.in_pool_balances;
+        let out_pool_balances = execution_details.out_pool_balances;
+        debug!(
+            "-----------------------------------In pool balances: {:?}",
+            in_pool_balances
+        );
+        debug!(
+            "-----------------------------------Out pool balances: {:?}",
+            out_pool_balances
+        );
+
+        let advice_map_value = vec![
+            Felt::new(asset_out.unwrap_fungible().amount()),
+            Felt::new(in_pool_balances.reserve_with_slippage.to::<u64>()),
+            Felt::new(in_pool_balances.reserve.to::<u64>()),
+            Felt::new(in_pool_balances.total_liabilities.to::<u64>()),
+            Felt::new(0),
+            Felt::new(out_pool_balances.reserve_with_slippage.to::<u64>()),
+            Felt::new(out_pool_balances.reserve.to::<u64>()),
+            Felt::new(out_pool_balances.total_liabilities.to::<u64>()),
+        ];
+
+        Ok(PayoutDetails {
+            note,
+            args: None,
+            advice_map_value,
+            details: NoteDetails::from(p2id.clone()),
+            tag: p2id.metadata().tag(),
+            recipient: p2id.recipient().clone(),
+        })
     }
 
     fn get_liq_pools_for_order(
@@ -695,6 +995,7 @@ mod tests {
             is_limit_order: false,
             asset_in,
             asset_out,
+            order_type: OrderType::Swap,
             p2id_tag: 0,
             creator_id: ctx.pool_account_id,
         };
@@ -721,7 +1022,9 @@ mod tests {
 
         // Add a swap order
         let note = ctx.create_swap_note(1000, 1);
-        ctx.state.add_order(note).expect("Should add order");
+        ctx.state
+            .add_order(note, OrderType::Swap)
+            .expect("Should add order");
         assert_eq!(ctx.state.get_open_orders().len(), 1);
 
         // Set STALE oracle prices (10 seconds old)
@@ -760,7 +1063,11 @@ mod tests {
             .run_matching_cycle()
             .expect("Matching should succeed");
 
-        assert_eq!(executions.len(), 1, "Should have processed 1 order");
+        assert_eq!(
+            executions.executions.len(),
+            1,
+            "Should have processed 1 order"
+        );
         assert_eq!(
             ctx.state.get_open_orders().len(),
             0,

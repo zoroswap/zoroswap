@@ -361,13 +361,10 @@ pub async fn create_basic_account(
         .storage_mode(AccountStorageMode::Public)
         .with_auth_component(AuthRpoFalcon512::new(key_pair.public_key().to_commitment()))
         .with_component(BasicWallet);
-    let account = builder
-        .build()
-        .unwrap_or_else(|err| panic!("Failed to build account: {err:?}"));
+    let account = builder.build().unwrap();
     client.add_account(&account, false).await?;
-    keystore
-        .add_key(&key_pair)
-        .unwrap_or_else(|err| panic!("Failed to add key to keystore: {err:?}"));
+    keystore.add_key(&key_pair).unwrap();
+    client.sync_state().await?;
     Ok((account, key_pair))
 }
 
@@ -394,17 +391,10 @@ pub async fn create_basic_faucet(
         .account_type(AccountType::FungibleFaucet)
         .storage_mode(AccountStorageMode::Public)
         .with_auth_component(AuthRpoFalcon512::new(key_pair.public_key().to_commitment()))
-        .with_component(
-            BasicFungibleFaucet::new(symbol, decimals, max_supply)
-                .unwrap_or_else(|err| panic!("Failed to create faucet: {err:?}")),
-        );
-    let account = builder
-        .build()
-        .unwrap_or_else(|err| panic!("Failed to build faucet account: {err:?}"));
+        .with_component(BasicFungibleFaucet::new(symbol, decimals, max_supply).unwrap());
+    let account = builder.build().unwrap();
     client.add_account(&account, false).await?;
-    keystore
-        .add_key(&key_pair)
-        .unwrap_or_else(|err| panic!("Failed to add key to keystore: {err:?}"));
+    keystore.add_key(&key_pair).unwrap();
     Ok(account)
 }
 
@@ -465,6 +455,27 @@ pub async fn wait_for_consumable_notes(
     }
 }
 
+pub async fn fetch_new_notes_by_tag(
+    client: &mut MidenClient,
+    pool_id_tag: &NoteTag,
+) -> Result<Vec<Note>> {
+    client.sync_state().await?;
+    let all_notes = client.get_output_notes(NoteFilter::Committed).await?;
+    let notes: Vec<Note> = all_notes
+        .iter()
+        .filter_map(|n| {
+            if n.metadata().tag().eq(pool_id_tag)
+                && let Some(recipient) = n.recipient()
+            {
+                let note = Note::new(n.assets().clone(), *n.metadata(), recipient.clone());
+                Some(note)
+            } else {
+                None
+            }
+        })
+        .collect();
+    Ok(notes)
+}
 // --------------------------------------------------------------------------
 // Utility Functions
 // --------------------------------------------------------------------------
@@ -475,4 +486,28 @@ pub async fn wait_for_consumable_notes(
 pub fn account_id_to_note_tag(account_id: AccountId) -> NoteTag {
     let address = Address::new(account_id);
     address.to_note_tag()
+}
+
+pub fn print_library_exports(masm_lib: &miden_assembly::Library) {
+    println!("+++++Masm lib exports:");
+    masm_lib.exports().for_each(|export| {
+        println!(
+            "Export: {:?} {:?} {:?}",
+            export.name.name,
+            masm_lib
+                .get_procedure_root_by_name(export.name.clone())
+                .unwrap(),
+            masm_lib
+                .get_procedure_root_by_name(export.name.clone())
+                .unwrap()
+                .to_hex()
+        );
+    });
+}
+
+pub fn print_contract_procedures(pool_contract: &Account) {
+    println!("+++++Pool contract procedures");
+    pool_contract.code().procedures().iter().for_each(|proc| {
+        println!("Proc root: {:?} ", proc.mast_root().to_hex());
+    });
 }

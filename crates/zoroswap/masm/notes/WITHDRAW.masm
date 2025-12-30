@@ -1,0 +1,238 @@
+use.miden::active_note
+use.miden::output_note
+use.std::crypto::hashes::rpo
+use.std::sys
+
+use.zoro::two_asset_pool
+
+
+# ERRORS
+# =================================================================================================
+
+# WITHDRAW script expects exactly 9 note inputs
+const.ERR_WITHDRAW_WRONG_NUMBER_OF_INPUTS="WITHDRAW wrong number of inputs"
+# WITHDRAW script requires exactly one note asset
+const.ERR_WITHDRAW_WRONG_NUMBER_OF_ASSETS="WITHDRAW wrong number of assets"
+const.ERR_WITHDRAW_MIN_ASSET_OUT_NOT_MET="WITHDRAW min asset out not met"
+
+
+# CONSTANTS
+# =================================================================================================
+
+const.PUBLIC_NOTE=1
+const.EXECUTION_HINT_ALWAYS=1
+
+# MEMORY
+# =================================================================================================
+
+# first 4 WORDS reserved as scratch space
+# ====================================================
+# next 8  WORDS reserved for inputs
+# ====================================================
+# next 4  WORDS reserved for arguments
+# ====================================================
+
+const.INPUTS_POINTER = 0x0010
+
+
+
+const.INPUTS_WORD_0 = INPUTS_POINTER        # [MIN_ASSET_OUT]
+const.INPUTS_WORD_1 = INPUTS_POINTER + 4    # [PARAMS] = [lp_withdraw_amount, deadline, p2id_tag, empty]
+const.INPUTS_WORD_2 = INPUTS_POINTER + 8    # [CREATOR_ID_WORD] = [empty, empty, creator_id_suffix, creator_id_prefix]
+
+
+# first 2 WORDS of input space used for inputs
+# ====================================================
+const.NUMBER_OF_INPUTS = 0x000C # 12
+
+
+# semantic names for inputs
+# ====================================================
+# [min_lp_amount_outdeadline, p2id_tag, empty, empty]
+const.MIN_ASSET_OUT= INPUTS_WORD_0
+const.INPUT_PARAMS = INPUTS_WORD_1
+const.CREATOR_ID_WORD = INPUTS_WORD_2
+
+
+
+# WITHDRAW Note Inputs (10 to 22)
+# [asset_id_prefix, asset_id_suffix, empty, min_asset_amount_out]
+const.ASSET_ID_PREFIX = MIN_ASSET_OUT + 3
+const.ASSET_ID_SUFFIX = MIN_ASSET_OUT + 2
+const.MIN_ASSET_AMOUNT_OUT = MIN_ASSET_OUT
+
+
+
+# [lp_withdraw_amount, deadline, p2id_tag, 0]
+const.P2ID_TAG = INPUT_PARAMS + 3
+const.DEADLINE = INPUT_PARAMS + 2
+const.LP_WITHDRAW_AMOUNT = INPUT_PARAMS  + 1# 0x0010
+
+# [empty, empty, creator_id_suffix, creator_id_prefix]
+const.CREATOR_ID_PREFIX = CREATOR_ID_WORD + 3
+const.CREATOR_ID_SUFFIX = CREATOR_ID_WORD + 2
+
+
+# EMPTY  5WORDS 0X001C- 0x00
+
+# argument memory 4 WORDS 
+# 0x0040 - 0x004F
+# ====================================================
+
+const.ARGS_POINTER = 0x0040
+
+
+const.ARGS_WORD_0 = ARGS_POINTER        # []
+
+# first 3 WORDS of ARGUMENTS space used for args
+# ====================================================
+const.NUMBER_OF_ARGS = 0x000C # 4
+
+# semantic names for inputs
+# ====================================================
+
+const.WITHDRAW_AMOUNT_OUT = ARGS_WORD_0   # 0x0040
+const.LIABILITIES = ARGS_WORD_0 + 1  # 0x0041
+const.RESERVE = ARGS_WORD_0 + 2  # 0x0042
+const.RESERVE_WITH_SLIPPAGE = ARGS_WORD_0 + 3  # 0x0043
+
+
+# "constant" MEMORY
+# =================================================================================================
+
+const.P2ID_SCRIPT_ROOT_WORD = 0x0080
+
+
+proc.store_inputs_to_memory
+    # store note inputs into memory starting at address 0
+    push.INPUTS_POINTER exec.active_note::get_inputs
+    # => [num_inputs, inputs_ptr]
+    # make sure the number of inputs is N
+    eq.NUMBER_OF_INPUTS assert.err=ERR_WITHDRAW_WRONG_NUMBER_OF_INPUTS
+    # => [inputs_ptr]
+    drop
+end
+# @note TODO: pool stats will likely need to go through the advice stack
+proc.store_args_to_memory
+    mem_store.LIABILITIES
+    mem_store.RESERVE
+    mem_store.RESERVE_WITH_SLIPPAGE
+    mem_store.WITHDRAW_AMOUNT_OUT
+end
+
+
+#! Returns the P2ID RECIPIENT for a specified SERIAL_NUM, SCRIPT_HASH, and account_id
+#!
+#! Inputs: [SERIAL_NUM, SCRIPT_HASH]
+#! Outputs: [P2ID_RECIPIENT]
+#!
+proc.build_p2id_recipient_hash
+
+    padw hmerge
+    # => [SERIAL_NUM_HASH, SCRIPT_HASH]
+    swapw hmerge
+    # => [SERIAL_SCRIPT_HASH]
+    padw
+    mem_load.CREATOR_ID_SUFFIX mem_load.CREATOR_ID_PREFIX
+    push.0.0
+
+    push.4000 mem_storew_be dropw
+    push.4004 mem_storew_be dropw
+
+    push.8.4000
+    # => [ptr, elements]
+    exec.rpo::hash_memory
+    # => [INPUTS_HASH, SERIAL_SCRIPT_HASH]
+    hmerge
+    # => [P2ID_RECIPIENT]
+end
+
+# input: [SERIAL_NUM,...]
+# ouput: [P2ID_SERIAL_NUM, ...]
+proc.get_p2id_serial_num
+    add.1
+end
+
+#! Creates a P2ID note to creator
+#!
+#! Inputs: [0, 0, 0,liabilities,reserve, reserve,reserve_with_slippage, 0]]
+#! Outputs: []
+#!
+proc.create_p2id_reverse_note
+    padw padw padw padw
+    # => [pad(8)]
+    padw mem_loadw_be.P2ID_SCRIPT_ROOT_WORD
+    # => [P2ID_SCRIPT_HASH, pad(8)]
+    exec.active_note::get_serial_number
+    # => [P2ID_SERIAL_NUM, , P2ID_SCRIPT_HASH, pad(8)]
+    exec.get_p2id_serial_num
+    # => [P2ID_SERIAL_NUM, P2ID_SCRIPT_HASH, pad(8)]
+    exec.build_p2id_recipient_hash
+    # => [P2ID_RECIPIENT, pad(8)]
+
+
+    push.EXECUTION_HINT_ALWAYS
+    # => [execution_hint_always, P2ID_RECIPIENT, pad(8)]
+    push.PUBLIC_NOTE
+    # => [public_note, execution_hint_always, P2ID_RECIPIENT, pad(8)]
+    push.0 # @dev aux for p2id output note
+    # => [aux, public_note, execution_hint_always, P2ID_RECIPIENT, pad(8)]
+    mem_load.P2ID_TAG
+    # => [tag, aux, public_note, execution_hint_always, P2ID_RECIPIENT, pad(8)]
+    # => [tag, aux, note_type, execution_hint, RECIPIENT, pad(8)]
+    call.output_note::create
+    debug.stack.16
+    mem_load.RESERVE_WITH_SLIPPAGE mem_load.RESERVE mem_load.LIABILITIES
+    debug.stack.16
+    movup.4 push.0.0.0 swap.3
+    debug.stack.16
+    # => [note_idx, 0, 0, 0, liabilities,reserve, reserve,reserve_with_slippage]
+    mem_load.WITHDRAW_AMOUNT_OUT
+    push.0
+    mem_load.ASSET_ID_SUFFIX
+    mem_load.ASSET_ID_PREFIX
+    # => [ASSET, note_idx, 0, 0, 0, liabilities,reserve, reserve,reserve_with_slippage]
+    push.0 mem_load.LP_WITHDRAW_AMOUNT mem_load.CREATOR_ID_SUFFIX mem_load.CREATOR_ID_PREFIX
+    # => [user_id_prefix, user_id_suffix, lp_withdraw_amount, 0, ASSET, noteid, 0,0,0, liabilities, reserve, reserve_with_slippage]
+    debug.stack.32
+    call.two_asset_pool::withdraw
+
+    # => []
+end
+
+proc.store_p2id_script_hash
+    push.15783632360113277539.7403765918285273520.15691985194755641846.10399643920503194563
+    mem_storew_be.P2ID_SCRIPT_ROOT_WORD dropw
+end
+
+proc.execute_WITHDRAW
+    mem_load.MIN_ASSET_AMOUNT_OUT
+    mem_load.WITHDRAW_AMOUNT_OUT
+    drop drop #assert.err=ERR_WITHDRAW_MIN_ASSET_OUT_NOT_MET 
+    
+    # min amount out is not met
+    
+    mem_load.RESERVE_WITH_SLIPPAGE
+    mem_load.RESERVE
+    mem_load.LIABILITIES
+    # => [liabilities,reserve, reserve,reserve_with_slippage, 0]
+    push.0.0.0
+    # => [0, 0, 0,liabilities,reserve, reserve,reserve_with_slippage, 0]
+
+    debug.stack.16
+    exec.create_p2id_reverse_note
+
+end
+
+begin
+debug.stack.9
+    exec.store_args_to_memory
+
+    exec.store_inputs_to_memory
+
+    exec.store_p2id_script_hash
+
+    exec.execute_WITHDRAW
+
+    exec.sys::truncate_stack
+end

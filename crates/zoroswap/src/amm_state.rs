@@ -2,6 +2,7 @@ use crate::{
     config::Config,
     oracle_sse::{PriceData, PriceMetadata},
     order::Order,
+    order::OrderType,
     pool::{PoolBalances, PoolState},
     websocket::{EventBroadcaster, PoolStateEvent},
 };
@@ -45,12 +46,12 @@ impl AmmState {
 
     pub async fn init_liquidity_pool_states(&self, client: &mut MidenClient) -> Result<()> {
         info!("Starting initiation of liq pool states.");
-        for (index, liq_pool_config) in self.config.liquidity_pools.iter().enumerate() {
+        for liq_pool_config in &self.config.liquidity_pools {
             let mut new_liq_pool_state =
                 PoolState::new(self.config.pool_account_id, liq_pool_config.faucet_id);
             {
                 new_liq_pool_state
-                    .sync_from_chain(client, index as u8)
+                    .sync_from_chain(client, liq_pool_config.faucet_id)
                     .await?;
             }
             self.liquidity_pools
@@ -70,7 +71,7 @@ impl AmmState {
         Ok(())
     }
 
-    pub fn add_order(&self, note: Note) -> Result<(String, Uuid, Order)> {
+    pub fn add_order(&self, note: Note, order_type: OrderType) -> Result<(String, Uuid, Order)> {
         // Get hex and ensure single 0x prefix to match frontend note.id().toString() format
         let hex = note.id().to_hex();
         let note_id = if hex.starts_with("0x") {
@@ -78,12 +79,18 @@ impl AmmState {
         } else {
             format!("0x{}", hex)
         };
-        let order = Order::from_note(&note)?;
+        let order = match order_type {
+            OrderType::Deposit => Order::from_deposit_note(&note),
+            OrderType::Withdraw => Order::from_withdraw_note(&note),
+            OrderType::Swap => Order::from_swap_note(&note),
+        }?;
+
         let order_id = order.id;
         // Store note_id mapping before inserting note (note might be consumed later)
         self.note_ids.insert(order_id, note_id.clone());
         self.notes.insert(order_id, note);
         self.open_orders.insert(order_id, order);
+
         Ok((note_id, order_id, order))
     }
 
@@ -122,11 +129,11 @@ impl AmmState {
         }
     }
 
-    pub fn update_pool_state(&self, pool_account_id: &AccountId, new_pool_balances: PoolBalances) {
-        if let Some(mut liq_pool) = self.liquidity_pools.get_mut(pool_account_id) {
+    pub fn update_pool_state(&self, faucet_id: &AccountId, new_pool_balances: PoolBalances) {
+        if let Some(mut liq_pool) = self.liquidity_pools.get_mut(faucet_id) {
             liq_pool.update_state(new_pool_balances);
             if let Err(e) = self.broadcaster.broadcast_pool_state(PoolStateEvent {
-                faucet_id: pool_account_id.to_hex(),
+                faucet_id: faucet_id.to_bech32(self.config.network_id.clone()),
                 balances: new_pool_balances,
                 timestamp: Utc::now().timestamp_millis() as u64,
             }) {
@@ -135,8 +142,8 @@ impl AmmState {
         };
     }
 
-    pub fn config(&self) -> &Config {
-        &self.config
+    pub fn config(&self) -> Config {
+        (*self.config).clone()
     }
 
     pub fn liquidity_pools(&self) -> &DashMap<AccountId, PoolState> {
