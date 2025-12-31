@@ -115,8 +115,8 @@ async fn main() -> Result<()> {
         ]
         .into();
         let curve: Word = [
-            Felt::new(17075887234393789126 + i as u64), // c
-            Felt::new(5000000000000000),                // beta
+            Felt::new(10000000000000000),        // beta
+            Felt::new(16000000000000000000_u64), // c
             Felt::new(0),
             Felt::new(0),
         ]
