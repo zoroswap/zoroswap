@@ -7,8 +7,8 @@ license = "GPL-3.0-only"
 [dependencies]
 zoro_primitives = { path = "../zoro_primitives", default-features = false }
 zoro_miden_client = { path = "../zoro_miden_client" }
-miden-client = { version = "0.12.5", features = ["testing", "tonic"] }
-miden-client-sqlite-store = { version = "0.12.5" }
+miden-client = { version = "0.12.6", features = ["testing", "tonic"] }
+miden-client-sqlite-store = { version = "0.12.6" }
 miden-lib = { version = "0.12.4", default-features = false }
 miden-objects = { version = "0.12.4", default-features = false, features = [
   "testing",
