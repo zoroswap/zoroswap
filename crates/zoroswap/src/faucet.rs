@@ -77,7 +77,7 @@ impl GuardedFaucet {
                     .import_account_by_id(mint_instruction.account_id)
                     .await
                 {
-                    warn!("Note: account import returned: {e}");
+                    warn!("Note: account import returned: {e:?}");
                 }
 
                 debug!(
