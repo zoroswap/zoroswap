@@ -35,7 +35,7 @@ const.INPUTS_POINTER = 0x0010
 
 
 const.INPUTS_WORD_0 = INPUTS_POINTER        # [min_lp_amount_out, deadline, p2id_tag, empty]
-const.INPUTS_WORD_1 = INPUTS_POINTER + 4    # [CREATOR_ID_WORD] = [empty, empty, creator_id_suffix, creator_id_prefix]
+const.INPUTS_WORD_1 = INPUTS_POINTER + 4    # [BENEFICIARY_ID_WORD] = [empty, empty, beneficiary_id_suffix, beneficiary_id_prefix]
 
 
 
@@ -48,7 +48,7 @@ const.NUMBER_OF_INPUTS = 0x0008 # 8
 # ====================================================
 # [min_lp_amount_outdeadline, p2id_tag, empty, empty]
 const.INPUT_PARAMS = INPUTS_WORD_0
-const.CREATOR_ID_WORD = INPUTS_WORD_1
+const.BENEFICIARY_ID_WORD = INPUTS_WORD_1
 
 
 
@@ -58,11 +58,11 @@ const.MIN_LP_AMOUNT_OUT = INPUT_PARAMS  # 0x0010
 const.DEADLINE = INPUT_PARAMS + 1
 const.P2ID_TAG = INPUT_PARAMS + 2
 
-# [empty, empty, creator_id_suffix, creator_id_prefix]
-const.EMPTY_INPUT_4 = CREATOR_ID_WORD # 0x0018
-const.EMPTY_INPUT_5 = CREATOR_ID_WORD + 1
-const.DEPOSIT_CREATOR_ID_SUFFIX = CREATOR_ID_WORD + 2
-const.DEPOSIT_CREATOR_ID_PREFIX = CREATOR_ID_WORD + 3  # 0x001B
+# [empty, empty, beneficiary_id_suffix, beneficiary_id_prefix]
+const.EMPTY_INPUT_4 = BENEFICIARY_ID_WORD # 0x0018
+const.EMPTY_INPUT_5 = BENEFICIARY_ID_WORD + 1
+const.DEPOSIT_BENEFICIARY_ID_SUFFIX = BENEFICIARY_ID_WORD + 2
+const.DEPOSIT_BENEFICIARY_ID_PREFIX = BENEFICIARY_ID_WORD + 3  # 0x001B
 
 # EMPTY  5WORDS 0X001C- 0x00
 
@@ -139,7 +139,7 @@ proc.build_p2id_recipient_hash
     swapw hmerge
     # => [SERIAL_SCRIPT_HASH]
     padw
-    mem_load.DEPOSIT_CREATOR_ID_SUFFIX mem_load.DEPOSIT_CREATOR_ID_PREFIX
+    mem_load.DEPOSIT_BENEFICIARY_ID_SUFFIX mem_load.DEPOSIT_BENEFICIARY_ID_PREFIX
     push.0.0
 
     push.4000 mem_storew_be dropw
@@ -159,7 +159,7 @@ proc.get_p2id_serial_num
     add.1
 end
 
-#! Creates a P2ID note to creator
+#! Creates a P2ID note to beneficiary
 #!
 #! Inputs: [ASSET_TO_BE_SENT]
 #! Outputs: []
@@ -217,13 +217,13 @@ proc.execute_DEPOSIT
         mem_loadw_be.DEPOSIT_ASSET_WORD
         exec.create_p2id_reverse_note
     else
-        mem_load.LP_AMOUNT_OUT mem_load.DEPOSIT_CREATOR_ID_SUFFIX mem_load.DEPOSIT_CREATOR_ID_PREFIX
-        # => [creator_id_prefix, creator_id_suffix]
-        push.0 mem_load.RESERVE_WITH_SLIPPAGE mem_load.RESERVE mem_load.LIABILITIES 
-         # => [liabilities,reserve, reserve_with_slippage, 0, creator_id_prefix, creator_id_suffix]
+        mem_load.LP_AMOUNT_OUT mem_load.DEPOSIT_BENEFICIARY_ID_SUFFIX mem_load.DEPOSIT_BENEFICIARY_ID_PREFIX
+        # => [beneficiary_id_prefix, beneficiary_id_suffix]
+        push.0 mem_load.RESERVE_WITH_SLIPPAGE mem_load.RESERVE mem_load.LIABILITIES
+         # => [liabilities,reserve, reserve_with_slippage, 0, beneficiary_id_prefix, beneficiary_id_suffix]
         push.0.0.0.0
         mem_loadw_be.DEPOSIT_ASSET_WORD
-        # => [ASSET, liabilities,reserve, reserve_with_slippage, 0, creator_id_prefix, creator_id_suffix]
+        # => [ASSET, liabilities,reserve, reserve_with_slippage, 0, beneficiary_id_prefix, beneficiary_id_suffix]
     
         call.zoropool::deposit
 

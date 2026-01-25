@@ -36,7 +36,7 @@ pub struct Order {
     pub asset_in: FungibleAsset,
     pub asset_out: FungibleAsset,
     pub p2id_tag: u64,
-    pub creator_id: AccountId,
+    pub beneficiary_id: AccountId,
     pub order_type: OrderType,
 }
 
@@ -66,10 +66,10 @@ impl Order {
         let deadline = DateTime::from_timestamp_millis(deadline as i64).ok_or(anyhow!(
             "Error parsing deadline for order. Timestamp: {deadline}"
         ))?;
-        let creator_prefix = vals[11];
-        let creator_suffix = vals[10];
-        let creator_id = AccountId::try_from([creator_prefix, creator_suffix])
-            .or(Err(anyhow!("Couldn't parse creator_id from order note")))?;
+        let beneficiary_prefix = vals[11];
+        let beneficiary_suffix = vals[10];
+        let beneficiary_id = AccountId::try_from([beneficiary_prefix, beneficiary_suffix])
+            .or(Err(anyhow!("Couldn't parse beneficiary_id from order note")))?;
 
         info!(
             "Asset in: {}, asset out: {}",
@@ -88,13 +88,13 @@ impl Order {
             is_limit_order: false,
             asset_in,
             asset_out,
-            creator_id,
+            beneficiary_id,
             id: Uuid::new_v4(),
             p2id_tag,
             order_type: OrderType::Swap,
         };
 
-        info!("New swap order from {}: {order:?}", creator_id.to_hex());
+        info!("New swap order from {}: {order:?}", beneficiary_id.to_hex());
 
         Ok(order)
     }
@@ -126,10 +126,10 @@ impl Order {
         let deadline = DateTime::from_timestamp_millis(deadline as i64).ok_or(anyhow!(
             "Error parsing deadline for order. Timestamp: {deadline}"
         ))?;
-        let creator_prefix = vals[7];
-        let creator_suffix = vals[6];
-        let creator_id = AccountId::try_from([creator_prefix, creator_suffix])
-            .or(Err(anyhow!("Couldn't parse creator_id from order note")))?;
+        let beneficiary_prefix = vals[7];
+        let beneficiary_suffix = vals[6];
+        let beneficiary_id = AccountId::try_from([beneficiary_prefix, beneficiary_suffix])
+            .or(Err(anyhow!("Couldn't parse beneficiary_id from order note")))?;
 
         let order = Order {
             created_at: Utc::now(),
@@ -138,13 +138,13 @@ impl Order {
             is_limit_order: false,
             asset_in,
             asset_out,
-            creator_id,
+            beneficiary_id,
             id: Uuid::new_v4(),
             p2id_tag,
             order_type: OrderType::Deposit,
         };
 
-        info!("New deposit order from {}: {order:?}", creator_id.to_hex());
+        info!("New deposit order from {}: {order:?}", beneficiary_id.to_hex());
 
         Ok(order)
     }
@@ -165,12 +165,12 @@ impl Order {
         let deadline = DateTime::from_timestamp_millis(deadline as i64).ok_or(anyhow!(
             "Error parsing deadline for order. Timestamp: {deadline}"
         ))?;
-        let creator_prefix = vals[11];
-        let creator_suffix = vals[10];
-        let creator_id = AccountId::try_from([creator_prefix, creator_suffix])
-            .or(Err(anyhow!("Couldn't parse creator_id from order note")))?;
+        let beneficiary_prefix = vals[11];
+        let beneficiary_suffix = vals[10];
+        let beneficiary_id = AccountId::try_from([beneficiary_prefix, beneficiary_suffix])
+            .or(Err(anyhow!("Couldn't parse beneficiary_id from order note")))?;
 
-        println!("creator_id: {:?}", creator_id);
+        println!("beneficiary_id: {:?}", beneficiary_id);
         println!("deadline: {:?}", deadline);
         println!("p2id_tag: {:?}", p2id_tag);
         println!("asset_in: {:?}", asset_in);
@@ -182,13 +182,13 @@ impl Order {
             is_limit_order: false,
             asset_in,
             asset_out,
-            creator_id,
+            beneficiary_id,
             id: Uuid::new_v4(),
             p2id_tag,
             order_type: OrderType::Withdraw,
         };
 
-        info!("New withdraw order from {}: {order:?}", creator_id.to_hex());
+        info!("New withdraw order from {}: {order:?}", beneficiary_id.to_hex());
 
         Ok(order)
     }

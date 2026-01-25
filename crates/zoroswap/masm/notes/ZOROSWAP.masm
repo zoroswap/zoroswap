@@ -36,7 +36,7 @@ const.INPUTS_POINTER = 0x0010
 
 const.INPUTS_WORD_0 = INPUTS_POINTER        # [REQUESTED_ASSET_WORD]
 const.INPUTS_WORD_1 = INPUTS_POINTER + 4    # [deadline, p2id_tag, empty, empty]
-const.INPUTS_WORD_2 = INPUTS_POINTER + 8    # [CREATOR_ID_WORD] = [empty, empty, creator_id_suffix, creator_id_prefix]
+const.INPUTS_WORD_2 = INPUTS_POINTER + 8    # [BENEFICIARY_ID_WORD] = [empty, empty, beneficiary_id_suffix, beneficiary_id_prefix]
 const.INPUTS_WORD_3 = INPUTS_POINTER + 12   # [EMPTY]
 const.INPUTS_WORD_4 = INPUTS_POINTER + 16   # [EMPTY]
 const.INPUTS_WORD_5 = INPUTS_POINTER + 20   # [EMPTY]
@@ -54,7 +54,7 @@ const.NUMBER_OF_INPUTS = 0x000C # 12
 # ====================================================
 const.REQUESTED_ASSET_WORD = INPUTS_WORD_0
 # [deadline, p2id_tag, empty, empty]
-const.CREATOR_ID_WORD = INPUTS_WORD_2
+const.BENEFICIARY_ID_WORD = INPUTS_WORD_2
 const.INPUTS_EMPTY_WORD_0 = INPUTS_WORD_3
 # [EMPTY]
 # [EMPTY]
@@ -74,11 +74,11 @@ const.P2ID_TAG = INPUTS_WORD_1 + 1
 const.EMPTY_INPUT_6 = INPUTS_WORD_1 + 2
 const.EMPTY_INPUT_7 = INPUTS_WORD_1 + 3  # 0x0017
 
-# [empty, empty, creator_id_suffix, creator_id_prefix]
-const.EMPTY_INPUT_8 = CREATOR_ID_WORD # 0x0018
-const.EMPTY_INPUT_9 = CREATOR_ID_WORD + 1
-const.ZOROSWAP_CREATOR_ID_SUFFIX = CREATOR_ID_WORD + 2
-const.ZOROSWAP_CREATOR_ID_PREFIX = CREATOR_ID_WORD + 3  # 0x001B
+# [empty, empty, beneficiary_id_suffix, beneficiary_id_prefix]
+const.EMPTY_INPUT_8 = BENEFICIARY_ID_WORD # 0x0018
+const.EMPTY_INPUT_9 = BENEFICIARY_ID_WORD + 1
+const.ZOROSWAP_BENEFICIARY_ID_SUFFIX = BENEFICIARY_ID_WORD + 2
+const.ZOROSWAP_BENEFICIARY_ID_PREFIX = BENEFICIARY_ID_WORD + 3  # 0x001B
 
 # EMPTY  5WORDS 0X001C- 0x00
 
@@ -198,7 +198,7 @@ proc.build_p2id_recipient_hash
     swapw hmerge
     # => [SERIAL_SCRIPT_HASH]
     padw
-    mem_load.ZOROSWAP_CREATOR_ID_SUFFIX mem_load.ZOROSWAP_CREATOR_ID_PREFIX
+    mem_load.ZOROSWAP_BENEFICIARY_ID_SUFFIX mem_load.ZOROSWAP_BENEFICIARY_ID_PREFIX
     push.0.0
 
     push.4000 mem_storew_be dropw
@@ -218,7 +218,7 @@ proc.get_p2id_serial_num
     add.1
 end
 
-#! Creates a P2ID note to creator
+#! Creates a P2ID note to beneficiary
 #!
 #! Inputs: [ASSET_TO_BE_SENT]
 #! Outputs: []

@@ -700,7 +700,7 @@ impl TradingEngine {
                 execution_details.amount_out,
             )?
         };
-        let user_account_id = execution_details.order.creator_id;
+        let user_account_id = execution_details.order.beneficiary_id;
         let serial_num = execution_details.note.serial_num();
         let note = execution_details.note;
         let asset_out_faucet_id = asset_out.faucet_id().to_bech32(self.network_id.clone());
@@ -998,7 +998,7 @@ mod tests {
             asset_out,
             order_type: OrderType::Swap,
             p2id_tag: 0,
-            creator_id: ctx.pool_account_id,
+            beneficiary_id: ctx.pool_account_id,
         };
 
         let engine = ctx.create_engine();

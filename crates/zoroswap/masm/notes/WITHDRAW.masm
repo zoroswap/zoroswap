@@ -38,7 +38,7 @@ const.INPUTS_POINTER = 0x0010
 
 const.INPUTS_WORD_0 = INPUTS_POINTER        # [MIN_ASSET_OUT]
 const.INPUTS_WORD_1 = INPUTS_POINTER + 4    # [PARAMS] = [lp_withdraw_amount, deadline, p2id_tag, empty]
-const.INPUTS_WORD_2 = INPUTS_POINTER + 8    # [CREATOR_ID_WORD] = [empty, empty, creator_id_suffix, creator_id_prefix]
+const.INPUTS_WORD_2 = INPUTS_POINTER + 8    # [BENEFICIARY_ID_WORD] = [empty, empty, beneficiary_id_suffix, beneficiary_id_prefix]
 
 
 # first 2 WORDS of input space used for inputs
@@ -51,7 +51,7 @@ const.NUMBER_OF_INPUTS = 0x000C # 12
 # [min_lp_amount_outdeadline, p2id_tag, empty, empty]
 const.MIN_ASSET_OUT= INPUTS_WORD_0
 const.INPUT_PARAMS = INPUTS_WORD_1
-const.CREATOR_ID_WORD = INPUTS_WORD_2
+const.BENEFICIARY_ID_WORD = INPUTS_WORD_2
 
 
 
@@ -68,9 +68,9 @@ const.P2ID_TAG = INPUT_PARAMS + 3
 const.DEADLINE = INPUT_PARAMS + 2
 const.LP_WITHDRAW_AMOUNT = INPUT_PARAMS  + 1# 0x0010
 
-# [empty, empty, creator_id_suffix, creator_id_prefix]
-const.CREATOR_ID_PREFIX = CREATOR_ID_WORD + 3
-const.CREATOR_ID_SUFFIX = CREATOR_ID_WORD + 2
+# [empty, empty, beneficiary_id_suffix, beneficiary_id_prefix]
+const.BENEFICIARY_ID_PREFIX = BENEFICIARY_ID_WORD + 3
+const.BENEFICIARY_ID_SUFFIX = BENEFICIARY_ID_WORD + 2
 
 
 # EMPTY  5WORDS 0X001C- 0x00
@@ -133,7 +133,7 @@ proc.build_p2id_recipient_hash
     swapw hmerge
     # => [SERIAL_SCRIPT_HASH]
     padw
-    mem_load.CREATOR_ID_SUFFIX mem_load.CREATOR_ID_PREFIX
+    mem_load.BENEFICIARY_ID_SUFFIX mem_load.BENEFICIARY_ID_PREFIX
     push.0.0
 
     push.4000 mem_storew_be dropw
@@ -153,7 +153,7 @@ proc.get_p2id_serial_num
     add.1
 end
 
-#! Creates a P2ID note to creator
+#! Creates a P2ID note to beneficiary
 #!
 #! Inputs: [0, 0, 0,liabilities,reserve, reserve,reserve_with_slippage, 0]]
 #! Outputs: []
@@ -192,7 +192,7 @@ proc.create_p2id_reverse_note
     mem_load.ASSET_ID_SUFFIX
     mem_load.ASSET_ID_PREFIX
     # => [ASSET, note_idx, 0, 0, 0, liabilities,reserve, reserve,reserve_with_slippage]
-    push.0 mem_load.LP_WITHDRAW_AMOUNT mem_load.CREATOR_ID_SUFFIX mem_load.CREATOR_ID_PREFIX
+    push.0 mem_load.LP_WITHDRAW_AMOUNT mem_load.BENEFICIARY_ID_SUFFIX mem_load.BENEFICIARY_ID_PREFIX
     # => [user_id_prefix, user_id_suffix, lp_withdraw_amount, 0, ASSET, noteid, 0,0,0, liabilities, reserve, reserve_with_slippage]
     debug.stack.32
     call.zoropool::withdraw
