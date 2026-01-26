@@ -354,7 +354,7 @@ impl TradingEngine {
                         pools
                             .get_mut(&order.asset_in.faucet_id())
                             .ok_or(anyhow!("Missing pool in state"))?
-                            .clone_from(&new_pool_state);
+                            .update_state(new_pool_state.balances, new_pool_state.lp_total_supply);
                         order_executions.push(OrderExecution::Deposit(ExecutionDetails {
                             note,
                             order,
@@ -396,7 +396,7 @@ impl TradingEngine {
                         pools
                             .get_mut(&order.asset_out.faucet_id())
                             .ok_or(anyhow!("Missing pool in state"))?
-                            .clone_from(&new_pool_state);
+                            .update_state(new_pool_state.balances, new_pool_state.lp_total_supply);
                         order_executions.push(OrderExecution::Withdraw(ExecutionDetails {
                             note,
                             order,
