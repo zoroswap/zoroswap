@@ -249,18 +249,6 @@ impl TradingEngine {
                     // Execute swaps and broadcast success
                     match self.execute_orders(executions.clone(), client).await {
                         Ok(_) => {
-                            // Pluck notes now that execution succeeded
-                            for execution in &executions {
-                                let order_id = match execution {
-                                    OrderExecution::Swap(d)
-                                    | OrderExecution::Deposit(d)
-                                    | OrderExecution::Withdraw(d)
-                                    | OrderExecution::FailedOrder(d)
-                                    | OrderExecution::PastDeadline(d) => d.order.id,
-                                };
-                                let _ = self.state.pluck_note(&order_id);
-                            }
-
                             for (faucet_id, pool_state) in matching_cycle.new_pool_states {
                                 self.state
                                     .update_pool_state(&faucet_id, pool_state.balances);
@@ -305,7 +293,17 @@ impl TradingEngine {
                         }
                         Err(e) => {
                             error!("{e}");
-                            // Restore orders so they can be retried
+                            // Restore notes and orders so they can be retried
+                            for execution in executions {
+                                let (order_id, note) = match execution {
+                                    OrderExecution::Swap(d)
+                                    | OrderExecution::Deposit(d)
+                                    | OrderExecution::Withdraw(d)
+                                    | OrderExecution::FailedOrder(d)
+                                    | OrderExecution::PastDeadline(d) => (d.order.id, d.note),
+                                };
+                                self.state.restore_note(order_id, note);
+                            }
                             self.state.add_orders(matching_cycle.flushed_orders);
                         }
                     }
@@ -335,7 +333,7 @@ impl TradingEngine {
             debug!("---------------quote_pool_state: {:?}", quote_pool_state);
 
             if order.deadline < now {
-                let note = self.state.get_note(&order.id)?;
+                let (_, note) = self.state.pluck_note(&order.id)?;
                 warn!(
                     "Order {:?} is past deadline (by {})",
                     order.order_type,
@@ -367,12 +365,12 @@ impl TradingEngine {
                     )?;
                     let amount_out = amount_out.to::<u64>();
                     if amount_out > 0 && amount_out >= order.asset_out.amount() {
-                        let note = self.state.get_note(&order.id)?;
+                        let (_, note) = self.state.pluck_note(&order.id)?;
                         pools
                             .get_mut(&order.asset_in.faucet_id())
                             .ok_or(anyhow!("Missing pool in state"))?
                             .update_state(new_pool_balance);
-                                order_executions.push(OrderExecution::Deposit(ExecutionDetails {
+                        order_executions.push(OrderExecution::Deposit(ExecutionDetails {
                             note,
                             order,
                             amount_out: order.asset_in.amount(),
@@ -390,8 +388,8 @@ impl TradingEngine {
                                 order.asset_out.amount()
                             );
                         }
-                        let note = self.state.get_note(&order.id)?;
-                                order_executions.push(OrderExecution::FailedOrder(ExecutionDetails {
+                        let (_, note) = self.state.pluck_note(&order.id)?;
+                        order_executions.push(OrderExecution::FailedOrder(ExecutionDetails {
                             note,
                             order,
                             amount_out: order.asset_in.amount(),
@@ -409,12 +407,12 @@ impl TradingEngine {
                     )?;
                     let amount_out = amount_out.to::<u64>();
                     if amount_out > 0 && amount_out >= order.asset_out.amount() {
-                        let note = self.state.get_note(&order.id)?;
+                        let (_, note) = self.state.pluck_note(&order.id)?;
                         pools
                             .get_mut(&order.asset_out.faucet_id())
                             .ok_or(anyhow!("Missing pool in state"))?
                             .update_state(new_pool_balance);
-                                order_executions.push(OrderExecution::Withdraw(ExecutionDetails {
+                        order_executions.push(OrderExecution::Withdraw(ExecutionDetails {
                             note,
                             order,
                             amount_out,
@@ -432,7 +430,7 @@ impl TradingEngine {
                                 order.asset_out.amount()
                             );
                         }
-                                // Note is not needed for failed withdraw, but we track the order
+                        // Note is not needed for failed withdraw, but we track the order
                     }
                 }
                 OrderType::Swap => {
@@ -476,8 +474,8 @@ impl TradingEngine {
                                 let pool_out = pools
                                     .get_mut(&order.asset_out.faucet_id())
                                     .ok_or(anyhow!("Missing pool in state"))?;
-                                let note = self.state.get_note(&order.id)?;
-                                order_executions.push(OrderExecution::FailedOrder(
+                                let (_, note) = self.state.pluck_note(&order.id)?;
+                        order_executions.push(OrderExecution::FailedOrder(
                                     ExecutionDetails {
                                         in_pool_balances: pool_in.balances,
                                         out_pool_balances: pool_out.balances,
@@ -503,7 +501,7 @@ impl TradingEngine {
                             .get_mut(&order.asset_out.faucet_id())
                             .ok_or(anyhow!("Missing pool in state"))?
                             .update_state(new_quote_pool_balance);
-                        let note = self.state.get_note(&order.id)?;
+                        let (_, note) = self.state.pluck_note(&order.id)?;
                         order_executions.push(OrderExecution::Swap(ExecutionDetails {
                             note,
                             order,
@@ -522,7 +520,7 @@ impl TradingEngine {
                                 order.asset_out.amount()
                             );
                         }
-                        let note = self.state.get_note(&order.id)?;
+                        let (_, note) = self.state.pluck_note(&order.id)?;
                         order_executions.push(OrderExecution::FailedOrder(ExecutionDetails {
                             note,
                             order,
@@ -1093,10 +1091,10 @@ mod tests {
         );
     }
 
-    /// Test that notes are preserved during matching and orders can be restored on failure.
+    /// Test that notes and orders can be restored on execution failure.
     /// This prevents loss of user funds if execute_orders fails.
     #[tokio::test]
-    async fn test_notes_preserved_and_orders_restorable_on_failure() {
+    async fn test_notes_and_orders_restorable_on_failure() {
         // Given: a context with fresh oracle prices
         let ctx = TestContext::new().await;
         let fresh_time = Utc::now().timestamp() as u64;
@@ -1118,33 +1116,40 @@ mod tests {
             .run_matching_cycle()
             .expect("matching cycle must succeed");
 
-        // Then: notes are still in state (cloned, not plucked)
+        // Then: notes have been plucked (moved into executions)
         assert!(
-            ctx.state.get_note(&order_id).is_ok(),
-            "note must still exist in state after run_matching_cycle"
+            ctx.state.pluck_note(&order_id).is_err(),
+            "note must have been plucked during matching"
         );
 
-        // And: flushed_orders contains the orders for potential restoration
-        assert_eq!(
-            matching_cycle.flushed_orders.len(),
-            1,
-            "flushed_orders must contain the order"
-        );
+        // And: flushed_orders and executions contain data for restoration
+        assert_eq!(matching_cycle.flushed_orders.len(), 1);
+        assert_eq!(matching_cycle.executions.len(), 1);
 
-        // When: simulating execution failure by restoring orders
+        // When: simulating execution failure by restoring notes and orders
+        for execution in matching_cycle.executions {
+            let (id, note) = match execution {
+                OrderExecution::Swap(d)
+                | OrderExecution::Deposit(d)
+                | OrderExecution::Withdraw(d)
+                | OrderExecution::FailedOrder(d)
+                | OrderExecution::PastDeadline(d) => (d.order.id, d.note),
+            };
+            ctx.state.restore_note(id, note);
+        }
         ctx.state.add_orders(matching_cycle.flushed_orders);
 
         // Then: orders are back in open_orders
         assert_eq!(
             ctx.state.get_open_orders().len(),
             1,
-            "orders must be restored after add_orders"
+            "orders must be restored"
         );
 
-        // And: notes are still available
+        // And: notes are back in state
         assert!(
-            ctx.state.get_note(&order_id).is_ok(),
-            "note must still exist after order restoration"
+            ctx.state.pluck_note(&order_id).is_ok(),
+            "note must be restored"
         );
     }
 }

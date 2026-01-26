@@ -158,17 +158,14 @@ impl AmmState {
         &self.oracle_prices
     }
 
-    pub fn get_note(&self, id: &Uuid) -> Result<Note> {
-        self.notes
-            .get(id)
-            .map(|n| n.clone())
-            .ok_or(anyhow!("No note found for id {id} in state."))
-    }
-
     pub fn pluck_note(&self, id: &Uuid) -> Result<(Uuid, Note)> {
         self.notes
             .remove(id)
             .ok_or(anyhow!("No note found for id {id} in state."))
+    }
+
+    pub fn restore_note(&self, id: Uuid, note: Note) {
+        self.notes.insert(id, note);
     }
 
     pub fn add_orders(&self, orders: Vec<Order>) {
