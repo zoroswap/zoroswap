@@ -6,13 +6,12 @@ use crate::{
         PoolBalances, PoolState, get_curve_amount_out, get_deposit_lp_amount_out,
         get_withdraw_asset_amount_out,
     },
-    websocket::{EventBroadcaster, OrderStatus, OrderUpdateDetails, OrderUpdateEvent, PoolStateEvent},
+    websocket::{EventBroadcaster, OrderStatus, OrderUpdateDetails, OrderUpdateEvent},
 };
 use alloy::primitives::U256;
 use anyhow::{Result, anyhow};
 use chrono::Utc;
 use dashmap::DashMap;
-use std::collections::HashMap;
 use miden_client::{
     Felt, Word,
     account::AccountId,
@@ -51,9 +50,7 @@ pub(crate) enum OrderExecution {
 
 pub(crate) struct MatchingCycle {
     executions: Vec<OrderExecution>,
-    /// Pending pool state updates to apply after successful execution.
-    /// Maps `faucet_id` → `(new_balances, new_lp_total_supply)`.
-    pending_pool_updates: HashMap<AccountId, (PoolBalances, u64)>,
+    new_pool_states: DashMap<AccountId, PoolState>,
 }
 pub struct TradingEngine {
     state: Arc<AmmState>,
@@ -202,7 +199,6 @@ impl TradingEngine {
         match self.run_matching_cycle() {
             Ok(matching_cycle) => {
                 let executions = matching_cycle.executions;
-                let pending_pool_updates = matching_cycle.pending_pool_updates;
                 if !executions.is_empty() {
                     // Broadcast order status updates before execution
                     for execution in &executions {
@@ -252,31 +248,18 @@ impl TradingEngine {
                     // Execute swaps and broadcast success
                     match self.execute_orders(executions.clone(), client).await {
                         Ok(_) => {
-                            // Apply pending pool updates only after successful execution
-                            for (faucet_id, (balances, lp_total_supply)) in &pending_pool_updates {
-                                self.state.update_pool_state(faucet_id, *balances, *lp_total_supply);
+                            // Apply pool state updates only after successful execution
+                            for (faucet_id, pool_state) in matching_cycle.new_pool_states {
+                                self.state.update_pool_state(&faucet_id, pool_state);
                             }
 
-                            // Broadcast pool state updates and order status
+                            // Broadcast order status for executed orders
                             for execution in &executions {
                                 match &execution {
                                     &OrderExecution::Swap(details)
                                     | &OrderExecution::Deposit(details)
                                     | &OrderExecution::Withdraw(details) => {
-                                        // Broadcast pool state updates
                                         let timestamp = Utc::now().timestamp_millis() as u64;
-                                        let _ = self.broadcaster.broadcast_pool_state(PoolStateEvent {
-                                            faucet_id: details.order.asset_in.faucet_id().to_bech32(self.network_id.clone()),
-                                            balances: details.in_pool_balances,
-                                            timestamp,
-                                        });
-                                        let _ = self.broadcaster.broadcast_pool_state(PoolStateEvent {
-                                            faucet_id: details.order.asset_out.faucet_id().to_bech32(self.network_id.clone()),
-                                            balances: details.out_pool_balances,
-                                            timestamp,
-                                        });
-
-                                        // Broadcast order status
                                         let note_id = self
                                             .state
                                             .get_note_id(&details.order.id)
@@ -321,20 +304,17 @@ impl TradingEngine {
     }
 
     pub(crate) fn run_matching_cycle(&self) -> Result<MatchingCycle> {
+        let pools = self.state.liquidity_pools().clone();
         let mut orders = self.state.flush_open_orders();
 
         // MEV protection: randomize order processing sequence
         orders.shuffle(&mut rand::rng());
 
-        let pools = self.state.liquidity_pools();
         let mut order_executions = Vec::new();
-        // Track pending pool updates, only applied after successful execution
-        let mut pending_pool_updates: HashMap<AccountId, (PoolBalances, u64)> = HashMap::new();
         let now = Utc::now();
         for order in orders {
-            // Get pool states, checking pending updates first for cumulative effects
             let ((base_pool_state, base_pool_decimals), (quote_pool_state, quote_pool_decimals)) =
-                self.get_liq_pools_for_order_with_pending(pools, &order, &pending_pool_updates)?;
+                self.get_liq_pools_for_order(&pools, &order)?;
             debug!("---------------order: {:?}", order);
             debug!("---------------base_pool_state: {:?}", base_pool_state);
             debug!("---------------quote_pool_state: {:?}", quote_pool_state);
@@ -364,25 +344,24 @@ impl TradingEngine {
 
             match order.order_type {
                 OrderType::Deposit => {
-                    let (amount_out, new_pool_balance, new_lp_total_supply) = get_deposit_lp_amount_out(
+                    let (amount_out, new_pool_state) = get_deposit_lp_amount_out(
                         &base_pool_state,
                         U256::from(order.asset_in.amount()),
-                        U256::from(base_pool_state.lp_total_supply), // total supply
+                        U256::from(base_pool_state.lp_total_supply),
                         U256::from(base_pool_decimals),
-                    )?;
+                    );
                     let amount_out = amount_out.to::<u64>();
                     if amount_out > 0 && amount_out >= order.asset_out.amount() {
                         let (_, note) = self.state.pluck_note(&order.id)?;
-                        // Store in pending updates instead of mutating pool directly
-                        pending_pool_updates.insert(
-                            order.asset_in.faucet_id(),
-                            (new_pool_balance, new_lp_total_supply),
-                        );
+                        pools
+                            .get_mut(&order.asset_in.faucet_id())
+                            .ok_or(anyhow!("Missing pool in state"))?
+                            .clone_from(&new_pool_state);
                         order_executions.push(OrderExecution::Deposit(ExecutionDetails {
                             note,
                             order,
                             amount_out: order.asset_in.amount(),
-                            in_pool_balances: new_pool_balance,
+                            in_pool_balances: new_pool_state.balances,
                             out_pool_balances: quote_pool_state.balances,
                         }));
                     } else {
@@ -407,25 +386,24 @@ impl TradingEngine {
                     }
                 }
                 OrderType::Withdraw => {
-                    let (amount_out, new_pool_balance, new_lp_total_supply) = get_withdraw_asset_amount_out(
+                    let (amount_out, new_pool_state) = get_withdraw_asset_amount_out(
                         &base_pool_state,
                         U256::from(order.asset_in.amount()),
-                        U256::from(base_pool_state.lp_total_supply), // total supply
+                        U256::from(base_pool_state.lp_total_supply),
                         U256::from(base_pool_decimals),
-                    )?;
+                    );
                     let amount_out = amount_out.to::<u64>();
                     if amount_out > 0 && amount_out >= order.asset_out.amount() {
                         let (_, note) = self.state.pluck_note(&order.id)?;
-                        // Store in pending updates instead of mutating pool directly
-                        pending_pool_updates.insert(
-                            order.asset_out.faucet_id(),
-                            (new_pool_balance, new_lp_total_supply),
-                        );
+                        pools
+                            .get_mut(&order.asset_out.faucet_id())
+                            .ok_or(anyhow!("Missing pool in state"))?
+                            .clone_from(&new_pool_state);
                         order_executions.push(OrderExecution::Withdraw(ExecutionDetails {
                             note,
                             order,
                             amount_out,
-                            in_pool_balances: new_pool_balance,
+                            in_pool_balances: new_pool_state.balances,
                             out_pool_balances: quote_pool_state.balances,
                         }));
                     } else {
@@ -502,16 +480,14 @@ impl TradingEngine {
                         info!(
                             "Swap successful! Amount {amount_in:?} -> {amount_out:?}, New balances: {new_base_pool_balance:?}, {new_quote_pool_balance:?}"
                         );
-                        // Store in pending updates instead of mutating pools directly
-                        // Swaps don't change `lp_total_supply`, pass existing values
-                        pending_pool_updates.insert(
-                            order.asset_in.faucet_id(),
-                            (new_base_pool_balance, base_pool_state.lp_total_supply),
-                        );
-                        pending_pool_updates.insert(
-                            order.asset_out.faucet_id(),
-                            (new_quote_pool_balance, quote_pool_state.lp_total_supply),
-                        );
+                        pools
+                            .get_mut(&order.asset_in.faucet_id())
+                            .ok_or(anyhow!("Missing pool in state"))?
+                            .balances = new_base_pool_balance;
+                        pools
+                            .get_mut(&order.asset_out.faucet_id())
+                            .ok_or(anyhow!("Missing pool in state"))?
+                            .balances = new_quote_pool_balance;
                         let (_, note) = self.state.pluck_note(&order.id)?;
                         order_executions.push(OrderExecution::Swap(ExecutionDetails {
                             note,
@@ -545,7 +521,7 @@ impl TradingEngine {
         }
         Ok(MatchingCycle {
             executions: order_executions,
-            pending_pool_updates,
+            new_pool_states: pools,
         })
     }
 
@@ -828,59 +804,6 @@ impl TradingEngine {
         ))
     }
 
-    /// Get pool states for an order, applying any pending updates first.
-    /// This ensures subsequent orders in the same matching cycle see cumulative effects.
-    fn get_liq_pools_for_order_with_pending(
-        &self,
-        liq_pool_states: &DashMap<AccountId, PoolState>,
-        order: &Order,
-        pending_updates: &HashMap<AccountId, (PoolBalances, u64)>,
-    ) -> Result<((PoolState, u8), (PoolState, u8))> {
-        let asset_in_id = order.asset_in.faucet_id();
-        let asset_out_id = order.asset_out.faucet_id();
-
-        // Get base pool state, applying pending update if exists
-        let mut base_pool_state = *liq_pool_states.get(&asset_in_id).ok_or(anyhow!(
-            "Liquidity pool for faucet ID {} doesnt exist in state.",
-            asset_in_id
-        ))?;
-        if let Some((balances, lp_total_supply)) = pending_updates.get(&asset_in_id) {
-            base_pool_state.balances = *balances;
-            base_pool_state.lp_total_supply = *lp_total_supply;
-        }
-
-        // Get quote pool state, applying pending update if exists
-        let mut quote_pool_state = *liq_pool_states.get(&asset_out_id).ok_or(anyhow!(
-            "Liquidity pool for faucet ID {} doesnt exist in state.",
-            asset_out_id
-        ))?;
-        if let Some((balances, lp_total_supply)) = pending_updates.get(&asset_out_id) {
-            quote_pool_state.balances = *balances;
-            quote_pool_state.lp_total_supply = *lp_total_supply;
-        }
-
-        let base_pool_faucet = self
-            .state
-            .faucet_metadata()
-            .get(&asset_in_id)
-            .ok_or(anyhow!(
-                "Faucet metadata for faucet ID {} doesnt exist in state.",
-                asset_in_id
-            ))?;
-        let quote_pool_faucet = self
-            .state
-            .faucet_metadata()
-            .get(&asset_out_id)
-            .ok_or(anyhow!(
-                "Faucet metadata for faucet ID {} doesnt exist in state.",
-                asset_out_id
-            ))?;
-
-        Ok((
-            (base_pool_state, base_pool_faucet.decimals()),
-            (quote_pool_state, quote_pool_faucet.decimals()),
-        ))
-    }
 }
 
 #[cfg(test)]

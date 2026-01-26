@@ -3,7 +3,7 @@ use crate::{
     oracle_sse::{PriceData, PriceMetadata},
     order::Order,
     order::OrderType,
-    pool::{PoolBalances, PoolState},
+    pool::PoolState,
     websocket::{EventBroadcaster, PoolStateEvent},
 };
 use alloy::primitives::U256;
@@ -129,12 +129,12 @@ impl AmmState {
         }
     }
 
-    pub fn update_pool_state(&self, faucet_id: &AccountId, new_pool_balances: PoolBalances, new_lp_total_supply: u64) {
+    pub fn update_pool_state(&self, faucet_id: &AccountId, new_pool_state: PoolState) {
         if let Some(mut liq_pool) = self.liquidity_pools.get_mut(faucet_id) {
-            liq_pool.update_state(new_pool_balances, new_lp_total_supply);
+            *liq_pool = new_pool_state;
             if let Err(e) = self.broadcaster.broadcast_pool_state(PoolStateEvent {
                 faucet_id: faucet_id.to_bech32(self.config.network_id.clone()),
-                balances: new_pool_balances,
+                balances: new_pool_state.balances,
                 timestamp: Utc::now().timestamp_millis() as u64,
             }) {
                 warn!("Error sending broadcast: {e}")
