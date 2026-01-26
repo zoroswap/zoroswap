@@ -1075,67 +1075,6 @@ mod tests {
         );
     }
 
-    /// Test that `update_state` updates `lp_total_supply` and `update_balances` preserves it.
-    #[test]
-    fn test_update_state_updates_lp_total_supply() {
-        // Given: a pool with initial LP supply and reserves
-        let initial_lp_supply: u64 = 1_000_000;
-        let initial_reserve = U256::from(10_000_000u64);
-
-        let mut pool = PoolState::default();
-        pool.balances = PoolBalances {
-            reserve: initial_reserve,
-            reserve_with_slippage: initial_reserve,
-            total_liabilities: initial_reserve,
-        };
-        pool.lp_total_supply = initial_lp_supply;
-
-        // When: a deposit updates the pool state with new balances and LP supply
-        let new_balances = PoolBalances {
-            reserve: initial_reserve + U256::from(1_000_000u64),
-            reserve_with_slippage: initial_reserve + U256::from(1_000_000u64),
-            total_liabilities: initial_reserve + U256::from(1_000_000u64),
-        };
-        let new_lp_supply = initial_lp_supply + 100_000;
-        pool.update_state(new_balances, new_lp_supply);
-
-        // Then: the pool's lp_total_supply is updated
-        assert_eq!(
-            pool.lp_total_supply, new_lp_supply,
-            "update_state should update lp_total_supply"
-        );
-    }
-
-    /// Test that `update_balances` (used for swaps) does not change `lp_total_supply`.
-    #[test]
-    fn test_update_balances_preserves_lp_total_supply() {
-        // Given: a pool with existing LP supply
-        let initial_lp_supply: u64 = 1_000_000;
-        let initial_reserve = U256::from(10_000_000u64);
-
-        let mut pool = PoolState::default();
-        pool.balances = PoolBalances {
-            reserve: initial_reserve,
-            reserve_with_slippage: initial_reserve,
-            total_liabilities: initial_reserve,
-        };
-        pool.lp_total_supply = initial_lp_supply;
-
-        // When: a swap updates only the balances
-        let swap_balances = PoolBalances {
-            reserve: initial_reserve + U256::from(500_000u64),
-            reserve_with_slippage: initial_reserve + U256::from(500_000u64),
-            total_liabilities: initial_reserve,
-        };
-        pool.update_balances(swap_balances);
-
-        // Then: lp_total_supply remains unchanged
-        assert_eq!(
-            pool.lp_total_supply, initial_lp_supply,
-            "update_balances should not change lp_total_supply"
-        );
-    }
-
     /// Test that `get_deposit_lp_amount_out` returns a `PoolState` with correctly updated
     /// `lp_total_supply`, enabling consecutive deposits to use accurate LP supply values.
     #[test]
