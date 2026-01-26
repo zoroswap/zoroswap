@@ -51,6 +51,7 @@ pub(crate) enum OrderExecution {
 pub(crate) struct MatchingCycle {
     executions: Vec<OrderExecution>,
     new_pool_states: DashMap<AccountId, PoolState>,
+    flushed_orders: Vec<Order>,
 }
 pub struct TradingEngine {
     state: Arc<AmmState>,
@@ -248,6 +249,18 @@ impl TradingEngine {
                     // Execute swaps and broadcast success
                     match self.execute_orders(executions.clone(), client).await {
                         Ok(_) => {
+                            // Pluck notes now that execution succeeded
+                            for execution in &executions {
+                                let order_id = match execution {
+                                    OrderExecution::Swap(d)
+                                    | OrderExecution::Deposit(d)
+                                    | OrderExecution::Withdraw(d)
+                                    | OrderExecution::FailedOrder(d)
+                                    | OrderExecution::PastDeadline(d) => d.order.id,
+                                };
+                                let _ = self.state.pluck_note(&order_id);
+                            }
+
                             for (faucet_id, pool_state) in matching_cycle.new_pool_states {
                                 self.state
                                     .update_pool_state(&faucet_id, pool_state.balances);
@@ -292,6 +305,8 @@ impl TradingEngine {
                         }
                         Err(e) => {
                             error!("{e}");
+                            // Restore orders so they can be retried
+                            self.state.add_orders(matching_cycle.flushed_orders);
                         }
                     }
                 }
@@ -305,6 +320,7 @@ impl TradingEngine {
     pub(crate) fn run_matching_cycle(&self) -> Result<MatchingCycle> {
         let pools = self.state.liquidity_pools().clone();
         let mut orders = self.state.flush_open_orders();
+        let flushed_orders = orders.clone();
 
         // MEV protection: randomize order processing sequence
         orders.shuffle(&mut rand::rng());
@@ -319,7 +335,7 @@ impl TradingEngine {
             debug!("---------------quote_pool_state: {:?}", quote_pool_state);
 
             if order.deadline < now {
-                let (_, note) = self.state.pluck_note(&order.id)?;
+                let note = self.state.get_note(&order.id)?;
                 warn!(
                     "Order {:?} is past deadline (by {})",
                     order.order_type,
@@ -351,12 +367,12 @@ impl TradingEngine {
                     )?;
                     let amount_out = amount_out.to::<u64>();
                     if amount_out > 0 && amount_out >= order.asset_out.amount() {
-                        let (_, note) = self.state.pluck_note(&order.id)?;
+                        let note = self.state.get_note(&order.id)?;
                         pools
                             .get_mut(&order.asset_in.faucet_id())
                             .ok_or(anyhow!("Missing pool in state"))?
                             .update_state(new_pool_balance);
-                        order_executions.push(OrderExecution::Deposit(ExecutionDetails {
+                                order_executions.push(OrderExecution::Deposit(ExecutionDetails {
                             note,
                             order,
                             amount_out: order.asset_in.amount(),
@@ -374,8 +390,8 @@ impl TradingEngine {
                                 order.asset_out.amount()
                             );
                         }
-                        let (_, note) = self.state.pluck_note(&order.id)?;
-                        order_executions.push(OrderExecution::FailedOrder(ExecutionDetails {
+                        let note = self.state.get_note(&order.id)?;
+                                order_executions.push(OrderExecution::FailedOrder(ExecutionDetails {
                             note,
                             order,
                             amount_out: order.asset_in.amount(),
@@ -393,12 +409,12 @@ impl TradingEngine {
                     )?;
                     let amount_out = amount_out.to::<u64>();
                     if amount_out > 0 && amount_out >= order.asset_out.amount() {
-                        let (_, note) = self.state.pluck_note(&order.id)?;
+                        let note = self.state.get_note(&order.id)?;
                         pools
                             .get_mut(&order.asset_out.faucet_id())
                             .ok_or(anyhow!("Missing pool in state"))?
                             .update_state(new_pool_balance);
-                        order_executions.push(OrderExecution::Withdraw(ExecutionDetails {
+                                order_executions.push(OrderExecution::Withdraw(ExecutionDetails {
                             note,
                             order,
                             amount_out,
@@ -416,7 +432,7 @@ impl TradingEngine {
                                 order.asset_out.amount()
                             );
                         }
-                        self.state.pluck_note(&order.id)?;
+                                // Note is not needed for failed withdraw, but we track the order
                     }
                 }
                 OrderType::Swap => {
@@ -460,7 +476,7 @@ impl TradingEngine {
                                 let pool_out = pools
                                     .get_mut(&order.asset_out.faucet_id())
                                     .ok_or(anyhow!("Missing pool in state"))?;
-                                let (_, note) = self.state.pluck_note(&order.id)?;
+                                let note = self.state.get_note(&order.id)?;
                                 order_executions.push(OrderExecution::FailedOrder(
                                     ExecutionDetails {
                                         in_pool_balances: pool_in.balances,
@@ -487,7 +503,7 @@ impl TradingEngine {
                             .get_mut(&order.asset_out.faucet_id())
                             .ok_or(anyhow!("Missing pool in state"))?
                             .update_state(new_quote_pool_balance);
-                        let (_, note) = self.state.pluck_note(&order.id)?;
+                        let note = self.state.get_note(&order.id)?;
                         order_executions.push(OrderExecution::Swap(ExecutionDetails {
                             note,
                             order,
@@ -506,7 +522,7 @@ impl TradingEngine {
                                 order.asset_out.amount()
                             );
                         }
-                        let (_, note) = self.state.pluck_note(&order.id)?;
+                        let note = self.state.get_note(&order.id)?;
                         order_executions.push(OrderExecution::FailedOrder(ExecutionDetails {
                             note,
                             order,
@@ -521,6 +537,7 @@ impl TradingEngine {
         Ok(MatchingCycle {
             executions: order_executions,
             new_pool_states: pools,
+            flushed_orders,
         })
     }
 
@@ -1073,6 +1090,61 @@ mod tests {
             ctx.state.get_open_orders().len(),
             0,
             "Open orders should be empty after matching"
+        );
+    }
+
+    /// Test that notes are preserved during matching and orders can be restored on failure.
+    /// This prevents loss of user funds if execute_orders fails.
+    #[tokio::test]
+    async fn test_notes_preserved_and_orders_restorable_on_failure() {
+        // Given: a context with fresh oracle prices
+        let ctx = TestContext::new().await;
+        let fresh_time = Utc::now().timestamp() as u64;
+        ctx.set_oracle_prices(fresh_time, 100_000_000);
+
+        // And: an order has been added
+        let note = ctx.create_swap_note(1000, 1);
+        let order_id = {
+            let (_, id, _) = ctx
+                .state
+                .add_order(note, OrderType::Swap)
+                .expect("must add order");
+            id
+        };
+
+        // When: run_matching_cycle is called
+        let engine = ctx.create_engine();
+        let matching_cycle = engine
+            .run_matching_cycle()
+            .expect("matching cycle must succeed");
+
+        // Then: notes are still in state (cloned, not plucked)
+        assert!(
+            ctx.state.get_note(&order_id).is_ok(),
+            "note must still exist in state after run_matching_cycle"
+        );
+
+        // And: flushed_orders contains the orders for potential restoration
+        assert_eq!(
+            matching_cycle.flushed_orders.len(),
+            1,
+            "flushed_orders must contain the order"
+        );
+
+        // When: simulating execution failure by restoring orders
+        ctx.state.add_orders(matching_cycle.flushed_orders);
+
+        // Then: orders are back in open_orders
+        assert_eq!(
+            ctx.state.get_open_orders().len(),
+            1,
+            "orders must be restored after add_orders"
+        );
+
+        // And: notes are still available
+        assert!(
+            ctx.state.get_note(&order_id).is_ok(),
+            "note must still exist after order restoration"
         );
     }
 }
