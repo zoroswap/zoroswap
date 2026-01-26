@@ -1126,5 +1126,20 @@ mod tests {
             pool.lp_total_supply > initial_lp_supply + 100_000,
             "Final lp_total_supply should reflect both deposits"
         );
+
+        // Verify swaps don't affect lp_total_supply
+        let swap_balances = PoolBalances {
+            reserve: pool.balances.reserve + U256::from(500_000u64),
+            reserve_with_slippage: pool.balances.reserve_with_slippage + U256::from(500_000u64),
+            total_liabilities: pool.balances.total_liabilities,
+        };
+        let lp_before_swap = pool.lp_total_supply;
+        pool.update_balances(swap_balances);
+
+        assert_eq!(
+            pool.lp_total_supply, lp_before_swap,
+            "Swaps should not change lp_total_supply"
+        );
+    }
     }
 }
