@@ -1075,13 +1075,12 @@ mod tests {
         );
     }
 
-    /// Test that `lp_total_supply` is properly updated when processing multiple deposits
-    /// in a single matching cycle.
+    /// Test that `update_state` updates `lp_total_supply` and `update_balances` preserves it.
     #[test]
-    fn test_lp_total_supply_updates_in_matching_cycle() {
+    fn test_update_state_updates_lp_total_supply() {
         use crate::pool::{PoolBalances, PoolState};
 
-        // Create a pool with known initial `lp_total_supply`
+        // Given: a pool with initial LP supply and reserves
         let initial_lp_supply: u64 = 1_000_000;
         let initial_reserve = U256::from(10_000_000u64);
 
@@ -1093,63 +1092,30 @@ mod tests {
         };
         pool.lp_total_supply = initial_lp_supply;
 
-        // Simulate first deposit, should increase `lp_total_supply`
-        let new_balances_1 = PoolBalances {
+        // When: a deposit updates the pool state with new balances and LP supply
+        let new_balances = PoolBalances {
             reserve: initial_reserve + U256::from(1_000_000u64),
             reserve_with_slippage: initial_reserve + U256::from(1_000_000u64),
             total_liabilities: initial_reserve + U256::from(1_000_000u64),
         };
-        let new_lp_supply_1 = initial_lp_supply + 100_000; // Simulated LP minted
-        pool.update_state(new_balances_1, new_lp_supply_1);
+        let new_lp_supply = initial_lp_supply + 100_000;
+        pool.update_state(new_balances, new_lp_supply);
 
+        // Then: the pool's lp_total_supply is updated
         assert_eq!(
-            pool.lp_total_supply, new_lp_supply_1,
-            "First deposit should update lp_total_supply"
-        );
-
-        // Simulate second deposit, should use updated `lp_total_supply`
-        let new_balances_2 = PoolBalances {
-            reserve: pool.balances.reserve + U256::from(1_000_000u64),
-            reserve_with_slippage: pool.balances.reserve_with_slippage + U256::from(1_000_000u64),
-            total_liabilities: pool.balances.total_liabilities + U256::from(1_000_000u64),
-        };
-        let new_lp_supply_2 = pool.lp_total_supply + 90_909; // Slightly less LP due to dilution
-        pool.update_state(new_balances_2, new_lp_supply_2);
-
-        assert_eq!(
-            pool.lp_total_supply, new_lp_supply_2,
-            "Second deposit should update lp_total_supply based on first deposit's update"
-        );
-
-        // Verify the `lp_total_supply` correctly accumulated
-        assert!(
-            pool.lp_total_supply > initial_lp_supply + 100_000,
-            "Final lp_total_supply should reflect both deposits"
-        );
-
-        // Verify swaps don't affect lp_total_supply
-        let swap_balances = PoolBalances {
-            reserve: pool.balances.reserve + U256::from(500_000u64),
-            reserve_with_slippage: pool.balances.reserve_with_slippage + U256::from(500_000u64),
-            total_liabilities: pool.balances.total_liabilities,
-        };
-        let lp_before_swap = pool.lp_total_supply;
-        pool.update_balances(swap_balances);
-
-        assert_eq!(
-            pool.lp_total_supply, lp_before_swap,
-            "Swaps should not change lp_total_supply"
+            pool.lp_total_supply, new_lp_supply,
+            "update_state should update lp_total_supply"
         );
     }
 
-    /// Test that `get_deposit_lp_amount_out` returns correct `PoolState` with updated `lp_total_supply`.
+    /// Test that `update_balances` (used for swaps) does not change `lp_total_supply`.
     #[test]
-    fn test_get_deposit_lp_amount_out_returns_correct_pool_state() {
-        use crate::pool::{get_deposit_lp_amount_out, PoolBalances, PoolState};
+    fn test_update_balances_preserves_lp_total_supply() {
+        use crate::pool::{PoolBalances, PoolState};
 
+        // Given: a pool with existing LP supply
         let initial_lp_supply: u64 = 1_000_000;
         let initial_reserve = U256::from(10_000_000u64);
-        let asset_decimals = U256::from(6u64); // 6 decimals like USDC
 
         let mut pool = PoolState::default();
         pool.balances = PoolBalances {
@@ -1159,49 +1125,107 @@ mod tests {
         };
         pool.lp_total_supply = initial_lp_supply;
 
-        // First deposit
+        // When: a swap updates only the balances
+        let swap_balances = PoolBalances {
+            reserve: initial_reserve + U256::from(500_000u64),
+            reserve_with_slippage: initial_reserve + U256::from(500_000u64),
+            total_liabilities: initial_reserve,
+        };
+        pool.update_balances(swap_balances);
+
+        // Then: lp_total_supply remains unchanged
+        assert_eq!(
+            pool.lp_total_supply, initial_lp_supply,
+            "update_balances should not change lp_total_supply"
+        );
+    }
+
+    /// Test that `get_deposit_lp_amount_out` returns a `PoolState` with correctly updated
+    /// `lp_total_supply`, enabling consecutive deposits to use accurate LP supply values.
+    #[test]
+    fn test_get_deposit_lp_amount_out_returns_updated_lp_total_supply() {
+        use crate::pool::{get_deposit_lp_amount_out, PoolBalances, PoolState};
+
+        // Given: a pool with initial LP supply and reserves
+        let initial_lp_supply: u64 = 1_000_000;
+        let initial_reserve = U256::from(10_000_000u64);
+        let asset_decimals = U256::from(6u64);
         let deposit_amount = U256::from(1_000_000u64);
-        let (lp_out_1, new_pool_state_1) = get_deposit_lp_amount_out(
+
+        let mut pool = PoolState::default();
+        pool.balances = PoolBalances {
+            reserve: initial_reserve,
+            reserve_with_slippage: initial_reserve,
+            total_liabilities: initial_reserve,
+        };
+        pool.lp_total_supply = initial_lp_supply;
+
+        // When: calculating LP amount out for a deposit
+        let (lp_out, new_pool_state) = get_deposit_lp_amount_out(
             &pool,
             deposit_amount,
             U256::from(pool.lp_total_supply),
             asset_decimals,
         );
 
-        assert!(lp_out_1 > U256::ZERO, "Should mint LP tokens");
-        assert!(
-            new_pool_state_1.lp_total_supply > initial_lp_supply,
-            "New pool state should have increased lp_total_supply"
-        );
+        // Then: the returned pool state has lp_total_supply = initial + minted
+        assert!(lp_out > U256::ZERO, "should mint LP tokens");
         assert_eq!(
-            new_pool_state_1.lp_total_supply,
+            new_pool_state.lp_total_supply,
             U256::from(initial_lp_supply)
-                .saturating_add(lp_out_1)
+                .saturating_add(lp_out)
                 .saturating_to::<u64>(),
-            "lp_total_supply should equal initial + minted"
+            "returned pool state should have lp_total_supply = initial + minted"
         );
+    }
 
-        // Second deposit should use updated lp_total_supply
-        let (lp_out_2, new_pool_state_2) = get_deposit_lp_amount_out(
-            &new_pool_state_1,
+    /// Test that consecutive deposits correctly accumulate `lp_total_supply`.
+    #[test]
+    fn test_consecutive_deposits_accumulate_lp_total_supply() {
+        use crate::pool::{get_deposit_lp_amount_out, PoolBalances, PoolState};
+
+        // Given: a pool with initial LP supply
+        let initial_lp_supply: u64 = 1_000_000;
+        let initial_reserve = U256::from(10_000_000u64);
+        let asset_decimals = U256::from(6u64);
+        let deposit_amount = U256::from(1_000_000u64);
+
+        let mut pool = PoolState::default();
+        pool.balances = PoolBalances {
+            reserve: initial_reserve,
+            reserve_with_slippage: initial_reserve,
+            total_liabilities: initial_reserve,
+        };
+        pool.lp_total_supply = initial_lp_supply;
+
+        // When: two consecutive deposits are processed
+        let (lp_out_1, pool_after_first) = get_deposit_lp_amount_out(
+            &pool,
             deposit_amount,
-            U256::from(new_pool_state_1.lp_total_supply),
+            U256::from(pool.lp_total_supply),
             asset_decimals,
         );
 
-        assert!(lp_out_2 > U256::ZERO, "Should mint LP tokens for second deposit");
-        assert_eq!(
-            new_pool_state_2.lp_total_supply,
-            U256::from(new_pool_state_1.lp_total_supply)
-                .saturating_add(lp_out_2)
-                .saturating_to::<u64>(),
-            "Second deposit should build on first deposit's lp_total_supply"
+        let (lp_out_2, pool_after_second) = get_deposit_lp_amount_out(
+            &pool_after_first,
+            deposit_amount,
+            U256::from(pool_after_first.lp_total_supply),
+            asset_decimals,
         );
 
-        // Verify cumulative effect
+        // Then: the final lp_total_supply reflects both deposits
+        let expected_final_supply = U256::from(initial_lp_supply)
+            .saturating_add(lp_out_1)
+            .saturating_add(lp_out_2)
+            .saturating_to::<u64>();
+
+        assert_eq!(
+            pool_after_second.lp_total_supply, expected_final_supply,
+            "final lp_total_supply should equal initial + first deposit + second deposit"
+        );
         assert!(
-            new_pool_state_2.lp_total_supply > new_pool_state_1.lp_total_supply,
-            "Final lp_total_supply should be greater than after first deposit"
+            pool_after_second.lp_total_supply > pool_after_first.lp_total_supply,
+            "second deposit should increase lp_total_supply beyond first deposit"
         );
     }
 }
