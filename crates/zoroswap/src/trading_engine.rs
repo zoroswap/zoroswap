@@ -290,13 +290,13 @@ impl TradingEngine {
                             }
                         }
                         Err(e) => {
-                            error!("{e}");
+                            error!("Failed to execute orders: {e:?}");
                         }
                     }
                 }
             }
             Err(e) => {
-                error!("{e}")
+                error!("Failed to run matching cycle: {e:?}")
             }
         }
     }
@@ -423,7 +423,7 @@ impl TradingEngine {
                     //       ERR_MAX_COVERAGE_RATIO_EXCEEDED +
                     //       ERR_RESERVE_WITH_SLIPPAGE_EXCEEDS_ASSET_BALANCE
 
-                    // Check if order is past deadline
+                    // TODO: Check if order is past deadline
                     info!(
                         "SWAP: in {} from faucet {}, out {} from faucet {} at price {}",
                         order.asset_in.amount(),
@@ -476,7 +476,10 @@ impl TradingEngine {
                     if amount_out > 0 && amount_out >= order.asset_out.amount() {
                         // Swap successful - create execution order for swap
                         info!(
-                            "Swap successful! Amount {amount_in:?} -> {amount_out:?}, New balances: {new_base_pool_balance:?}, {new_quote_pool_balance:?}"
+                            "Swap successful! {} swapped {amount_in:?} -> {amount_out:?}, New balances: {new_base_pool_balance:?}, {new_quote_pool_balance:?} (faucet {} -> {})"
+                            order.creator_id.to_hex(),
+                            order.asset_in.faucet_id().to_hex(),
+                            order.asset_out.faucet_id().to_hex()
                         );
                         pools
                             .get_mut(&order.asset_in.faucet_id())
@@ -586,6 +589,7 @@ impl TradingEngine {
                                 .to::<u64>(),
                         ),
                     ]));
+                    debug!("Withdraw payout details.args: {:?}", details.args);
                     NoteExecutionDetails::Payout(details)
                 }
             };

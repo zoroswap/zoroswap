@@ -91,11 +91,11 @@ impl OracleSSEClient {
                     Ok(Event::Open) => info!("Oracle connection open!"),
                     Ok(Event::Message(message)) => {
                         if let Err(e) = self.update_prices_in_state(&message.data) {
-                            error!("{e}");
+                            error!("Failed to update oracle prices in state: {e:?}");
                         };
                     }
                     Err(err) => {
-                        error!("Error: {err}");
+                        error!("Oracle SSE event error: {err:?}");
                         es.close();
                     }
                 }
