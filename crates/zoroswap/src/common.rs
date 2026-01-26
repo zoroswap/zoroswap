@@ -196,8 +196,8 @@ pub fn create_zoroswap_note(
     )?;
 
     let assets = NoteAssets::new(assets)?;
-    let recipient = NoteRecipient::new(swap_serial_num, note_script.clone(), inputs.clone());
-    let note = Note::new(assets.clone(), metadata, recipient.clone());
+    let recipient = NoteRecipient::new(swap_serial_num, note_script, inputs);
+    let note = Note::new(assets, metadata, recipient);
 
     Ok(note)
 }
@@ -252,8 +252,8 @@ pub fn create_deposit_note(
     )?;
 
     let assets = NoteAssets::new(assets)?;
-    let recipient = NoteRecipient::new(swap_serial_num, note_script.clone(), inputs.clone());
-    let note = Note::new(assets.clone(), metadata, recipient.clone());
+    let recipient = NoteRecipient::new(swap_serial_num, note_script, inputs);
+    let note = Note::new(assets, metadata, recipient);
 
     Ok(note)
 }
@@ -308,8 +308,8 @@ pub fn create_withdraw_note(
     )?;
 
     let assets = NoteAssets::new(assets)?;
-    let recipient = NoteRecipient::new(swap_serial_num, note_script.clone(), inputs.clone());
-    let note = Note::new(assets.clone(), metadata, recipient.clone());
+    let recipient = NoteRecipient::new(swap_serial_num, note_script, inputs);
+    let note = Note::new(assets, metadata, recipient);
 
     Ok(note)
 }
