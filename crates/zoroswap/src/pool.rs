@@ -488,7 +488,8 @@ pub fn get_deposit_lp_amount_out(
         total_liabilities: old_total_liabilities + reserve_increment,
     };
 
-    let new_lp_total_supply = (old_total_supply + new_lp_amount)
+    let new_lp_total_supply = old_total_supply
+        .saturating_add(new_lp_amount)
         .saturating_to::<u64>();
 
     let new_pool_state = PoolState {
