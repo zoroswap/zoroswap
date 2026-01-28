@@ -586,10 +586,7 @@ impl TradingEngine {
                                 .to::<u64>(),
                         ),
                     ]));
-                    println!(
-                        "-----------------------------------&&&&&&&&&&&&&&&&&&&&&& details.args: {:?}",
-                        details.args
-                    );
+                    debug!("Deposit details.args: {:?}", details.args);
                     NoteExecutionDetails::Payout(details)
                     // NoteExecutionDetails::ConsumeWithArgs((
                     //     execution_details.note,
@@ -615,10 +612,7 @@ impl TradingEngine {
 
             match note_execution_details {
                 NoteExecutionDetails::Payout(payout) => {
-                    println!(
-                        "-----------------------------------&&&&&&&&&&&&&&&&&&&&&& Payout: {:?}",
-                        payout.args
-                    );
+                    debug!("Payout args: {:?}", payout.args);
                     let advice_key = payout.note.serial_num();
 
                     expected_future_notes.push((payout.details, payout.tag));
@@ -645,10 +639,7 @@ impl TradingEngine {
             }
         }
 
-        println!(
-            "----------------------------------------------------------------------input_notes: {:?}",
-            input_notes.len()
-        );
+        debug!("Input notes count: {:?}", input_notes.len());
 
         let consume_req = TransactionRequestBuilder::new()
             .extend_advice_map(advice_map)
@@ -704,10 +695,7 @@ impl TradingEngine {
         let note = execution_details.note;
         let asset_out_faucet_id = asset_out.faucet_id().to_bech32(self.network_id.clone());
         let asset_out = Asset::Fungible(asset_out);
-        println!(
-            "######################################prepare_payout###################################### asset_out: {:?}",
-            asset_out
-        );
+        debug!("prepare_payout asset_out: {:?}", asset_out);
         let p2id_serial_num = [
             serial_num[0],
             serial_num[1],
