@@ -6,8 +6,9 @@ use miden_client::{
     transaction::TransactionRequestBuilder,
 };
 use std::collections::HashMap;
-use tokio::sync::mpsc;
+use tokio::sync::mpsc::{Receiver, Sender};
 use tracing::{debug, error, info, trace, warn};
+use zoro_miden_client::MidenClient;
 
 pub struct FaucetMintInstruction {
     pub account_id: AccountId,
@@ -15,14 +16,14 @@ pub struct FaucetMintInstruction {
 }
 
 pub struct GuardedFaucet {
-    rx: mpsc::Receiver<FaucetMintInstruction>,
+    rx: Receiver<FaucetMintInstruction>,
     recipients: HashMap<(AccountId, AccountId), u64>, // (user_id, faucet_id), timestamp
     config: Config,
 }
 
 impl GuardedFaucet {
-    pub fn new(config: Config) -> (Self, mpsc::Sender<FaucetMintInstruction>) {
-        let (tx, rx) = mpsc::channel(100);
+    pub fn new(config: Config) -> (Self, Sender<FaucetMintInstruction>) {
+        let (tx, rx) = tokio::sync::mpsc::channel(100);
         let recipients = HashMap::new();
         (
             Self {
@@ -117,28 +118,18 @@ impl GuardedFaucet {
     }
 
     async fn mint_asset(
-        client: &mut zoro_miden_client::MidenClient,
+        client: &mut MidenClient,
         faucet_id: AccountId,
         recipient_id: AccountId,
         amount: u64,
     ) -> Result<String> {
-        // client.sync_state().await?;
-
         let fungible_asset = FungibleAsset::new(faucet_id, amount)?;
-
-        debug!(
-            "Building mint TX for recipient {} from faucet {}",
-            recipient_id.to_hex(),
-            faucet_id.to_hex()
-        );
-
         let transaction_request = TransactionRequestBuilder::new().build_mint_fungible_asset(
             fungible_asset,
             recipient_id,
             NoteType::Public,
             client.rng(),
         )?;
-
         let tx_id = client
             .submit_new_transaction(faucet_id, transaction_request)
             .await
@@ -151,10 +142,12 @@ impl GuardedFaucet {
                 );
                 e
             })?;
-
-        info!("Mint transaction submitted. TxID: {:?}", tx_id);
-        // client.sync_state().await?;
-
+        info!(
+            "Minted {amount} of token from faucet {} to recipient {}. TxID: {:?}",
+            faucet_id.to_hex(),
+            recipient_id.to_hex(),
+            tx_id
+        );
         Ok(format!("{:?}", tx_id))
     }
 }
