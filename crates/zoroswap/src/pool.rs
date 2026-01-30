@@ -412,7 +412,7 @@ pub fn get_curve_amount_out(
     let amount_out =
         quote_pool.balances.reserve_with_slippage - reserve_with_slippage_after_amount_out;
 
-    info!(
+    debug!(
         "effective_amount_in: {}, raw_amount_out: {}, reserve_with_slippage_out: {}, reserve_with_slippage_after_amount_out: {}, amount_out: {}",
         effective_amount_in,
         raw_amount_out,

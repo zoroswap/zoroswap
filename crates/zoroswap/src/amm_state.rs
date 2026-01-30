@@ -164,7 +164,7 @@ impl AmmState {
         let price = price_in.price as f64 / price_out.price as f64;
         let price = U256::from(price * 1e12);
         info!(
-            "Price for swap: {price:?}. Price in: {}, Price out: {}",
+            "Price for pair: {price:?}. Price in: {}, Price out: {}",
             price_in.price, price_out.price
         );
         Ok(price)

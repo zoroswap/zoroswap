@@ -618,7 +618,9 @@ impl TradingEngine {
                     expected_future_notes.push((payout.details, payout.tag));
                     expected_output_recipients.push(payout.recipient);
                     input_notes.push((payout.note, payout.args));
-                    advice_map.insert(advice_key.into(), payout.advice_map_value);
+                    advice_map.insert(advice_key, payout.advice_map_value);
+
+                    // TODO: if this fails, return funds
                 }
                 NoteExecutionDetails::ConsumeWithArgs((note, args)) => {
                     input_notes.push((note, Some(args)));
