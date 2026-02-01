@@ -83,7 +83,7 @@ async fn set_up() -> Result<(
         .expect("No liquidity pools found in config.");
     let pools = vec![*pool0, *pool1];
 
-    fund_user_wallet(&mut client, &accounts.user, &pool0, 0).await?;
+    fund_user_wallet(&mut client, &accounts.user, pool0, 0).await?;
     Ok((config, client, keystore, accounts, pools))
 }
 
@@ -99,6 +99,7 @@ async fn fund_user_wallet(
         5 * 10u64.pow(pool.decimals as u32 - 2)
     }; // 0.05
     let fungible_asset = FungibleAsset::new(pool.faucet_id, amount)?;
+    client.import_account_by_id(pool.faucet_id).await?;
     let transaction_request = TransactionRequestBuilder::new().build_mint_fungible_asset(
         fungible_asset,
         account.id(),
@@ -122,7 +123,7 @@ async fn fund_user_wallet(
         _ => panic!("Expected OutputNote::Full, got something else"),
     };
 
-    wait_for_note(client, &account, &minted_note).await?;
+    wait_for_note(client, account, &minted_note).await?;
 
     let consume_req = TransactionRequestBuilder::new()
         .authenticated_input_notes([(minted_note.id(), None)])

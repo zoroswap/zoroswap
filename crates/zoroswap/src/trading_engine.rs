@@ -586,27 +586,7 @@ impl TradingEngine {
                                 .to::<u64>(),
                         ),
                     ]));
-                    debug!("Deposit details.args: {:?}", details.args);
                     NoteExecutionDetails::Payout(details)
-                    // NoteExecutionDetails::ConsumeWithArgs((
-                    //     execution_details.note,
-                    //     Word::from(&[
-                    //         Felt::new(execution_details.amount_out),
-                    //         Felt::new(
-                    //             execution_details
-                    //                 .in_pool_balances
-                    //                 .reserve_with_slippage
-                    //                 .to::<u64>(),
-                    //         ),
-                    //         Felt::new(execution_details.in_pool_balances.reserve.to::<u64>()),
-                    //         Felt::new(
-                    //             execution_details
-                    //                 .in_pool_balances
-                    //                 .total_liabilities
-                    //                 .to::<u64>(),
-                    //         ),
-                    //     ]),
-                    // ))
                 }
             };
 
@@ -614,13 +594,10 @@ impl TradingEngine {
                 NoteExecutionDetails::Payout(payout) => {
                     debug!("Payout args: {:?}", payout.args);
                     let advice_key = payout.note.serial_num();
-
                     expected_future_notes.push((payout.details, payout.tag));
                     expected_output_recipients.push(payout.recipient);
                     input_notes.push((payout.note, payout.args));
                     advice_map.insert(advice_key, payout.advice_map_value);
-
-                    // TODO: if this fails, return funds
                 }
                 NoteExecutionDetails::ConsumeWithArgs((note, args)) => {
                     input_notes.push((note, Some(args)));
@@ -667,6 +644,7 @@ impl TradingEngine {
                     "🔍 Number of expected output recipients: {}",
                     expected_output_recipients.len()
                 );
+                // TODO: if this fails, return funds and propagate failure
                 anyhow::anyhow!("Failed to create and submit batch transaction: {:?}", e)
             })?;
         // Submitted the transaction (exactly like the test)
@@ -887,9 +865,6 @@ mod tests {
 
             let broadcaster = Arc::new(EventBroadcaster::new());
             let state = Arc::new(AmmState::new(config, broadcaster.clone()).await);
-
-            state.faucet_metadata().insert(faucet_a_id, faucet_a);
-            state.faucet_metadata().insert(faucet_b_id, faucet_b);
 
             let mut pool_a = PoolState::new(pool_account_id, faucet_a_id);
             let mut pool_b = PoolState::new(pool_account_id, faucet_b_id);
