@@ -662,7 +662,6 @@ impl TradingEngine {
                     "🔍 Number of expected output recipients: {}",
                     expected_output_recipients.len()
                 );
-                // TODO: if this fails, return funds and propagate failure
                 anyhow::anyhow!("Failed to create and submit batch transaction: {:?}", e)
             })?;
         // Submitted the transaction (exactly like the test)
