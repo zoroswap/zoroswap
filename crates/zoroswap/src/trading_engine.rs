@@ -48,6 +48,18 @@ pub(crate) enum OrderExecution {
     PastDeadline(ExecutionDetails),
 }
 
+impl OrderExecution {
+    fn details(&self) -> &ExecutionDetails {
+        match self {
+            OrderExecution::Swap(d)
+            | OrderExecution::Deposit(d)
+            | OrderExecution::Withdraw(d)
+            | OrderExecution::FailedOrder(d)
+            | OrderExecution::PastDeadline(d) => d,
+        }
+    }
+}
+
 pub(crate) struct MatchingCycle {
     executions: Vec<OrderExecution>,
     new_pool_states: DashMap<AccountId, PoolState>,
@@ -205,33 +217,17 @@ impl TradingEngine {
                 if !executions.is_empty() {
                     // Broadcast order status updates before execution
                     for execution in &executions {
-                        let (order_id, status) = match execution {
-                            OrderExecution::Swap(details) => {
-                                (details.order.id, OrderStatus::Matching)
-                            }
-                            OrderExecution::Deposit(details) => {
-                                (details.order.id, OrderStatus::Matching)
-                            }
-                            OrderExecution::Withdraw(details) => {
-                                (details.order.id, OrderStatus::Matching)
-                            }
-                            OrderExecution::FailedOrder(details) => {
-                                (details.order.id, OrderStatus::Failed)
-                            }
-                            OrderExecution::PastDeadline(details) => {
-                                (details.order.id, OrderStatus::Expired)
-                            }
+                        let status = match execution {
+                            OrderExecution::Swap(_)
+                            | OrderExecution::Deposit(_)
+                            | OrderExecution::Withdraw(_) => OrderStatus::Matching,
+                            OrderExecution::FailedOrder(_) => OrderStatus::Failed,
+                            OrderExecution::PastDeadline(_) => OrderStatus::Expired,
                         };
 
                         if status != OrderStatus::Matching {
-                            // Broadcast final status for non-swap orders
-                            let details = match execution {
-                                OrderExecution::Swap(d)
-                                | OrderExecution::FailedOrder(d)
-                                | OrderExecution::Deposit(d)
-                                | OrderExecution::Withdraw(d)
-                                | OrderExecution::PastDeadline(d) => d,
-                            };
+                            let details = execution.details();
+                            let order_id = details.order.id;
                             let note_id = self.state.get_note_id(&order_id).unwrap_or_default();
                             let _ = self.broadcaster.broadcast_order_update(OrderUpdateEvent {
                                 order_id,
@@ -253,14 +249,7 @@ impl TradingEngine {
                         Ok(_) => {
                             // Pluck notes now that execution succeeded
                             for execution in &executions {
-                                let order_id = match execution {
-                                    OrderExecution::Swap(d)
-                                    | OrderExecution::Deposit(d)
-                                    | OrderExecution::Withdraw(d)
-                                    | OrderExecution::FailedOrder(d)
-                                    | OrderExecution::PastDeadline(d) => d.order.id,
-                                };
-                                let _ = self.state.pluck_note(&order_id);
+                                let _ = self.state.pluck_note(&execution.details().order.id);
                             }
 
                             for (faucet_id, pool_state) in matching_cycle.new_pool_states {
@@ -269,38 +258,39 @@ impl TradingEngine {
 
                             // Broadcast order status for executed orders
                             for execution in &executions {
-                                match &execution {
-                                    &OrderExecution::Swap(details)
-                                    | &OrderExecution::Deposit(details)
-                                    | &OrderExecution::Withdraw(details) => {
-                                        let note_id = self
-                                            .state
-                                            .get_note_id(&details.order.id)
-                                            .unwrap_or_default();
-                                        let _ = self.broadcaster.broadcast_order_update(
-                                            OrderUpdateEvent {
-                                                order_id: details.order.id,
-                                                note_id,
-                                                status: OrderStatus::Executed,
-                                                details: OrderUpdateDetails {
-                                                    amount_in: details.order.asset_in.amount(),
-                                                    amount_out: Some(details.amount_out),
-                                                    asset_in_faucet: details
-                                                        .order
-                                                        .asset_in
-                                                        .faucet_id()
-                                                        .to_hex(),
-                                                    asset_out_faucet: details
-                                                        .order
-                                                        .asset_out
-                                                        .faucet_id()
-                                                        .to_hex(),
-                                                },
-                                                timestamp: Utc::now().timestamp_millis() as u64,
+                                if matches!(
+                                    execution,
+                                    OrderExecution::Swap(_)
+                                        | OrderExecution::Deposit(_)
+                                        | OrderExecution::Withdraw(_)
+                                ) {
+                                    let details = execution.details();
+                                    let note_id = self
+                                        .state
+                                        .get_note_id(&details.order.id)
+                                        .unwrap_or_default();
+                                    let _ = self.broadcaster.broadcast_order_update(
+                                        OrderUpdateEvent {
+                                            order_id: details.order.id,
+                                            note_id,
+                                            status: OrderStatus::Executed,
+                                            details: OrderUpdateDetails {
+                                                amount_in: details.order.asset_in.amount(),
+                                                amount_out: Some(details.amount_out),
+                                                asset_in_faucet: details
+                                                    .order
+                                                    .asset_in
+                                                    .faucet_id()
+                                                    .to_hex(),
+                                                asset_out_faucet: details
+                                                    .order
+                                                    .asset_out
+                                                    .faucet_id()
+                                                    .to_hex(),
                                             },
-                                        );
-                                    }
-                                    _ => {}
+                                            timestamp: Utc::now().timestamp_millis() as u64,
+                                        },
+                                    );
                                 }
                             }
                         }
