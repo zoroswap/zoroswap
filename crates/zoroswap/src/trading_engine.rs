@@ -426,7 +426,7 @@ impl TradingEngine {
                     //       ERR_MAX_COVERAGE_RATIO_EXCEEDED +
                     //       ERR_RESERVE_WITH_SLIPPAGE_EXCEEDS_ASSET_BALANCE
 
-                    // TODO: Check if order is past deadline
+                    // Check if order is past deadline
                     info!(
                         amount_in = order.asset_in.amount(),
                         faucet_in = %order.asset_in.faucet_id().to_bech32(self.network_id.clone()),
