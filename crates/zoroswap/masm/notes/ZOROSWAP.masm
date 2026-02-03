@@ -5,6 +5,8 @@ use.std::sys
 
 use.zoro::zoropool
 
+use.hook_wallet::receive_asset
+
 # ERRORS
 # =================================================================================================
 

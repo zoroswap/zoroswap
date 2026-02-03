@@ -7,7 +7,7 @@ use.miden::output_note
 #! WALLET
 # @todo consider moving this to a mapping 
 # @todo consider asking miden to make into some kind or restricted / reserved slot
-const.VALIDATE_AND_UPDATE_STATE_HASH_SLOT = 0  #first slot 
+#const.VALIDATE_AND_UPDATE_STATE_HASH_SLOT = 0  #first slot 
 
 
 proc.validate_and_update_state
@@ -28,15 +28,20 @@ end
 #!   the total amount would be greater than 2^63.
 #!
 #! Invocation: call
-export.receive_asset
-    exec.native_account::add_asset
-    # => [ASSET', reserve, reserve_with_slippage, liabilities, 0, pad(8)]
-    push.VALIDATE_AND_UPDATE_STATE_HASH_SLOT exec.active_account::get_item
-    #procref.validate_and_update_state
-    mem_storew_be.DYNAMIC_PROC_ADDR dropw push.DYNAMIC_PROC_ADDR
-    dynexec
+#export.receive_asset
+#    exec.native_account::add_asset
+#    # => [ASSET', reserve, reserve_with_slippage, liabilities, 0, pad(8)]
+#    push.VALIDATE_AND_UPDATE_STATE_HASH_SLOT exec.active_account::get_item
+#    #procref.validate_and_update_state
+#    mem_storew_be.DYNAMIC_PROC_ADDR dropw push.DYNAMIC_PROC_ADDR
+#    dynexec
+#
+#    procref.validate_and_update_state_
+#    debug.stack.7
+#    dropw
+#end
     # => [pad(16)]
-end
+
 
 
 #! Adds the provided asset to the an output note.

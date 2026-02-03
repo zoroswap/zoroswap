@@ -5,6 +5,7 @@ use dotenv::dotenv;
 use miden_client::{
     Felt, Word,
     account::{AccountBuilder, AccountStorageMode, AccountType, StorageMap, StorageSlot},
+    assembly::{DefaultSourceManager, LibraryPath, Module, ModuleKind},
     asset::FungibleAsset,
     auth::AuthSecretKey,
     crypto::FeltRng,
@@ -26,6 +27,8 @@ use zoroswap::{
     Config, create_deposit_note, fetch_lp_total_supply_from_chain, fetch_pool_state_from_chain,
     fetch_vault_for_account_from_chain,
 };
+
+use std::sync::Arc;
 
 #[derive(Parser, Debug)]
 #[command(name = "spawn_pools")]
@@ -163,7 +166,7 @@ async fn main() -> Result<()> {
         pool_code.clone(),
         assembler.clone(),
         vec![
-            validate_and_update_state_hash_value,
+            validate_and_update_state_hash_value.clone(),
             StorageSlot::empty_value(),
             StorageSlot::Map(assets_mapping),
             pool_states_mapping,
@@ -180,6 +183,34 @@ async fn main() -> Result<()> {
     )?
     .with_supports_all_types();
 
+    let hook_wallet_path = format!("{}/accounts/hook_wallet.masm", config.masm_path);
+    let hook_wallet_path = Path::new(&hook_wallet_path);
+    let hook_wallet_code = fs::read_to_string(hook_wallet_path)
+        .unwrap_or_else(|err| panic!("unable to read from {hook_wallet_path:?}: {err}"));
+
+    let source_manager = Arc::new(DefaultSourceManager::default());
+    let module = Module::parser(ModuleKind::Library)
+        .parse_str(
+            LibraryPath::new("hooks")?,
+            pool_code.clone(),
+            &source_manager,
+        )
+        .unwrap_or_else(|err| panic!("unable to parse library: {err:?}"));
+    let pool_as_hook_library = assembler
+        .clone()
+        .assemble_library([module])
+        .unwrap_or_else(|err| panic!("unable to assemble library: {err:?}"));
+
+    let assembler = assembler
+        .with_dynamic_library(pool_as_hook_library)
+        .unwrap_or_else(|err| panic!("unable to add dynamic library: {err:?}"));
+    let hook_wallet_component = AccountComponent::compile(
+        hook_wallet_code.clone(),
+        assembler.clone(),
+        vec![validate_and_update_state_hash_value],
+    )?
+    .with_supports_all_types();
+
     // Init seed for the pool contract
     let mut init_seed = [0_u8; 32];
     client.rng().fill_bytes(&mut init_seed);
@@ -191,6 +222,7 @@ async fn main() -> Result<()> {
         .account_type(AccountType::RegularAccountUpdatableCode)
         .storage_mode(AccountStorageMode::Public)
         .with_component(pool_component.clone())
+        .with_component(hook_wallet_component.clone())
         .with_auth_component(AuthRpoFalcon512::new(key_pair.public_key().to_commitment()))
         .with_component(BasicWallet)
         .build()?;
