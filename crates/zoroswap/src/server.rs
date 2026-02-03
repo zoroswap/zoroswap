@@ -210,7 +210,7 @@ async fn submit_swap(
     State(state): State<AppState>,
     Json(payload): Json<SubmitOrderRequest>,
 ) -> Json<SubmitOrderResponse> {
-    debug!("Received order submission request");
+    debug!("Received swap order submission request");
     // Deserialize the note from base64
     let note = match deserialize_note(&payload.note_data) {
         Ok(note) => note,
@@ -250,7 +250,7 @@ async fn submit_deposit(
     State(state): State<AppState>,
     Json(payload): Json<SubmitOrderRequest>,
 ) -> Json<SubmitOrderResponse> {
-    info!("Received order submission request");
+    info!("Received deposit order submission request");
     // Deserialize the note from base64
     let note = match deserialize_note(&payload.note_data) {
         Ok(note) => note,
@@ -266,7 +266,7 @@ async fn submit_deposit(
 
     match state.amm_state.add_order(note, OrderType::Deposit) {
         Ok((_, order_id, _)) => {
-            info!("Successfully added order: {:?}", order_id);
+            info!("Successfully added deposit order: {:?}", order_id);
             Json(SubmitOrderResponse {
                 success: true,
                 //order_id: note_id,
@@ -291,7 +291,7 @@ async fn submit_withdraw(
     State(state): State<AppState>,
     Json(payload): Json<SubmitOrderRequest>,
 ) -> Json<SubmitOrderResponse> {
-    info!("Received order submission request");
+    info!("Received withdraw order submission request");
     // Deserialize the note from base64
     let note = match deserialize_note(&payload.note_data) {
         Ok(note) => note,

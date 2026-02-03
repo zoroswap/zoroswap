@@ -135,18 +135,19 @@ impl GuardedFaucet {
             .await
             .map_err(|e| {
                 error!(
-                    "Failed to submit mint transaction. Faucet: {}, Recipient: {}, Error: {:?}",
-                    faucet_id.to_hex(),
-                    recipient_id.to_hex(),
-                    e
+                    faucet = %faucet_id.to_hex(),
+                    recipient = %recipient_id.to_hex(),
+                    error = ?e,
+                    "Failed to submit mint transaction"
                 );
                 e
             })?;
         info!(
-            "Minted {amount} of token from faucet {} to recipient {}. TxID: {:?}",
-            faucet_id.to_hex(),
-            recipient_id.to_hex(),
-            tx_id
+            amount = amount,
+            faucet = %faucet_id.to_hex(),
+            recipient = %recipient_id.to_hex(),
+            tx_id = ?tx_id,
+            "Minted tokens"
         );
         Ok(format!("{:?}", tx_id))
     }
