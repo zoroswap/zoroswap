@@ -148,12 +148,22 @@ async fn main() -> Result<()> {
     let pool_states_mapping = StorageSlot::Map(StorageMap::new());
     let user_deposits_mapping = StorageSlot::Map(StorageMap::new());
 
+    let validate_and_update_state_hash: Word = [
+        Felt::new(1061059937250439382),
+        Felt::new(16396497929881794902),
+        Felt::new(18184702520929686259),
+        Felt::new(9471744844188345179),
+    ]
+    .into();
+
+    let validate_and_update_state_hash_value = StorageSlot::Value(validate_and_update_state_hash);
+
     // Compile the account code into `AccountComponent` with one storage slot
     let pool_component = AccountComponent::compile(
         pool_code.clone(),
         assembler.clone(),
         vec![
-            StorageSlot::empty_value(),
+            validate_and_update_state_hash_value,
             StorageSlot::empty_value(),
             StorageSlot::Map(assets_mapping),
             pool_states_mapping,

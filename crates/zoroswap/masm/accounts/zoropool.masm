@@ -3,6 +3,97 @@ use.miden::native_account
 use.miden::output_note
 
 
+
+#! WALLET
+# @todo consider moving this to a mapping 
+# @todo consider asking miden to make into some kind or restricted / reserved slot
+const.VALIDATE_AND_UPDATE_STATE_HASH_SLOT = 0  #first slot 
+
+
+proc.validate_and_update_state
+   exec.set_pool_state
+end
+
+#! Adds the provided asset to the active account.
+#!
+#! Inputs:  [ASSET, reserve, reserve_with_slippage, liabilities, 0, pad(8)]
+#! Outputs: [pad(16)]
+#!
+#! Where:
+#! - ASSET is the asset to be received, can be fungible or non-fungible
+#!
+#! Panics if:
+#! - the same non-fungible asset already exists in the account.
+#! - adding a fungible asset would result in amount overflow, i.e.,
+#!   the total amount would be greater than 2^63.
+#!
+#! Invocation: call
+export.receive_asset
+    exec.native_account::add_asset
+    # => [ASSET', reserve, reserve_with_slippage, liabilities, 0, pad(8)]
+    push.VALIDATE_AND_UPDATE_STATE_HASH_SLOT exec.active_account::get_item
+    #procref.validate_and_update_state
+    mem_storew_be.DYNAMIC_PROC_ADDR dropw push.DYNAMIC_PROC_ADDR
+    dynexec
+    # => [pad(16)]
+end
+
+
+#! Adds the provided asset to the an output note.
+#!
+#! Inputs:  [ASSET, noteid, 0,0,0, liabilities, reserve, reserve_with_slippage, 0, pad(4)]
+#! Outputs: [pad(16)]
+#!
+#! Where:
+#! - ASSET is the asset to be received, can be fungible or non-fungible
+#!
+#! Panics if:
+#! - the same non-fungible asset already exists in the account.
+#! - adding a fungible asset would result in amount overflow, i.e.,
+#!   the total amount would be greater than 2^63.
+#!
+export.move_asset_to_note
+    exec.native_account::remove_asset
+    # => [ASSET, note_idx, 0,0,0, liabilities, reserve, reserve_with_slippage, 0, pad(4)]
+
+    dupw dup.8 movdn.4
+    # => [ASSET, note_idx, ASSET, note_idx,0,0,0, liabilities, reserve, reserve_with_slippage, 0, pad(4)]
+
+    exec.output_note::add_asset
+    
+    # => [ASSET, note_idx, 0,0,0, liabilities, reserve, reserve_with_slippage, 0, pad(4)]
+
+    swapw.1 dropw 
+    
+    exec.set_pool_state
+end
+
+#! Move asset from current note and immediately add it to another.
+#!
+#! Inputs:  [ASSET, noteid]
+#! Outputs: [pad(16)]
+#!
+#! Where:
+#! - ASSET is the asset to be bounced, can be fungible or non-fungible
+#!
+#! Panics if:
+#! - the same non-fungible asset already exists in the account.
+#! - adding a fungible asset would result in amount overflow, i.e.,
+#!   the total amount would be greater than 2^63.
+#!
+export.bounce_asset
+    mem_storew_be.BOUNCE_ASSET_LOC
+    exec.native_account::add_asset
+    dropw
+    mem_loadw_be.BOUNCE_ASSET_LOC
+    exec.native_account::remove_asset
+    
+    exec.output_note::add_asset
+end
+
+
+
+
 #use.std::sys
 
 
@@ -146,7 +237,7 @@ export.get_pool0_state
     call.get_pool_asset
     # => [pool0_state_addr]
     push.POOL_STATE_MAPPING_SLOT
-    exec.active_account::get_item
+    exec.active_account::get_map_item
     # => [liabilities, reserve, reserve_with_slippage, 0]
     swapw dropw
     # => [liabilities, reserve, reserve_with_slippage]
@@ -156,7 +247,7 @@ export.get_pool1_state
     call.get_pool_asset
     # => [POOL_ASSET_ID]
     push.POOL_STATE_MAPPING_SLOT
-    exec.active_account::get_item
+    exec.active_account::get_map_item
 
     swapw dropw
 end
@@ -218,92 +309,6 @@ export.get_pool_curve
 end
 
 
-
-# WALLET FUNCTIONS
-
-#! Adds the provided asset to the active account.
-#!
-#! Inputs:  [ASSET, reserve, reserve_with_slippage, liabilities, 0, pad(8)]
-#! Outputs: [pad(16)]
-#!
-#! Where:
-#! - ASSET is the asset to be received, can be fungible or non-fungible
-#!
-#! Panics if:
-#! - the same non-fungible asset already exists in the account.
-#! - adding a fungible asset would result in amount overflow, i.e.,
-#!   the total amount would be greater than 2^63.
-#!
-#! Invocation: call
-export.receive_asset
-    exec.native_account::add_asset
-    # => [ASSET', reserve, reserve_with_slippage, liabilities, 0, pad(8)]
-
-    procref.validate_and_update_state mem_storew_be.DYNAMIC_PROC_ADDR dropw push.DYNAMIC_PROC_ADDR
-    dynexec
-
-    # => [pad(16)]
-end
-
-#proc.validate_and_update_state
-#   push.0 drop
-#end
-
-proc.validate_and_update_state
-   exec.set_pool_state
-end
-
-#! Adds the provided asset to the an output note.
-#!
-#! Inputs:  [ASSET, noteid, 0,0,0, liabilities, reserve, reserve_with_slippage, 0, pad(4)]
-#! Outputs: [pad(16)]
-#!
-#! Where:
-#! - ASSET is the asset to be received, can be fungible or non-fungible
-#!
-#! Panics if:
-#! - the same non-fungible asset already exists in the account.
-#! - adding a fungible asset would result in amount overflow, i.e.,
-#!   the total amount would be greater than 2^63.
-#!
-export.move_asset_to_note
-    exec.native_account::remove_asset
-    # => [ASSET, note_idx, 0,0,0, liabilities, reserve, reserve_with_slippage, 0, pad(4)]
-
-    dupw dup.8 movdn.4
-    # => [ASSET, note_idx, ASSET, note_idx,0,0,0, liabilities, reserve, reserve_with_slippage, 0, pad(4)]
-
-    exec.output_note::add_asset
-    
-    # => [ASSET, note_idx, 0,0,0, liabilities, reserve, reserve_with_slippage, 0, pad(4)]
-
-    swapw.1 dropw 
-    
-    exec.set_pool_state
-end
-
-#! Move asset from current note and immediately add it to another.
-#!
-#! Inputs:  [ASSET, noteid]
-#! Outputs: [pad(16)]
-#!
-#! Where:
-#! - ASSET is the asset to be bounced, can be fungible or non-fungible
-#!
-#! Panics if:
-#! - the same non-fungible asset already exists in the account.
-#! - adding a fungible asset would result in amount overflow, i.e.,
-#!   the total amount would be greater than 2^63.
-#!
-export.bounce_asset
-    mem_storew_be.BOUNCE_ASSET_LOC
-    exec.native_account::add_asset
-    dropw
-    mem_loadw_be.BOUNCE_ASSET_LOC
-    exec.native_account::remove_asset
-    
-    exec.output_note::add_asset
-end
 
 
 #! add new deposit: receive asset, update deposit mapping
