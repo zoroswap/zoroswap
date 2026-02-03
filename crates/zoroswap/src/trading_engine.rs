@@ -422,8 +422,6 @@ impl TradingEngine {
                     // TODO: check for
                     //       ERR_MAX_COVERAGE_RATIO_EXCEEDED +
                     //       ERR_RESERVE_WITH_SLIPPAGE_EXCEEDS_ASSET_BALANCE
-
-                    // Check if order is past deadline
                     info!(
                         "SWAP: in {} from faucet {}, out {} from faucet {} at price {}",
                         order.asset_in.amount(),
