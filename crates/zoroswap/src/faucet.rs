@@ -66,7 +66,7 @@ impl GuardedFaucet {
                 .recipients
                 .get(&(mint_instruction.account_id, mint_instruction.faucet_id))
                 .unwrap_or(&0);
-            let can_mint = (Utc::now().timestamp() as u64) - last_mint > 5;
+            let can_mint = (Utc::now().timestamp() as u64) - last_mint > 100;
             trace!(
                 "Faucet request for {} from faucet {}",
                 mint_instruction.account_id.to_hex(),
@@ -80,9 +80,10 @@ impl GuardedFaucet {
                 {
                     warn!("Note: account import returned: {e:?}");
                 }
+                let amount = 10000000;
 
                 debug!(
-                    "Minting 10000000 for {} from faucet {}",
+                    "Minting {amount} for {} from faucet {}",
                     mint_instruction.account_id.to_hex(),
                     mint_instruction.faucet_id.to_hex()
                 );
@@ -91,19 +92,31 @@ impl GuardedFaucet {
                     &mut client,
                     mint_instruction.faucet_id,
                     mint_instruction.account_id,
-                    10000000,
+                    amount,
                 )
                 .await
                 {
-                    Ok(_tx_id) => {
+                    Ok(tx_id) => {
                         // Update timestamp after successful mint to enforce rate limiting
+                        info!(
+                            amount = amount,
+                            faucet = %mint_instruction.faucet_id.to_hex(),
+                            recipient = %mint_instruction.account_id.to_hex(),
+                            tx_id = ?tx_id,
+                            "Minted tokens"
+                        );
                         self.recipients.insert(
                             (mint_instruction.account_id, mint_instruction.faucet_id),
                             Utc::now().timestamp() as u64,
                         );
                     }
                     Err(e) => {
-                        error!("Error on minting from faucet: {e}");
+                        error!(
+                            faucet = %mint_instruction.faucet_id.to_hex(),
+                            recipient = %mint_instruction.account_id.to_hex(),
+                            error = ?e,
+                            "Failed to mint asset"
+                        );
                     }
                 }
             } else {
@@ -132,23 +145,7 @@ impl GuardedFaucet {
         )?;
         let tx_id = client
             .submit_new_transaction(faucet_id, transaction_request)
-            .await
-            .map_err(|e| {
-                error!(
-                    faucet = %faucet_id.to_hex(),
-                    recipient = %recipient_id.to_hex(),
-                    error = ?e,
-                    "Failed to submit mint transaction"
-                );
-                e
-            })?;
-        info!(
-            amount = amount,
-            faucet = %faucet_id.to_hex(),
-            recipient = %recipient_id.to_hex(),
-            tx_id = ?tx_id,
-            "Minted tokens"
-        );
+            .await?;
         Ok(format!("{:?}", tx_id))
     }
 }
