@@ -75,8 +75,8 @@ const.EMPTY_INPUT_6 = INPUTS_WORD_1 + 2
 const.EMPTY_INPUT_7 = INPUTS_WORD_1 + 3  # 0x0017
 
 # [empty, empty, creator_id_suffix, creator_id_prefix]
-const.EMPTY_INPUT_8 = CREATOR_ID_WORD # 0x0018
-const.EMPTY_INPUT_9 = CREATOR_ID_WORD + 1
+const.BENEFICIARY_ID_SUFFIX = CREATOR_ID_WORD # 0x0018
+const.BENEFICIARY_ID_PREFIX = CREATOR_ID_WORD + 1
 const.ZOROSWAP_CREATOR_ID_SUFFIX = CREATOR_ID_WORD + 2
 const.ZOROSWAP_CREATOR_ID_PREFIX = CREATOR_ID_WORD + 3  # 0x001B
 
@@ -140,6 +140,10 @@ const.IN_TOKEN_EMPTY_FELT = IN_ASSET_WORD + 1
 const.IN_TOKEN_ID_PREFIX = IN_ASSET_WORD + 3
 const.IN_TOKEN_ID_SUFFIX = IN_ASSET_WORD + 2
 
+# p2id related memory
+const.P2ID_TARGET_ID_PREFIX = 0x0068
+const.P2ID_TARGET_ID_SUFFIX = 0x0069
+
 
 # "constant" MEMORY
 # =================================================================================================
@@ -198,7 +202,8 @@ proc.build_p2id_recipient_hash
     swapw hmerge
     # => [SERIAL_SCRIPT_HASH]
     padw
-    mem_load.ZOROSWAP_CREATOR_ID_SUFFIX mem_load.ZOROSWAP_CREATOR_ID_PREFIX
+    mem_load.P2ID_TARGET_ID_SUFFIX mem_load.P2ID_TARGET_ID_PREFIX
+    #mem_load.ZOROSWAP_CREATOR_ID_SUFFIX mem_load.ZOROSWAP_CREATOR_ID_PREFIX
     push.0.0
 
     push.4000 mem_storew_be dropw
@@ -272,6 +277,8 @@ proc.execute_ZOROSWAP
     lt
     # min amount out is not met
     if.true
+        mem_load.ZOROSWAP_CREATOR_ID_SUFFIX mem_store.P2ID_TARGET_ID_SUFFIX  
+        mem_load.ZOROSWAP_CREATOR_ID_PREFIX mem_store.P2ID_TARGET_ID_PREFIX 
         mem_loadw_be.IN_ASSET_WORD
         exec.create_p2id_reverse_note
         call.zoropool::bounce_asset
@@ -281,6 +288,8 @@ proc.execute_ZOROSWAP
         mem_loadw_be.IN_ASSET_WORD
         call.zoropool::receive_asset
 
+        mem_load.BENEFICIARY_ID_SUFFIX mem_store.P2ID_TARGET_ID_SUFFIX  
+        mem_load.BENEFICIARY_ID_PREFIX mem_store.P2ID_TARGET_ID_PREFIX 
         mem_load.AMOUNT_OUT push.0 mem_load.OUT_TOKEN_ID_SUFFIX mem_load.OUT_TOKEN_ID_PREFIX
         exec.create_p2id_reverse_note
 

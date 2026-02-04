@@ -353,6 +353,7 @@ async fn e2e_private_note() -> Result<()> {
     let p2id_tag = NoteTag::from_account_id(account.id());
     let deadline = (Utc::now().timestamp_millis() as u64) + 10000;
 
+    let beneficiary_id = account.id();
     let inputs = vec![
         requested_asset_word[0],
         requested_asset_word[1],
@@ -362,8 +363,8 @@ async fn e2e_private_note() -> Result<()> {
         p2id_tag.into(),     // p2id tag
         Felt::new(0),
         Felt::new(0),
-        Felt::new(0),
-        Felt::new(0),
+        beneficiary_id.suffix(),
+        beneficiary_id.prefix().into(),
         account.id().suffix(),
         account.id().prefix().into(),
     ];
