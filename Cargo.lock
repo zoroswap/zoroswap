@@ -7270,14 +7270,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "zoro_curve"
-version = "0.2.0"
-dependencies = [
- "alloy",
- "zoro_primitives",
-]
-
-[[package]]
 name = "zoro_miden_client"
 version = "0.3.0"
 dependencies = [
@@ -7333,7 +7325,6 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "uuid",
- "zoro_curve",
  "zoro_miden_client",
  "zoro_primitives",
 ]
