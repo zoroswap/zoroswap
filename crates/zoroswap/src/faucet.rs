@@ -9,7 +9,10 @@ use miden_client::{
     sync::StateSync,
     transaction::TransactionRequestBuilder,
 };
+
+use miden_tx::utils::Serializable;
 use std::collections::{BTreeSet, HashMap};
+
 use tokio::sync::mpsc::{Receiver, Sender};
 use tracing::{debug, error, info, trace, warn};
 use zoro_miden_client::MidenClient;
@@ -129,9 +132,23 @@ impl GuardedFaucet {
             NoteType::Public,
             client.rng(),
         )?;
-        let tx_id = client
-            .submit_new_transaction(faucet_id, transaction_request)
+
+        // Execute/prove the transaction
+        let tx_result = client
+            .execute_transaction(faucet_id, transaction_request)
             .await?;
+        let tx_id = tx_result.executed_transaction().id();
+
+        let proven_tx = client.prove_transaction(&tx_result).await?;
+
+        // Serialize the proof to whatever file
+        let proof_bytes = proven_tx.to_bytes();
+        tokio::fs::write("proof.bin", proof_bytes).await?;
+
+        info!("Proof written to proof.bin");
+
+        // Optionally submit
+
         Ok(format!("{:?}", tx_id))
     }
 
