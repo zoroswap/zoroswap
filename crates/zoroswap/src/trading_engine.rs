@@ -10,10 +10,11 @@ use crate::{
 };
 use alloy::primitives::U256;
 use anyhow::{Result, anyhow};
+use base64::{Engine as _, engine::general_purpose};
 use chrono::Utc;
 use dashmap::DashMap;
 use miden_client::{
-    Felt, Word,
+    Felt, Serializable, Word,
     account::AccountId,
     address::NetworkId,
     asset::{Asset, FungibleAsset},
@@ -634,8 +635,8 @@ impl TradingEngine {
             info!("Recipient digest: {:?}", recipient.digest());
         }
 
-        let tx_id = client
-            .submit_new_transaction(pool_account_id, consume_req)
+        let tx = client
+            .execute_transaction(pool_account_id, consume_req)
             .await
             .map_err(|e| {
                 error!(
@@ -643,17 +644,41 @@ impl TradingEngine {
                     pool_id = %pool_account_id.to_hex(),
                     input_notes = input_notes.len(),
                     expected_recipients = expected_output_recipients.len(),
-                    "Failed to submit batch transaction"
+                    "Failed to execute transaction"
                 );
                 // TODO: if this fails, return funds and propagate failure
-                anyhow::anyhow!("Failed to create and submit batch transaction: {:?}", e)
+                anyhow::anyhow!("Failed to execute transaction: {:?}", e)
             })?;
+
+        let proven_tx = client.prove_transaction(&tx).await?;
+
+        // Serialize the proof to whatever file
+        let proof_bytes = proven_tx.to_bytes();
+        tokio::fs::write("proof.bin", proof_bytes).await?;
+
+        info!("Proof written to proof.bin");
+
+        // let tx_id = client
+        //     .submit_new_transaction(pool_account_id, consume_req)
+        //     .await
+        //     .map_err(|e| {
+        //         error!(
+        //             error = ?e,
+        //             pool_id = %pool_account_id.to_hex(),
+        //             input_notes = input_notes.len(),
+        //             expected_recipients = expected_output_recipients.len(),
+        //             "Failed to submit batch transaction"
+        //         );
+        //         // TODO: if this fails, return funds and propagate failure
+        //         anyhow::anyhow!("Failed to create and submit batch transaction: {:?}", e)
+        //     })?;
+
         // Submitted the transaction (exactly like the test)
-        info!("Submitted TX: {:?}", tx_id);
+        // info!("Submitted TX: {:?}", tx_id);
 
-        client.sync_state().await?;
+        // client.sync_state().await?;
 
-        print_transaction_info(&tx_id);
+        // print_transaction_info(&tx_id);
 
         Ok(())
     }
