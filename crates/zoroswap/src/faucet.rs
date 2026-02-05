@@ -2,11 +2,17 @@ use crate::{common::instantiate_faucet_client, config::Config};
 use anyhow::Result;
 use chrono::Utc;
 use miden_client::{
-    account::AccountId, asset::FungibleAsset, note::NoteType,
+    account::AccountId,
+    asset::FungibleAsset,
+    note::NoteType,
+    store::{NoteFilter, TransactionFilter},
+    sync::StateSync,
     transaction::TransactionRequestBuilder,
 };
+
 use miden_tx::utils::Serializable;
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
+
 use tokio::sync::mpsc::{Receiver, Sender};
 use tracing::{debug, error, info, trace, warn};
 use zoro_miden_client::MidenClient;
@@ -38,36 +44,15 @@ impl GuardedFaucet {
 
     pub async fn start(&mut self) -> Result<()> {
         // Create our own client for faucet operations (with retry for DB contention)
-        let mut client = None;
-        for attempt in 1..=5 {
-            match instantiate_faucet_client(self.config.clone(), self.config.store_path).await {
-                Ok(c) => {
-                    client = Some(c);
-                    break;
-                }
-                Err(e) => {
-                    if attempt < 5 {
-                        warn!(
-                            "Faucet client creation attempt {}/5 failed: {e}, retrying...",
-                            attempt
-                        );
-                        tokio::time::sleep(std::time::Duration::from_millis(500 * attempt as u64))
-                            .await;
-                    } else {
-                        return Err(anyhow::anyhow!(
-                            "Failed to create faucet client after 5 attempts: {e}"
-                        ));
-                    }
-                }
-            }
-        }
-        let mut client = client.unwrap();
+        let (mut client, state_sync) =
+            instantiate_faucet_client(self.config.clone(), self.config.store_path).await?;
+
         while let Some(mint_instruction) = self.rx.recv().await {
             let last_mint = self
                 .recipients
                 .get(&(mint_instruction.account_id, mint_instruction.faucet_id))
                 .unwrap_or(&0);
-            let can_mint = (Utc::now().timestamp() as u64) - last_mint > 100;
+            let can_mint = (Utc::now().timestamp() as u64) - last_mint > 1;
             trace!(
                 "Faucet request for {} from faucet {}",
                 mint_instruction.account_id.to_hex(),
@@ -120,6 +105,9 @@ impl GuardedFaucet {
                         );
                     }
                 }
+
+                // sync commitments
+                Self::sync_state(&mut client, &state_sync, mint_instruction.faucet_id).await?;
             } else {
                 debug!(
                     "Rate limited: {} from faucet {}",
@@ -162,5 +150,42 @@ impl GuardedFaucet {
         // Optionally submit
 
         Ok(format!("{:?}", tx_id))
+    }
+
+    async fn sync_state(
+        client: &mut MidenClient,
+        state_sync: &StateSync,
+        faucet_id: AccountId,
+    ) -> Result<()> {
+        let accounts = client
+            .get_account_header_by_id(faucet_id)
+            .await?
+            .map(|(header, _)| vec![header])
+            .unwrap_or_default();
+        let note_tags = BTreeSet::new();
+        let input_notes = vec![];
+        let expected_output_notes = client.get_output_notes(NoteFilter::Expected).await?;
+        let uncommitted_transactions = client
+            .get_transactions(TransactionFilter::Uncommitted)
+            .await?;
+
+        // Build current partial MMR
+        let current_partial_mmr = client.get_current_partial_mmr().await?;
+
+        // Get the sync update from the network
+        let state_sync_update = state_sync
+            .sync_state(
+                current_partial_mmr,
+                accounts,
+                note_tags,
+                input_notes,
+                expected_output_notes,
+                uncommitted_transactions,
+            )
+            .await?;
+
+        // Apply received and computed updates to the store
+        client.apply_state_sync(state_sync_update).await?;
+        Ok(())
     }
 }
