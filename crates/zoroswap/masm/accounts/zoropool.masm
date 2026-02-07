@@ -3,9 +3,6 @@ use miden::protocol::native_account
 use miden::protocol::output_note
 
 
-#use miden::core::sys
-
-
 #! CONSTANTS
 const MAX_COVERAGE_RATIO = 0x0002 # 200%
 
@@ -40,14 +37,14 @@ const HELPER_SLOT_S_LOC = 0x00B1
 #! pool state: [liabilities, reserve, reserve_with_slippage, 0]
 #! fees: [swap_fee, backstop_fee, protocol_fee, 0 ]
 #! curve: c, beta
-const ASSETS_MAPPING_SLOT = word("zoro::assets")
-const POOL_STATE_MAPPING_SLOT = word("zoro::pool_state")
+const ASSETS_MAPPING_SLOT = word("zoroswap::assets")
+const POOL_STATE_MAPPING_SLOT = word("zoroswap::pool_state")
 
-const USER_DEPOSITS_MAPPING_SLOT = word("zoro::user_deposits")
+const USER_DEPOSITS_MAPPING_SLOT = word("zoroswap::user_deposits")
 
 
-const POOL_CURVE_MAPPING_SLOT = word("zoro::pool_curve")
-const POOL_FEES_MAPPING_SLOT = word("zoro::fees")
+const POOL_CURVE_MAPPING_SLOT = word("zoroswap::pool_curve")
+const POOL_FEES_MAPPING_SLOT = word("zoroswap::fees")
 
 
 #! INDEXES
@@ -70,13 +67,13 @@ const BETA_INDEX = 0x0001
 #! Inputs: [ASSET, liabilities, reserve, reserve_with_slippage]
 #! Outputs: []
 #!
-#! @dev TODO: compare reserve with slippage with actual asset balances
+#! TODO: compare reserve with slippage with actual asset balances
 pub proc set_pool_state
     dupw
     movdnw.2
     # =>[ASSET, liabilities, reserve, reserve_with_slippage, 0,ASSET]
 
-    # @dev: ensure reserve never > reserve_with_slippage
+    # ensure reserve never > reserve_with_slippage
     dup.5
     # =>[reserve, ASSET, liabilities, reserve, reserve_with_slippage, 0, ASSET]
     dup.7
@@ -84,7 +81,7 @@ pub proc set_pool_state
     lte assert.err=ERR_RESERVE_EXCEEDS_RESERVE_WITH_SLIPPAGE
     ## => [ASSET, liabilities, reserve, reserve_with_slippage, 0, ASSET]
 
-    # @dev:ensure reserves < max_coverage_ratio * liabilities
+    # ensure reserves < max_coverage_ratio * liabilities
     dup.6 dup.5 mul.MAX_COVERAGE_RATIO
     # => [liablities * max_coverage_ratio, reserve_with_slippage, ASSET, liabilities, reserve, reserve_with_slippage, 0, ASSET]
     lt assert.err=ERR_MAX_COVERAGE_RATIO_EXCEEDED
@@ -235,7 +232,6 @@ end
 #!
 #! Invocation: call
 pub proc receive_asset
-    debug.stack.8
     exec.native_account::add_asset
     # => [ASSET', reserve, reserve_with_slippage, liabilities, 0, pad(8)]
 
@@ -267,7 +263,6 @@ end
 #!   the total amount would be greater than 2^63.
 #!
 pub proc move_asset_to_note
-    debug.stack.8
     exec.native_account::remove_asset
     # => [ASSET, note_idx, 0,0,0, liabilities, reserve, reserve_with_slippage, 0, pad(4)]
 
@@ -297,7 +292,6 @@ end
 #!   the total amount would be greater than 2^63.
 #!
 pub proc bounce_asset
-    debug.stack.8
     mem_storew_be.BOUNCE_ASSET_LOC
     exec.native_account::add_asset
     dropw

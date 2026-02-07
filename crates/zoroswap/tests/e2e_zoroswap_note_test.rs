@@ -150,7 +150,6 @@ async fn zero_note_create_consume_with_refund_test() -> Result<()> {
         alice_account.id(),
         vec![p2id_note_asset.into()],
         NoteType::Public,
-        Felt::new(0),
         p2id_serial_num.into(),
     )
     .unwrap();
@@ -315,7 +314,6 @@ async fn zero_note_create_consume_test() -> Result<()> {
         alice_account.id(),
         vec![p2id_note_asset.into()],
         NoteType::Public,
-        Felt::new(0),
         p2id_serial_num.into(),
     )
     .unwrap();

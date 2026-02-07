@@ -698,7 +698,6 @@ impl TradingEngine {
             user_account_id,
             vec![asset_out],
             NoteType::Public,
-            Felt::new(0),
             p2id_serial_num.into(),
         )?;
 
