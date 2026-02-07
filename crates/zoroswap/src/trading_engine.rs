@@ -37,6 +37,7 @@ pub(crate) struct ExecutionDetails {
     amount_out: u64,
     in_pool_balances: PoolBalances,
     out_pool_balances: PoolBalances,
+    reason: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -239,6 +240,7 @@ impl TradingEngine {
                                     amount_out: Some(details.amount_out),
                                     asset_in_faucet: details.order.asset_in.faucet_id().to_hex(),
                                     asset_out_faucet: details.order.asset_out.faucet_id().to_hex(),
+                                    reason: details.reason.clone(),
                                 },
                                 timestamp: Utc::now().timestamp_millis() as u64,
                             });
@@ -280,6 +282,7 @@ impl TradingEngine {
                                                         .asset_out
                                                         .faucet_id()
                                                         .to_hex(),
+                                                    reason: None,
                                                 },
                                                 timestamp: Utc::now().timestamp_millis() as u64,
                                             },
@@ -329,6 +332,10 @@ impl TradingEngine {
                 );
                 order_executions.push(OrderExecution::PastDeadline(ExecutionDetails {
                     note,
+                    reason: Some(format!(
+                        "Order expired: deadline exceeded by {} seconds",
+                        now - order.deadline
+                    )),
                     order,
                     amount_out: order.asset_in.amount(),
                     in_pool_balances: base_pool_state.balances,
@@ -364,18 +371,19 @@ impl TradingEngine {
                             amount_out: order.asset_in.amount(),
                             in_pool_balances: new_pool_state.balances,
                             out_pool_balances: quote_pool_state.balances,
+                            reason: None,
                         }));
                     } else {
-                        warn!("Deposit unsuccessful.");
-                        if amount_out == 0 {
-                            info!("LP amount out calculated to be 0.")
-                        } else if amount_out < order.asset_out.amount() {
-                            info!(
-                                "User would get {} lp but it wanted at least {}.",
+                        let reason = if amount_out == 0 {
+                            "Deposit failed: LP amount out calculated to be 0".to_string()
+                        } else {
+                            format!(
+                                "Deposit failed: slippage exceeded (would receive {} LP but minimum is {})",
                                 amount_out,
                                 order.asset_out.amount()
-                            );
-                        }
+                            )
+                        };
+                        warn!("{reason}");
                         let (_, note) = self.state.pluck_note(&order.id)?;
                         order_executions.push(OrderExecution::FailedOrder(ExecutionDetails {
                             note,
@@ -383,6 +391,7 @@ impl TradingEngine {
                             amount_out: order.asset_in.amount(),
                             in_pool_balances: base_pool_state.balances,
                             out_pool_balances: quote_pool_state.balances,
+                            reason: Some(reason),
                         }));
                     }
                 }
@@ -406,6 +415,7 @@ impl TradingEngine {
                             amount_out,
                             in_pool_balances: new_pool_state.balances,
                             out_pool_balances: quote_pool_state.balances,
+                            reason: None,
                         }));
                     } else {
                         warn!("Withdraw unsuccessful.");
@@ -446,7 +456,8 @@ impl TradingEngine {
                         match curve_result {
                             Ok(result) => result,
                             Err(e) => {
-                                warn!("Swap calculation failed: {e}");
+                                let reason = format!("Swap calculation failed: {e}");
+                                warn!("{reason}");
                                 let pool_in = pools
                                     .get(&order.asset_in.faucet_id())
                                     .ok_or(anyhow!("Missing pool in state"))?;
@@ -462,6 +473,7 @@ impl TradingEngine {
                                         note,
                                         order,
                                         amount_out: order.asset_in.amount(),
+                                        reason: Some(reason),
                                     },
                                 ));
                                 continue;
@@ -493,18 +505,19 @@ impl TradingEngine {
                             amount_out,
                             in_pool_balances: new_base_pool_balance,
                             out_pool_balances: new_quote_pool_balance,
+                            reason: None,
                         }));
                     } else {
-                        warn!("Swap unsuccessful.");
-                        if amount_out == 0 {
-                            info!("Amount out calculated to be 0.")
-                        } else if amount_out < order.asset_out.amount() {
-                            info!(
-                                "User would get {} but it wanted at least {}.",
+                        let reason = if amount_out == 0 {
+                            "Swap failed: amount out calculated to be 0".to_string()
+                        } else {
+                            format!(
+                                "Swap failed: slippage exceeded (would receive {} but minimum is {})",
                                 amount_out,
                                 order.asset_out.amount()
-                            );
-                        }
+                            )
+                        };
+                        warn!("{reason}");
                         let (_, note) = self.state.pluck_note(&order.id)?;
                         order_executions.push(OrderExecution::FailedOrder(ExecutionDetails {
                             note,
@@ -512,6 +525,7 @@ impl TradingEngine {
                             amount_out: order.asset_in.amount(),
                             in_pool_balances: base_pool_state.balances,
                             out_pool_balances: quote_pool_state.balances,
+                            reason: Some(reason),
                         }));
                     }
                 }
