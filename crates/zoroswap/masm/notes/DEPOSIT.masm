@@ -138,17 +138,19 @@ proc build_p2id_recipient_hash
     # => [SERIAL_NUM_HASH, SCRIPT_HASH]
     swapw hmerge
     # => [SERIAL_SCRIPT_HASH]
-    padw
-    mem_load.DEPOSIT_CREATOR_ID_SUFFIX mem_load.DEPOSIT_CREATOR_ID_PREFIX
+
+    # Compute inputs commitment: hash_elements([suffix, prefix])
+    # Must match Rust NoteInputs::new(vec![suffix, prefix]).commitment()
     push.0.0
+    mem_load.DEPOSIT_CREATOR_ID_PREFIX mem_load.DEPOSIT_CREATOR_ID_SUFFIX
+    # => [suffix, prefix, 0, 0, SERIAL_SCRIPT_HASH]
 
     push.4000 mem_storew_be dropw
-    push.4004 mem_storew_be dropw
+    # => mem[4000]=[suffix, prefix, 0, 0], stack=[SERIAL_SCRIPT_HASH]
 
-    push.8.4000
-    # => [ptr, elements]
+    push.2.4000
     exec.rpo256::hash_elements
-    # => [INPUTS_HASH, SERIAL_SCRIPT_HASH]
+    # => [INPUTS_COMMITMENT, SERIAL_SCRIPT_HASH]
     hmerge
     # => [P2ID_RECIPIENT]
 end
@@ -179,15 +181,10 @@ proc create_p2id_reverse_note
     # => [P2ID_RECIPIENT, pad(8), ASSET_TO_BE_SENT]
 
 
-    push.EXECUTION_HINT_ALWAYS
-    # => [execution_hint_always, P2ID_RECIPIENT, pad(8), ASSET_TO_BE_SENT]
     push.PUBLIC_NOTE
-    # => [public_note, execution_hint_always, P2ID_RECIPIENT, pad(8), ASSET_TO_BE_SENT]
-    push.0 # @dev aux for p2id output note
-    # => [aux, public_note, execution_hint_always, P2ID_RECIPIENT, pad(8), ASSET_TO_BE_SENT]
+    # => [note_type, P2ID_RECIPIENT, pad(8), ASSET_TO_BE_SENT]
     mem_load.P2ID_TAG
-    # => [tag, aux, public_note, execution_hint_always, P2ID_RECIPIENT, pad(8), ASSET_TO_BE_SENT]
-    # => [tag, aux, note_type, execution_hint, RECIPIENT, pad(8), ASSET_TO_BE_SENT]
+    # => [tag, note_type, P2ID_RECIPIENT, pad(8), ASSET_TO_BE_SENT]
     call.output_note::create
     # => [note_idx, pad(15), ASSET_TO_BE_SENT]
     swapw.2 dropw swapw.3
@@ -203,7 +200,8 @@ proc create_p2id_reverse_note
 end
 
 proc store_p2id_script_hash
-    push.15783632360113277539.7403765918285273520.15691985194755641846.10399643920503194563
+    # P2ID script root from miden-standards v0.13 WellKnownNote::P2ID.script_root()
+    push.13362761878458161062.15090726097241769395.444910447169617901.3558201871398422326
     mem_storew_be.P2ID_SCRIPT_ROOT_WORD dropw
 end
 

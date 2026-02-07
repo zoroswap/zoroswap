@@ -154,12 +154,12 @@ pub fn create_expected_p2id_recipient(
     swap_serial_num: Word,
     creator_id: AccountId,
 ) -> Result<NoteRecipient, NoteError> {
-    // Calculate P2ID serial number (increment first element by 1)
+    // Calculate P2ID serial number (increment last element by 1, matching MASM get_p2id_serial_num)
     let p2id_serial_num: Word = [
-        swap_serial_num[0] + Felt::new(1),
+        swap_serial_num[0],
         swap_serial_num[1],
         swap_serial_num[2],
-        swap_serial_num[3],
+        swap_serial_num[3] + Felt::new(1),
     ]
     .into();
 
