@@ -143,6 +143,7 @@ pub struct OrderUpdateDetails {
     pub amount_out: Option<u64>,
     pub asset_in_faucet: String,
     pub asset_out_faucet: String,
+    pub reason: Option<String>,
 }
 
 /// Event types for internal broadcasting
@@ -211,6 +212,7 @@ mod tests {
                 amount_out: Some(2000),
                 asset_in_faucet: "faucet1".to_string(),
                 asset_out_faucet: "faucet2".to_string(),
+                reason: None,
             },
         };
 

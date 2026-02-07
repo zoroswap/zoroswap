@@ -110,6 +110,7 @@ impl NotesListener {
                                         amount_out: None,
                                         asset_in_faucet: order.asset_in.faucet_id().to_hex(),
                                         asset_out_faucet: order.asset_out.faucet_id().to_hex(),
+                                        reason: None,
                                     },
                                     timestamp: Utc::now().timestamp_millis() as u64,
                                 };

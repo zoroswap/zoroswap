@@ -127,6 +127,7 @@ mod tests {
                 amount_out: None,
                 asset_in_faucet: "faucet1".to_string(),
                 asset_out_faucet: "faucet2".to_string(),
+                reason: None,
             },
             timestamp: 1234567890,
         };
