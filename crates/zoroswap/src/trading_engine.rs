@@ -20,7 +20,7 @@ use miden_client::{
     note::{Note, NoteRecipient, NoteTag, NoteType},
     transaction::TransactionRequestBuilder,
 };
-use miden_objects::{note::NoteDetails, vm::AdviceMap};
+use miden_protocol::{note::NoteDetails, vm::AdviceMap};
 use rand::seq::SliceRandom;
 use std::{
     sync::{Arc, Mutex},
@@ -623,7 +623,7 @@ impl TradingEngine {
 
         let consume_req = TransactionRequestBuilder::new()
             .extend_advice_map(advice_map)
-            .unauthenticated_input_notes(input_notes.clone())
+            .input_notes(input_notes.clone())
             .expected_future_notes(expected_future_notes)
             .expected_output_recipients(expected_output_recipients.clone())
             .build()
@@ -780,12 +780,12 @@ mod tests {
         address::NetworkId,
         asset::{FungibleAsset, TokenSymbol},
         note::{
-            NoteAssets, NoteExecutionHint, NoteInputs, NoteMetadata, NoteRecipient, NoteScript,
+            NoteAssets, NoteInputs, NoteMetadata, NoteRecipient, NoteScript,
             NoteTag, NoteType,
         },
     };
-    use miden_lib::account::faucets::BasicFungibleFaucet;
-    use miden_objects::{FieldElement, account::AccountIdVersion};
+    use miden_standards::account::faucets::BasicFungibleFaucet;
+    use miden_protocol::{FieldElement, account::AccountIdVersion};
     use uuid::Uuid;
 
     struct TestContext {
@@ -913,15 +913,12 @@ mod tests {
             inputs[11] = user_felts[0];
 
             let note_inputs = NoteInputs::new(inputs).unwrap();
-            let note_tag = NoteTag::from_account_id(self.pool_account_id);
+            let note_tag = NoteTag::with_account_target(self.pool_account_id);
             let metadata = NoteMetadata::new(
                 self.user_account_id,
                 NoteType::Public,
                 note_tag,
-                NoteExecutionHint::always(),
-                Felt::ZERO,
-            )
-            .unwrap();
+            );
             let assets = NoteAssets::new(vec![asset_in.into()]).unwrap();
             let serial_num: Word = [Felt::new(1), Felt::new(2), Felt::new(3), Felt::new(4)].into();
             let recipient = NoteRecipient::new(serial_num, NoteScript::mock(), note_inputs);

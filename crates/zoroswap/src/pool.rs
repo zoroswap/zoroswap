@@ -3,10 +3,12 @@ use anyhow::{Result, anyhow};
 use miden_assembly::Assembler;
 use miden_client::{
     Felt, Word,
-    account::AccountId,
+    account::{Account, AccountId},
+    store::AccountRecordData,
     transaction::{TransactionRequest, TransactionRequestBuilder, TransactionScript},
 };
-use miden_lib::transaction::TransactionKernel;
+use miden_protocol::account::StorageSlotName;
+use miden_protocol::transaction::TransactionKernel;
 use serde::Serialize;
 use std::{collections::HashMap, fs, path::Path, str::FromStr};
 use tracing::{debug, info};
@@ -17,6 +19,13 @@ use zoro_miden_client::{MidenClient, create_library};
 #[cfg(not(feature = "zoro-curve-local"))]
 use zoro_primitives::dummy_curve::DummyCurve as ConfiguredCurve;
 use zoro_primitives::traits::Curve;
+
+fn extract_full_account(data: &AccountRecordData) -> Result<&Account> {
+    match data {
+        AccountRecordData::Full(account) => Ok(account),
+        AccountRecordData::Partial(_) => Err(anyhow!("Expected full account data, got partial")),
+    }
+}
 
 #[derive(Clone, Debug, Copy, Serialize, Eq, PartialEq)]
 pub struct PoolBalances {
@@ -106,11 +115,12 @@ pub async fn fetch_lp_total_supply_from_chain(
     faucet_id: AccountId,
 ) -> Result<u64> {
     client.sync_state().await?;
-    let account = client.get_account(pool_account_id).await?.ok_or(anyhow!(
+    let record = client.get_account(pool_account_id).await?.ok_or(anyhow!(
         "No account found on chain for account_id {}",
         pool_account_id
     ))?;
-    let account_storage = account.account().storage();
+    let account = extract_full_account(record.account_data())?;
+    let account_storage = account.storage();
     let asset_address: Word = [
         Felt::new(0),
         Felt::new(0),
@@ -118,7 +128,8 @@ pub async fn fetch_lp_total_supply_from_chain(
         faucet_id.prefix().as_felt(),
     ]
     .into();
-    let total_supply = account_storage.get_map_item(5, asset_address)?;
+    let lp_supply_slot = StorageSlotName::new("zoro::user_deposits").expect("valid slot name");
+    let total_supply = account_storage.get_map_item(&lp_supply_slot, asset_address)?;
     Ok(total_supply[0].as_int())
 }
 
@@ -128,11 +139,12 @@ pub async fn fetch_pool_state_from_chain(
     faucet_id: AccountId,
 ) -> Result<(PoolBalances, PoolSettings)> {
     client.sync_state().await?;
-    let account = client.get_account(pool_account_id).await?.ok_or(anyhow!(
+    let record = client.get_account(pool_account_id).await?.ok_or(anyhow!(
         "No account found on chain for account_id {}",
         pool_account_id
     ))?;
-    let account_storage = account.account().storage();
+    let account = extract_full_account(record.account_data())?;
+    let account_storage = account.storage();
     let asset_address: Word = [
         Felt::new(0),
         Felt::new(0),
@@ -141,9 +153,12 @@ pub async fn fetch_pool_state_from_chain(
     ]
     .into();
 
-    let pool_balances = account_storage.get_map_item(4, asset_address)?;
-    let pool_curve = account_storage.get_map_item(6, asset_address)?;
-    let pool_fees = account_storage.get_map_item(7, asset_address)?;
+    let balances_slot = StorageSlotName::new("zoro::pool_state").expect("valid slot name");
+    let curve_slot = StorageSlotName::new("zoro::pool_curve").expect("valid slot name");
+    let fees_slot = StorageSlotName::new("zoro::fees").expect("valid slot name");
+    let pool_balances = account_storage.get_map_item(&balances_slot, asset_address)?;
+    let pool_curve = account_storage.get_map_item(&curve_slot, asset_address)?;
+    let pool_fees = account_storage.get_map_item(&fees_slot, asset_address)?;
 
     let pool_balances = PoolBalances {
         reserve_with_slippage: U256::from(pool_balances[1].as_int()),
@@ -167,13 +182,15 @@ pub async fn fetch_vault_for_account_from_chain(
     account_id: AccountId,
 ) -> Result<HashMap<AccountId, u64>> {
     client.sync_state().await?;
-    let account = client.get_account(account_id).await?.ok_or(anyhow!(
+    let record = client.get_account(account_id).await?.ok_or(anyhow!(
         "No account found on chain for account_id {}",
         account_id
     ))?;
+    let account = extract_full_account(record.account_data())?;
     let mut assets: HashMap<AccountId, u64> = HashMap::new();
-    let account_storage = account.account().vault();
+    let account_storage = account.vault();
     for asset in account_storage.assets() {
+        let asset: miden_client::asset::Asset = asset;
         let faucet_id = asset
             .vault_key()
             .faucet_id()
@@ -221,7 +238,7 @@ pub fn create_set_pool_state_tx(
     let pool_account_path = format!("{masm_path}/accounts/zoropool.masm");
     let pool_code = fs::read_to_string(Path::new(&pool_account_path))
         .map_err(|e| anyhow!("Error opening {pool_account_path}: {e}"))?;
-    let assembler: Assembler = TransactionKernel::assembler().with_debug_mode(true);
+    let assembler: Assembler = TransactionKernel::assembler();
     let account_component_lib = create_library(
         assembler.clone(),
         "external_contract::two_pools_contract",

@@ -11,7 +11,6 @@ use anyhow::{Result, anyhow};
 use chrono::Utc;
 use dashmap::DashMap;
 use miden_client::{account::AccountId, note::Note};
-use miden_lib::account::faucets::BasicFungibleFaucet;
 use std::sync::Arc;
 use tracing::{error, info, warn};
 use uuid::Uuid;

@@ -1,24 +1,24 @@
-use.miden::active_note
-use.miden::output_note
-use.std::crypto::hashes::rpo
-use.std::sys
+use miden::protocol::active_note
+use miden::protocol::output_note
+use miden::core::crypto::hashes::rpo256
+use miden::core::sys
 
-use.zoro::zoropool
+use zoro::zoropool
 
 # ERRORS
 # =================================================================================================
 
 # DEPOSIT script expects exactly 9 note inputs
-const.ERR_DEPOSIT_WRONG_NUMBER_OF_INPUTS="DEPOSIT wrong number of inputs"
+const ERR_DEPOSIT_WRONG_NUMBER_OF_INPUTS="DEPOSIT wrong number of inputs"
 # DEPOSIT script requires exactly one note asset
-const.ERR_DEPOSIT_WRONG_NUMBER_OF_ASSETS="DEPOSIT wrong number of assets"
+const ERR_DEPOSIT_WRONG_NUMBER_OF_ASSETS="DEPOSIT wrong number of assets"
 
 
 # CONSTANTS
 # =================================================================================================
 
-const.PUBLIC_NOTE=1
-const.EXECUTION_HINT_ALWAYS=1
+const PUBLIC_NOTE=1
+const EXECUTION_HINT_ALWAYS=1
 
 # MEMORY
 # =================================================================================================
@@ -30,39 +30,39 @@ const.EXECUTION_HINT_ALWAYS=1
 # next 4  WORDS reserved for arguments
 # ====================================================
 
-const.INPUTS_POINTER = 0x0010
+const INPUTS_POINTER = 0x0010
 
 
 
-const.INPUTS_WORD_0 = INPUTS_POINTER        # [min_lp_amount_out, deadline, p2id_tag, empty]
-const.INPUTS_WORD_1 = INPUTS_POINTER + 4    # [CREATOR_ID_WORD] = [empty, empty, creator_id_suffix, creator_id_prefix]
+const INPUTS_WORD_0 = INPUTS_POINTER        # [min_lp_amount_out, deadline, p2id_tag, empty]
+const INPUTS_WORD_1 = INPUTS_POINTER + 4    # [CREATOR_ID_WORD] = [empty, empty, creator_id_suffix, creator_id_prefix]
 
 
 
 # first 2 WORDS of input space used for inputs
 # ====================================================
-const.NUMBER_OF_INPUTS = 0x0008 # 8
+const NUMBER_OF_INPUTS = 0x0008 # 8
 
 
 # semantic names for inputs
 # ====================================================
 # [min_lp_amount_outdeadline, p2id_tag, empty, empty]
-const.INPUT_PARAMS = INPUTS_WORD_0
-const.CREATOR_ID_WORD = INPUTS_WORD_1
+const INPUT_PARAMS = INPUTS_WORD_0
+const CREATOR_ID_WORD = INPUTS_WORD_1
 
 
 
 # DEPOSIT Note Inputs (16 to 24)
 # [min_amount_out, empty, out_asset_id_suffix, out_asset_id_prefix]
-const.MIN_LP_AMOUNT_OUT = INPUT_PARAMS  # 0x0010
-const.DEADLINE = INPUT_PARAMS + 1
-const.P2ID_TAG = INPUT_PARAMS + 2
+const MIN_LP_AMOUNT_OUT = INPUT_PARAMS  # 0x0010
+const DEADLINE = INPUT_PARAMS + 1
+const P2ID_TAG = INPUT_PARAMS + 2
 
 # [empty, empty, creator_id_suffix, creator_id_prefix]
-const.EMPTY_INPUT_4 = CREATOR_ID_WORD # 0x0018
-const.EMPTY_INPUT_5 = CREATOR_ID_WORD + 1
-const.DEPOSIT_CREATOR_ID_SUFFIX = CREATOR_ID_WORD + 2
-const.DEPOSIT_CREATOR_ID_PREFIX = CREATOR_ID_WORD + 3  # 0x001B
+const EMPTY_INPUT_4 = CREATOR_ID_WORD # 0x0018
+const EMPTY_INPUT_5 = CREATOR_ID_WORD + 1
+const DEPOSIT_CREATOR_ID_SUFFIX = CREATOR_ID_WORD + 2
+const DEPOSIT_CREATOR_ID_PREFIX = CREATOR_ID_WORD + 3  # 0x001B
 
 # EMPTY  5WORDS 0X001C- 0x00
 
@@ -70,45 +70,45 @@ const.DEPOSIT_CREATOR_ID_PREFIX = CREATOR_ID_WORD + 3  # 0x001B
 # 0x0040 - 0x004F
 # ====================================================
 
-const.ARGS_POINTER = 0x0040
+const ARGS_POINTER = 0x0040
 
 
-const.ARGS_WORD_0 = ARGS_POINTER        # []
+const ARGS_WORD_0 = ARGS_POINTER        # []
 
 # first 3 WORDS of ARGUMENTS space used for args
 # ====================================================
-const.NUMBER_OF_ARGS = 0x000C # 4
+const NUMBER_OF_ARGS = 0x000C # 4
 
 # semantic names for inputs
 # ====================================================
 
-const.LP_AMOUNT_OUT = ARGS_WORD_0   # 0x0040
-const.LIABILITIES = ARGS_WORD_0 + 1  # 0x0041
-const.RESERVE = ARGS_WORD_0 + 2  # 0x0042
-const.RESERVE_WITH_SLIPPAGE = ARGS_WORD_0 + 3  # 0x0043
+const LP_AMOUNT_OUT = ARGS_WORD_0   # 0x0040
+const LIABILITIES = ARGS_WORD_0 + 1  # 0x0041
+const RESERVE = ARGS_WORD_0 + 2  # 0x0042
+const RESERVE_WITH_SLIPPAGE = ARGS_WORD_0 + 3  # 0x0043
 
 
 # memory addresses of the assets
-const.DEPOSIT_ASSET_WORD = 0x0060
+const DEPOSIT_ASSET_WORD = 0x0060
 # memory locations based on IN_ASSET_WORD
-const.DEPOSIT_AMOUNT = DEPOSIT_ASSET_WORD
-const.DEPOSIT_ASSET_EMPTY_FELT = DEPOSIT_ASSET_WORD + 1
-const.DEPOSIT_ASSET_ID_PREFIX = DEPOSIT_ASSET_WORD + 3
-const.DEPOSIT_ASSET_ID_SUFFIX = DEPOSIT_ASSET_WORD + 2
+const DEPOSIT_AMOUNT = DEPOSIT_ASSET_WORD
+const DEPOSIT_ASSET_EMPTY_FELT = DEPOSIT_ASSET_WORD + 1
+const DEPOSIT_ASSET_ID_PREFIX = DEPOSIT_ASSET_WORD + 3
+const DEPOSIT_ASSET_ID_SUFFIX = DEPOSIT_ASSET_WORD + 2
 
 
 # "constant" MEMORY
 # =================================================================================================
 
-const.P2ID_SCRIPT_ROOT_WORD = 0x0080
+const P2ID_SCRIPT_ROOT_WORD = 0x0080
 
 
-proc.store_asset_in_to_memory
+proc store_asset_in_to_memory
     push.DEPOSIT_ASSET_WORD exec.active_note::get_assets assert.err=ERR_DEPOSIT_WRONG_NUMBER_OF_ASSETS
     drop
 end
 
-proc.store_inputs_to_memory
+proc store_inputs_to_memory
     # store note inputs into memory starting at address 0
     push.INPUTS_POINTER exec.active_note::get_inputs
     # => [num_inputs, inputs_ptr]
@@ -119,7 +119,7 @@ proc.store_inputs_to_memory
 
 end
 # @note TODO: pool stats will likely need to go through the advice stack
-proc.store_args_to_memory
+proc store_args_to_memory
     mem_store.LIABILITIES
     mem_store.RESERVE
     mem_store.RESERVE_WITH_SLIPPAGE
@@ -132,7 +132,7 @@ end
 #! Inputs: [SERIAL_NUM, SCRIPT_HASH]
 #! Outputs: [P2ID_RECIPIENT]
 #!
-proc.build_p2id_recipient_hash
+proc build_p2id_recipient_hash
 
     padw hmerge
     # => [SERIAL_NUM_HASH, SCRIPT_HASH]
@@ -147,7 +147,7 @@ proc.build_p2id_recipient_hash
 
     push.8.4000
     # => [ptr, elements]
-    exec.rpo::hash_memory
+    exec.rpo256::hash_elements
     # => [INPUTS_HASH, SERIAL_SCRIPT_HASH]
     hmerge
     # => [P2ID_RECIPIENT]
@@ -155,7 +155,7 @@ end
 
 # input: [SERIAL_NUM,...]
 # ouput: [P2ID_SERIAL_NUM, ...]
-proc.get_p2id_serial_num
+proc get_p2id_serial_num
     add.1
 end
 
@@ -164,7 +164,7 @@ end
 #! Inputs: [ASSET_TO_BE_SENT]
 #! Outputs: []
 #!
-proc.create_p2id_reverse_note
+proc create_p2id_reverse_note
     # @dev prepad to not to destroy ASSET_TO_BE_SENT by note creation
     # @dev if doesnt work, use memory for ASSET_TO_BE_SENT
     padw padw
@@ -202,12 +202,12 @@ proc.create_p2id_reverse_note
     # => []
 end
 
-proc.store_p2id_script_hash
+proc store_p2id_script_hash
     push.15783632360113277539.7403765918285273520.15691985194755641846.10399643920503194563
     mem_storew_be.P2ID_SCRIPT_ROOT_WORD dropw
 end
 
-proc.execute_DEPOSIT
+proc execute_DEPOSIT
     mem_load.LP_AMOUNT_OUT
     mem_load.MIN_LP_AMOUNT_OUT
     lt

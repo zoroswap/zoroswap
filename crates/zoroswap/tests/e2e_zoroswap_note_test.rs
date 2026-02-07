@@ -3,7 +3,7 @@ use miden_client::{
     Felt, Word,
     asset::FungibleAsset,
     builder::ClientBuilder,
-    crypto::FeltRng,
+    crypto::ClientRngBox,
     keystore::FilesystemKeyStore,
     note::{NoteTag, NoteType},
     rpc::{Endpoint, GrpcClient},
@@ -71,7 +71,7 @@ async fn zero_note_create_consume_with_refund_test() -> Result<()> {
     let requested_asset_word: Word = asset_b.into();
     // let inputs = vec![Felt::new(128), Felt::new(33)];
 
-    let p2id_tag = NoteTag::from_account_id(alice_account.id());
+    let p2id_tag = NoteTag::with_account_target(alice_account.id());
 
     let inputs = vec![
         requested_asset_word[0],
@@ -156,7 +156,7 @@ async fn zero_note_create_consume_with_refund_test() -> Result<()> {
     .unwrap();
 
     let consume_zero_req = TransactionRequestBuilder::new()
-        .unauthenticated_input_notes([(zero_note, Some(zero_note_args.into()))])
+        .input_notes([(zero_note, Some(zero_note_args.into()))])
         .expected_output_recipients(vec![p2id_note.recipient().clone()])
         .build()
         .unwrap();
@@ -235,7 +235,7 @@ async fn zero_note_create_consume_test() -> Result<()> {
     let requested_asset_word: Word = asset_b.into();
     // let inputs = vec![Felt::new(128), Felt::new(33)];
 
-    let p2id_tag = NoteTag::from_account_id(alice_account.id());
+    let p2id_tag = NoteTag::with_account_target(alice_account.id());
 
     let inputs = vec![
         requested_asset_word[0],
@@ -321,7 +321,7 @@ async fn zero_note_create_consume_test() -> Result<()> {
     .unwrap();
 
     let consume_zero_req = TransactionRequestBuilder::new()
-        .unauthenticated_input_notes([(zero_note, Some(zero_note_args.into()))])
+        .input_notes([(zero_note, Some(zero_note_args.into()))])
         .expected_output_recipients(vec![p2id_note.recipient().clone()])
         .build()
         .unwrap();
