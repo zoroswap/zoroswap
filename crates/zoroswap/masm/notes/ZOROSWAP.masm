@@ -209,8 +209,8 @@ proc build_p2id_recipient_hash
     mem_load.ZOROSWAP_CREATOR_ID_PREFIX mem_load.ZOROSWAP_CREATOR_ID_SUFFIX
     # => [suffix, prefix, 0, 0, SERIAL_SCRIPT_HASH]
 
-    push.4000 mem_storew_be dropw
-    # => mem[4000]=[suffix, prefix, 0, 0], stack=[SERIAL_SCRIPT_HASH]
+    push.4000 mem_storew_le dropw
+    # => mem[4000]=[suffix, prefix, 0, 0] (LE: pos0=suffix), stack=[SERIAL_SCRIPT_HASH]
 
     push.2.4000
     # => [ptr=4000, num_elements=2, SERIAL_SCRIPT_HASH]
@@ -232,10 +232,11 @@ end
 #! Outputs: []
 #!
 proc create_p2id_reverse_note
-    # @dev prepad to not to destroy ASSET_TO_BE_SENT by note creation
-    # @dev if doesnt work, use memory for ASSET_TO_BE_SENT
-    padw padw
-    # => [pad(8), ASSET_TO_BE_SENT]
+    # @dev prepad to keep ASSET_TO_BE_SENT below the 16-element call frame
+    # We need 16 elements above ASSET before call.output_note::create:
+    #   tag(1) + note_type(1) + RECIPIENT(4) + pad(10) = 16
+    padw padw push.0.0
+    # => [pad(10), ASSET_TO_BE_SENT]
     padw mem_loadw_be.P2ID_SCRIPT_ROOT_WORD
     # => [P2ID_SCRIPT_HASH, pad(8), ASSET_TO_BE_SENT]
     exec.active_note::get_serial_number
