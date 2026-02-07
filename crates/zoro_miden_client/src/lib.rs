@@ -4,7 +4,7 @@ use miden_client::store::TransactionFilter;
 use miden_client::{
     Client, ClientError, Felt, Word,
     account::{
-        Account, AccountBuilder, AccountId, AccountStorageMode, AccountType, Address, NetworkId,
+        Account, AccountBuilder, AccountId, AccountStorageMode, AccountType, NetworkId,
     },
     asset::{Asset, FungibleAsset, TokenSymbol},
     auth::AuthSecretKey,
@@ -87,7 +87,7 @@ pub fn create_p2id_note(
         target.to_bech32(NetworkId::Testnet)
     );
     let recipient = build_p2id_recipient(target, serial_num)?;
-    let tag = account_id_to_note_tag(target);
+    let tag = NoteTag::with_account_target(target);
     let metadata = NoteMetadata::new(sender, note_type, tag);
     let vault = NoteAssets::new(assets)?;
     Ok(Note::new(vault, metadata, recipient))
@@ -482,14 +482,6 @@ pub async fn fetch_new_notes_by_tag(
 // --------------------------------------------------------------------------
 // Utility Functions
 // --------------------------------------------------------------------------
-
-/// Converts an account ID to a note tag.
-///
-/// This is useful for filtering notes by recipient account.
-pub fn account_id_to_note_tag(account_id: AccountId) -> NoteTag {
-    let address = Address::new(account_id);
-    address.to_note_tag()
-}
 
 pub fn print_library_exports(masm_lib: &miden_assembly::Library) {
     println!("+++++Masm lib exports:");
