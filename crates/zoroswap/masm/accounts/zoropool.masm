@@ -235,6 +235,7 @@ end
 #!
 #! Invocation: call
 pub proc receive_asset
+    debug.stack.8
     exec.native_account::add_asset
     # => [ASSET', reserve, reserve_with_slippage, liabilities, 0, pad(8)]
 
@@ -266,6 +267,7 @@ end
 #!   the total amount would be greater than 2^63.
 #!
 pub proc move_asset_to_note
+    debug.stack.8
     exec.native_account::remove_asset
     # => [ASSET, note_idx, 0,0,0, liabilities, reserve, reserve_with_slippage, 0, pad(4)]
 
@@ -295,6 +297,7 @@ end
 #!   the total amount would be greater than 2^63.
 #!
 pub proc bounce_asset
+    debug.stack.8
     mem_storew_be.BOUNCE_ASSET_LOC
     exec.native_account::add_asset
     dropw
