@@ -3,7 +3,7 @@ use miden::protocol::output_note
 use miden::core::crypto::hashes::rpo256
 use miden::core::sys
 
-use zoro::zoropool
+use zoroswap::zoropool
 
 # ERRORS
 # =================================================================================================
@@ -18,7 +18,6 @@ const ERR_DEPOSIT_WRONG_NUMBER_OF_ASSETS="DEPOSIT wrong number of assets"
 # =================================================================================================
 
 const PUBLIC_NOTE=1
-const EXECUTION_HINT_ALWAYS=1
 
 # MEMORY
 # =================================================================================================
@@ -140,7 +139,8 @@ proc build_p2id_recipient_hash
     # => [SERIAL_SCRIPT_HASH]
 
     # Compute inputs commitment: hash_elements([suffix, prefix])
-    # Must match Rust NoteInputs::new(vec![suffix, prefix]).commitment()
+    # Must match build_p2id_recipient() from miden_standards which internally
+    # computes NoteInputs::new(vec![suffix, prefix]).commitment()
     push.0.0
     mem_load.DEPOSIT_CREATOR_ID_PREFIX mem_load.DEPOSIT_CREATOR_ID_SUFFIX
     # => [suffix, prefix, 0, 0, SERIAL_SCRIPT_HASH]
@@ -167,7 +167,7 @@ end
 #! Outputs: []
 #!
 proc create_p2id_reverse_note
-    # @dev prepad to keep ASSET_TO_BE_SENT below the 16-element call frame
+    # prepad to keep ASSET_TO_BE_SENT below the 16-element call frame
     # We need 16 elements above ASSET before call.output_note::create:
     #   tag(1) + note_type(1) + RECIPIENT(4) + pad(10) = 16
     padw padw push.0.0

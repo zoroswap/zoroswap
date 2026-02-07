@@ -145,33 +145,33 @@ async fn main() -> Result<()> {
 
     let n = |name: &str| StorageSlotName::new(name).expect("valid slot name");
 
-    let fees_mapping = StorageSlot::with_map(n("zoro::fees"), fees_mapping);
-    let pool_states_mapping = StorageSlot::with_empty_map(n("zoro::pool_state"));
-    let user_deposits_mapping = StorageSlot::with_empty_map(n("zoro::user_deposits"));
+    let fees_mapping = StorageSlot::with_map(n("zoroswap::fees"), fees_mapping);
+    let pool_states_mapping = StorageSlot::with_empty_map(n("zoroswap::pool_state"));
+    let user_deposits_mapping = StorageSlot::with_empty_map(n("zoroswap::user_deposits"));
 
     // Compile the account code into a Library, then create AccountComponent
     let pool_library = zoro_miden_client::create_library(
         assembler.clone(),
-        "zoro::zoropool",
+        "zoroswap::zoropool",
         &pool_code,
     )
     .map_err(|e| anyhow!("Failed to create pool library: {e}"))?;
     let pool_component = AccountComponent::new(
         pool_library,
         vec![
-            StorageSlot::with_empty_value(n("zoro::slot0")),
-            StorageSlot::with_empty_value(n("zoro::slot1")),
-            StorageSlot::with_map(n("zoro::assets"), assets_mapping),
+            StorageSlot::with_empty_value(n("zoroswap::slot0")),
+            StorageSlot::with_empty_value(n("zoroswap::slot1")),
+            StorageSlot::with_map(n("zoroswap::assets"), assets_mapping),
             pool_states_mapping,
             user_deposits_mapping,
-            StorageSlot::with_map(n("zoro::pool_curve"), curves_mapping),
+            StorageSlot::with_map(n("zoroswap::pool_curve"), curves_mapping),
             fees_mapping,
-            StorageSlot::with_empty_value(n("zoro::pool_balances")),
-            StorageSlot::with_empty_value(n("zoro::lp_supply")),
-            StorageSlot::with_empty_value(n("zoro::pool_fees")),
-            StorageSlot::with_empty_value(n("zoro::slot10")),
-            StorageSlot::with_empty_value(n("zoro::slot11")),
-            StorageSlot::with_empty_value(n("zoro::slot12")),
+            StorageSlot::with_empty_value(n("zoroswap::pool_balances")),
+            StorageSlot::with_empty_value(n("zoroswap::lp_supply")),
+            StorageSlot::with_empty_value(n("zoroswap::pool_fees")),
+            StorageSlot::with_empty_value(n("zoroswap::slot10")),
+            StorageSlot::with_empty_value(n("zoroswap::slot11")),
+            StorageSlot::with_empty_value(n("zoroswap::slot12")),
         ],
     )?
     .with_supports_all_types();

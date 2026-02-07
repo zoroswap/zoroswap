@@ -3,7 +3,7 @@ use miden::protocol::output_note
 use miden::core::crypto::hashes::rpo256
 use miden::core::sys
 
-use zoro::zoropool
+use zoroswap::zoropool
 
 
 # ERRORS
@@ -20,7 +20,6 @@ const ERR_WITHDRAW_MIN_ASSET_OUT_NOT_MET="WITHDRAW min asset out not met"
 # =================================================================================================
 
 const PUBLIC_NOTE=1
-const EXECUTION_HINT_ALWAYS=1
 
 # MEMORY
 # =================================================================================================
@@ -134,7 +133,8 @@ proc build_p2id_recipient_hash
     # => [SERIAL_SCRIPT_HASH]
 
     # Compute inputs commitment: hash_elements([suffix, prefix])
-    # Must match Rust NoteInputs::new(vec![suffix, prefix]).commitment()
+    # Must match build_p2id_recipient() from miden_standards which internally
+    # computes NoteInputs::new(vec![suffix, prefix]).commitment()
     push.0.0
     mem_load.CREATOR_ID_PREFIX mem_load.CREATOR_ID_SUFFIX
     # => [suffix, prefix, 0, 0, SERIAL_SCRIPT_HASH]
@@ -178,11 +178,8 @@ proc create_p2id_reverse_note
     mem_load.P2ID_TAG
     # => [tag, note_type, P2ID_RECIPIENT, pad(8)]
     call.output_note::create
-    debug.stack.16
     mem_load.RESERVE_WITH_SLIPPAGE mem_load.RESERVE mem_load.LIABILITIES
-    debug.stack.16
     movup.4 push.0.0.0 swap.3
-    debug.stack.16
     # => [note_idx, 0, 0, 0, liabilities,reserve, reserve,reserve_with_slippage]
     mem_load.WITHDRAW_AMOUNT_OUT
     push.0
@@ -191,7 +188,6 @@ proc create_p2id_reverse_note
     # => [ASSET, note_idx, 0, 0, 0, liabilities,reserve, reserve,reserve_with_slippage]
     push.0 mem_load.LP_WITHDRAW_AMOUNT mem_load.CREATOR_ID_SUFFIX mem_load.CREATOR_ID_PREFIX
     # => [user_id_prefix, user_id_suffix, lp_withdraw_amount, 0, ASSET, noteid, 0,0,0, liabilities, reserve, reserve_with_slippage]
-    debug.stack.32
     call.zoropool::withdraw
 
     # => []
@@ -217,13 +213,11 @@ proc execute_WITHDRAW
     push.0.0.0
     # => [0, 0, 0,liabilities,reserve, reserve,reserve_with_slippage, 0]
 
-    debug.stack.16
     exec.create_p2id_reverse_note
 
 end
 
 begin
-debug.stack.9
     exec.store_args_to_memory
 
     exec.store_inputs_to_memory

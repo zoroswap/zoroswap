@@ -73,14 +73,12 @@ pub async fn instantiate_simple_client(
 /// * `target`: The account ID receiving the note
 /// * `assets`: Assets to include in the note
 /// * `note_type`: Type of the note (Public/Private)
-/// * `aux`: Auxiliary data
 /// * `serial_num`: Serial number for the note
 pub fn create_p2id_note(
     sender: AccountId,
     target: AccountId,
     assets: Vec<Asset>,
     note_type: NoteType,
-    _aux: Felt,
     serial_num: Word,
 ) -> Result<Note, NoteError> {
     info!(

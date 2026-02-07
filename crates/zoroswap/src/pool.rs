@@ -128,7 +128,7 @@ pub async fn fetch_lp_total_supply_from_chain(
         faucet_id.prefix().as_felt(),
     ]
     .into();
-    let lp_supply_slot = StorageSlotName::new("zoro::user_deposits").expect("valid slot name");
+    let lp_supply_slot = StorageSlotName::new("zoroswap::user_deposits").expect("valid slot name");
     let total_supply = account_storage.get_map_item(&lp_supply_slot, asset_address)?;
     Ok(total_supply[0].as_int())
 }
@@ -153,9 +153,9 @@ pub async fn fetch_pool_state_from_chain(
     ]
     .into();
 
-    let balances_slot = StorageSlotName::new("zoro::pool_state").expect("valid slot name");
-    let curve_slot = StorageSlotName::new("zoro::pool_curve").expect("valid slot name");
-    let fees_slot = StorageSlotName::new("zoro::fees").expect("valid slot name");
+    let balances_slot = StorageSlotName::new("zoroswap::pool_state").expect("valid slot name");
+    let curve_slot = StorageSlotName::new("zoroswap::pool_curve").expect("valid slot name");
+    let fees_slot = StorageSlotName::new("zoroswap::fees").expect("valid slot name");
     let pool_balances = account_storage.get_map_item(&balances_slot, asset_address)?;
     let pool_curve = account_storage.get_map_item(&curve_slot, asset_address)?;
     let pool_fees = account_storage.get_map_item(&fees_slot, asset_address)?;
