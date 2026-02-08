@@ -28,8 +28,8 @@ const BOUNCE_ASSET_LOC = 0x00A8
 const LP_SHARES_LOC = 0x00AC
 const LP_SHARES_AMOUNT_ADDR = LP_SHARES_LOC + 3
 
-const HELPER_SLOT_P_LOC = 0x00B0
-const HELPER_SLOT_S_LOC = 0x00B1
+const HELPER_SLOT_ID_PREFIX_LOC = 0x00B0
+const HELPER_SLOT_ID_SUFFIX_LOC = 0x00B1
 
 
 #! STORAGE STRUCTURE
@@ -324,7 +324,7 @@ pub proc deposit
     swapw
     # => [KEY, SHARE_AMOUNT]
     push.USER_DEPOSITS_MAPPING_SLOT[0..2]
-    # => [slot_p, slot_s, KEY, SHARE_AMOUNT]
+    # => [slot_id_prefix, slot_id_suffix, KEY, SHARE_AMOUNT]
     exec.add_to_map_item
 
     # update total supply
@@ -334,7 +334,7 @@ pub proc deposit
     exec.get_lp_shares_total_supply_key
     # => [TOTAL_SUPPLY_KEY, SHARE_AMOUNT]
     push.USER_DEPOSITS_MAPPING_SLOT[0..2]
-    # => [slot_p, slot_s, KEY, SHARE_AMOUNT]
+    # => [slot_id_prefix, slot_id_suffix, KEY, SHARE_AMOUNT]
     exec.add_to_map_item
     # => []
 end
@@ -365,7 +365,7 @@ pub proc withdraw
     # => [NEW_USER_LP_SHARES, 0, user_id_prefix, user_id_suffix, lp_withdraw_amount, 0, ASSET, noteid, 0,0,0, liabilities, reserve, reserve_with_slippage, 0]
     padw mem_loadw_be.WITHDRAW_KEY_LOC
     push.USER_DEPOSITS_MAPPING_SLOT[0..2]
-    # => [slot_p, slot_s, KEY, NEW_USER_LP_SHARES]
+    # => [slot_id_prefix, slot_id_suffix, KEY, NEW_USER_LP_SHARES]
     exec.native_account::set_map_item
     dropw drop
     # => [user_id_prefix, user_id_suffix, lp_withdraw_amount, 0, ASSET, noteid, 0,0,0, liabilities, reserve, reserve_with_slippage, 0]
@@ -378,7 +378,7 @@ pub proc withdraw
     exec.get_lp_shares_total_supply_key
     # => [KEY, SHARE_AMOUNT]
     push.USER_DEPOSITS_MAPPING_SLOT[0..2]
-    # => [slot_p, slot_s, KEY, SHARE_AMOUNT]
+    # => [slot_id_prefix, slot_id_suffix, KEY, SHARE_AMOUNT]
     exec.sub_from_map_item
     # => [ ASSET_OUT, noteid, 0,0,0, liabilities, reserve, reserve_with_slippage, 0]
     exec.move_asset_to_note
@@ -386,12 +386,15 @@ pub proc withdraw
 end
 
 
-#! Inputs: [slot_p, slot_s, KEY, VALUE]
+#! Atomically increments a storage map entry: map[KEY] += VALUE.
+#! Reads the current value via get_map_item, adds VALUE, writes back via set_map_item.
+#!
+#! Inputs: [slot_id_prefix, slot_id_suffix, KEY, VALUE]
 #! Outputs: []
 proc add_to_map_item
     # Save slot ID to memory
-    mem_store.HELPER_SLOT_P_LOC
-    mem_store.HELPER_SLOT_S_LOC
+    mem_store.HELPER_SLOT_ID_PREFIX_LOC
+    mem_store.HELPER_SLOT_ID_SUFFIX_LOC
     # => [KEY, VALUE]
 
     # Duplicate KEY for second call
@@ -399,9 +402,9 @@ proc add_to_map_item
     # => [KEY, KEY, VALUE]
 
     # Load slot ID and get current map value
-    mem_load.HELPER_SLOT_S_LOC
-    mem_load.HELPER_SLOT_P_LOC
-    # => [slot_p, slot_s, KEY, KEY, VALUE]
+    mem_load.HELPER_SLOT_ID_SUFFIX_LOC
+    mem_load.HELPER_SLOT_ID_PREFIX_LOC
+    # => [slot_id_prefix, slot_id_suffix, KEY, KEY, VALUE]
     exec.active_account::get_map_item drop drop drop
     # => [old_amount, KEY, VALUE]
 
@@ -413,19 +416,22 @@ proc add_to_map_item
     # => [KEY, NEW_VALUE]
 
     # Load slot ID and set map item
-    mem_load.HELPER_SLOT_S_LOC
-    mem_load.HELPER_SLOT_P_LOC
-    # => [slot_p, slot_s, KEY, NEW_VALUE]
+    mem_load.HELPER_SLOT_ID_SUFFIX_LOC
+    mem_load.HELPER_SLOT_ID_PREFIX_LOC
+    # => [slot_id_prefix, slot_id_suffix, KEY, NEW_VALUE]
     exec.native_account::set_map_item dropw
     # => []
 end
 
-#! Inputs: [slot_p, slot_s, KEY, VALUE]
+#! Atomically decrements a storage map entry: map[KEY] -= VALUE.
+#! Reads the current value via get_map_item, subtracts VALUE, writes back via set_map_item.
+#!
+#! Inputs: [slot_id_prefix, slot_id_suffix, KEY, VALUE]
 #! Outputs: []
 proc sub_from_map_item
     # Save slot ID to memory
-    mem_store.HELPER_SLOT_P_LOC
-    mem_store.HELPER_SLOT_S_LOC
+    mem_store.HELPER_SLOT_ID_PREFIX_LOC
+    mem_store.HELPER_SLOT_ID_SUFFIX_LOC
     # => [KEY, VALUE]
 
     # Duplicate KEY for second call
@@ -433,9 +439,9 @@ proc sub_from_map_item
     # => [KEY, KEY, VALUE]
 
     # Load slot ID and get current map value
-    mem_load.HELPER_SLOT_S_LOC
-    mem_load.HELPER_SLOT_P_LOC
-    # => [slot_p, slot_s, KEY, KEY, VALUE]
+    mem_load.HELPER_SLOT_ID_SUFFIX_LOC
+    mem_load.HELPER_SLOT_ID_PREFIX_LOC
+    # => [slot_id_prefix, slot_id_suffix, KEY, KEY, VALUE]
     exec.active_account::get_map_item drop drop drop
     # => [old_amount, KEY, VALUE]
 
@@ -448,9 +454,9 @@ proc sub_from_map_item
     # => [KEY, NEW_VALUE]
 
     # Load slot ID and set map item
-    mem_load.HELPER_SLOT_S_LOC
-    mem_load.HELPER_SLOT_P_LOC
-    # => [slot_p, slot_s, KEY, NEW_VALUE]
+    mem_load.HELPER_SLOT_ID_SUFFIX_LOC
+    mem_load.HELPER_SLOT_ID_PREFIX_LOC
+    # => [slot_id_prefix, slot_id_suffix, KEY, NEW_VALUE]
     exec.native_account::set_map_item dropw
     # => []
 end

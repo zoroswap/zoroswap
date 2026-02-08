@@ -140,7 +140,7 @@ proc build_p2id_recipient_hash
     # => [suffix, prefix, 0, 0, SERIAL_SCRIPT_HASH]
 
     push.4000 mem_storew_le dropw
-    # => mem[4000]=[suffix, prefix, 0, 0] (LE: pos0=suffix), stack=[SERIAL_SCRIPT_HASH]
+    # => mem[4000] pos0=suffix, pos1=prefix (LE), stack=[SERIAL_SCRIPT_HASH]
 
     push.2.4000
     exec.rpo256::hash_elements
