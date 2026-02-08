@@ -386,6 +386,9 @@ pub proc withdraw
 end
 
 
+#! Atomically increments a storage map entry: map[KEY] += VALUE.
+#! Reads the current value via get_map_item, adds VALUE, writes back via set_map_item.
+#!
 #! Inputs: [slot_p, slot_s, KEY, VALUE]
 #! Outputs: []
 proc add_to_map_item
@@ -420,6 +423,9 @@ proc add_to_map_item
     # => []
 end
 
+#! Atomically decrements a storage map entry: map[KEY] -= VALUE.
+#! Reads the current value via get_map_item, subtracts VALUE, writes back via set_map_item.
+#!
 #! Inputs: [slot_p, slot_s, KEY, VALUE]
 #! Outputs: []
 proc sub_from_map_item
