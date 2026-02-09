@@ -63,8 +63,6 @@ impl OrderExecution {
 pub(crate) struct MatchingCycle {
     executions: Vec<OrderExecution>,
     new_pool_states: DashMap<AccountId, PoolState>,
-    /// Orders snapshot.
-    /// Taken before matching, used to restore orders if execution fails.
     flushed_orders: Vec<Order>,
 }
 pub struct TradingEngine {
@@ -183,20 +181,12 @@ impl TradingEngine {
 
     async fn run_matching_if_ready(&mut self, min_interval: Duration, client: &mut MidenClient) {
         // Debouncing: prevent excessive matching
-        let mut last_match = { self.last_match_time.lock().unwrap() };
+        let last_match = { *self.last_match_time.lock().unwrap() };
         if last_match.elapsed() < min_interval {
             return; // Skip this match cycle
         }
-        *last_match = Instant::now();
-        drop(last_match);
 
         // Check if oracle prices for high-liquidity tokens are fresh.
-        // We only check ETH and BTC here: these tokens have high liquidity
-        // and are traded often, so we should always have fresh prices.
-        //
-        // We'll add more tokens in the future, those might have lower liquidity
-        // and slower price updates, so we can't enforce the same short staleness
-        // threshold for them.
         const MAX_PRICE_AGE_SECS: u64 = 4;
         const CANARY_TOKENS: &[&str] = &["ETH", "BTC"];
         if let Some(stale_age) = self
@@ -247,7 +237,6 @@ impl TradingEngine {
                     // Execute swaps and broadcast success
                     match self.execute_orders(executions.clone(), client).await {
                         Ok(_) => {
-                            // Pluck notes now that execution succeeded
                             for execution in &executions {
                                 let _ = self.state.pluck_note(&execution.details().order.id);
                             }
@@ -269,8 +258,8 @@ impl TradingEngine {
                                         .state
                                         .get_note_id(&details.order.id)
                                         .unwrap_or_default();
-                                    let _ = self.broadcaster.broadcast_order_update(
-                                        OrderUpdateEvent {
+                                    let _ =
+                                        self.broadcaster.broadcast_order_update(OrderUpdateEvent {
                                             order_id: details.order.id,
                                             note_id,
                                             status: OrderStatus::Executed,
@@ -289,8 +278,7 @@ impl TradingEngine {
                                                     .to_hex(),
                                             },
                                             timestamp: Utc::now().timestamp_millis() as u64,
-                                        },
-                                    );
+                                        });
                                 }
                             }
                         }
@@ -795,13 +783,13 @@ mod tests {
     use miden_client::{
         account::{AccountStorageMode, AccountType},
         address::NetworkId,
-        asset::{FungibleAsset, TokenSymbol},
+        asset::FungibleAsset,
         note::{
             NoteAssets, NoteExecutionHint, NoteInputs, NoteMetadata, NoteRecipient, NoteScript,
             NoteTag, NoteType,
         },
     };
-    use miden_lib::account::faucets::BasicFungibleFaucet;
+
     use miden_objects::{FieldElement, account::AccountIdVersion};
     use uuid::Uuid;
 
@@ -844,13 +832,6 @@ mod tests {
                 AccountType::RegularAccountUpdatableCode,
                 AccountStorageMode::Public,
             );
-
-            let symbol_a = TokenSymbol::new("TKA").unwrap();
-            let symbol_b = TokenSymbol::new("TKB").unwrap();
-            let faucet_a =
-                BasicFungibleFaucet::new(symbol_a, decimals_a, Felt::new(1_000_000_000)).unwrap();
-            let faucet_b =
-                BasicFungibleFaucet::new(symbol_b, decimals_b, Felt::new(1_000_000_000)).unwrap();
 
             let config = Config {
                 pool_account_id,
@@ -983,7 +964,7 @@ mod tests {
         };
 
         let engine = ctx.create_engine();
-        let result = engine.get_liq_pools_for_order(&ctx.state.liquidity_pools(), &order);
+        let result = engine.get_liq_pools_for_order(ctx.state.liquidity_pools(), &order);
 
         assert!(result.is_ok(), "Unable to get liquidity pools");
         let ((_base_pool, base_decimals), (_quote_pool, quote_decimals)) = result.unwrap();
@@ -1073,6 +1054,7 @@ mod tests {
             reserve_with_slippage: initial_reserve,
             total_liabilities: initial_reserve,
         };
+
         pool.lp_total_supply = initial_lp_supply;
 
         // When: calculating LP amount out for a deposit
