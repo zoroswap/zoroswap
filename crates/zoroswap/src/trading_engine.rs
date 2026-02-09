@@ -48,6 +48,18 @@ pub(crate) enum OrderExecution {
     PastDeadline(ExecutionDetails),
 }
 
+impl OrderExecution {
+    fn details(&self) -> &ExecutionDetails {
+        match self {
+            OrderExecution::Swap(d)
+            | OrderExecution::Deposit(d)
+            | OrderExecution::Withdraw(d)
+            | OrderExecution::FailedOrder(d)
+            | OrderExecution::PastDeadline(d) => d,
+        }
+    }
+}
+
 pub(crate) struct MatchingCycle {
     executions: Vec<OrderExecution>,
     new_pool_states: DashMap<AccountId, PoolState>,
@@ -168,20 +180,12 @@ impl TradingEngine {
 
     async fn run_matching_if_ready(&mut self, min_interval: Duration, client: &mut MidenClient) {
         // Debouncing: prevent excessive matching
-        let mut last_match = { self.last_match_time.lock().unwrap() };
+        let last_match = { *self.last_match_time.lock().unwrap() };
         if last_match.elapsed() < min_interval {
             return; // Skip this match cycle
         }
-        *last_match = Instant::now();
-        drop(last_match);
 
         // Check if oracle prices for high-liquidity tokens are fresh.
-        // We only check ETH and BTC here: these tokens have high liquidity
-        // and are traded often, so we should always have fresh prices.
-        //
-        // We'll add more tokens in the future, those might have lower liquidity
-        // and slower price updates, so we can't enforce the same short staleness
-        // threshold for them.
         const MAX_PRICE_AGE_SECS: u64 = 4;
         const CANARY_TOKENS: &[&str] = &["ETH", "BTC"];
         if let Some(stale_age) = self
@@ -202,33 +206,17 @@ impl TradingEngine {
                 if !executions.is_empty() {
                     // Broadcast order status updates before execution
                     for execution in &executions {
-                        let (order_id, status) = match execution {
-                            OrderExecution::Swap(details) => {
-                                (details.order.id, OrderStatus::Matching)
-                            }
-                            OrderExecution::Deposit(details) => {
-                                (details.order.id, OrderStatus::Matching)
-                            }
-                            OrderExecution::Withdraw(details) => {
-                                (details.order.id, OrderStatus::Matching)
-                            }
-                            OrderExecution::FailedOrder(details) => {
-                                (details.order.id, OrderStatus::Failed)
-                            }
-                            OrderExecution::PastDeadline(details) => {
-                                (details.order.id, OrderStatus::Expired)
-                            }
+                        let status = match execution {
+                            OrderExecution::Swap(_)
+                            | OrderExecution::Deposit(_)
+                            | OrderExecution::Withdraw(_) => OrderStatus::Matching,
+                            OrderExecution::FailedOrder(_) => OrderStatus::Failed,
+                            OrderExecution::PastDeadline(_) => OrderStatus::Expired,
                         };
 
                         if status != OrderStatus::Matching {
-                            // Broadcast final status for non-swap orders
-                            let details = match execution {
-                                OrderExecution::Swap(d)
-                                | OrderExecution::FailedOrder(d)
-                                | OrderExecution::Deposit(d)
-                                | OrderExecution::Withdraw(d)
-                                | OrderExecution::PastDeadline(d) => d,
-                            };
+                            let details = execution.details();
+                            let order_id = details.order.id;
                             let note_id = self.state.get_note_id(&order_id).unwrap_or_default();
                             let _ = self.broadcaster.broadcast_order_update(OrderUpdateEvent {
                                 order_id,
@@ -248,44 +236,50 @@ impl TradingEngine {
                     // Execute swaps and broadcast success
                     match self.execute_orders(executions.clone(), client).await {
                         Ok(_) => {
+                            for execution in &executions {
+                                let _ = self.state.pluck_note(&execution.details().order.id);
+                            }
+
+                            self.state.flush_open_orders();
+
                             for (faucet_id, pool_state) in matching_cycle.new_pool_states {
                                 self.state.update_pool_state(&faucet_id, pool_state);
                             }
 
                             // Broadcast order status for executed orders
                             for execution in &executions {
-                                match &execution {
-                                    &OrderExecution::Swap(details)
-                                    | &OrderExecution::Deposit(details)
-                                    | &OrderExecution::Withdraw(details) => {
-                                        let note_id = self
-                                            .state
-                                            .get_note_id(&details.order.id)
-                                            .unwrap_or_default();
-                                        let _ = self.broadcaster.broadcast_order_update(
-                                            OrderUpdateEvent {
-                                                order_id: details.order.id,
-                                                note_id,
-                                                status: OrderStatus::Executed,
-                                                details: OrderUpdateDetails {
-                                                    amount_in: details.order.asset_in.amount(),
-                                                    amount_out: Some(details.amount_out),
-                                                    asset_in_faucet: details
-                                                        .order
-                                                        .asset_in
-                                                        .faucet_id()
-                                                        .to_hex(),
-                                                    asset_out_faucet: details
-                                                        .order
-                                                        .asset_out
-                                                        .faucet_id()
-                                                        .to_hex(),
-                                                },
-                                                timestamp: Utc::now().timestamp_millis() as u64,
+                                if matches!(
+                                    execution,
+                                    OrderExecution::Swap(_)
+                                        | OrderExecution::Deposit(_)
+                                        | OrderExecution::Withdraw(_)
+                                ) {
+                                    let details = execution.details();
+                                    let note_id = self
+                                        .state
+                                        .get_note_id(&details.order.id)
+                                        .unwrap_or_default();
+                                    let _ =
+                                        self.broadcaster.broadcast_order_update(OrderUpdateEvent {
+                                            order_id: details.order.id,
+                                            note_id,
+                                            status: OrderStatus::Executed,
+                                            details: OrderUpdateDetails {
+                                                amount_in: details.order.asset_in.amount(),
+                                                amount_out: Some(details.amount_out),
+                                                asset_in_faucet: details
+                                                    .order
+                                                    .asset_in
+                                                    .faucet_id()
+                                                    .to_hex(),
+                                                asset_out_faucet: details
+                                                    .order
+                                                    .asset_out
+                                                    .faucet_id()
+                                                    .to_hex(),
                                             },
-                                        );
-                                    }
-                                    _ => {}
+                                            timestamp: Utc::now().timestamp_millis() as u64,
+                                        });
                                 }
                             }
                         }
@@ -303,7 +297,7 @@ impl TradingEngine {
 
     pub(crate) fn run_matching_cycle(&self) -> Result<MatchingCycle> {
         let pools = self.state.liquidity_pools().clone();
-        let mut orders = self.state.flush_open_orders();
+        let mut orders = self.state.get_open_orders();
 
         // MEV protection: randomize order processing sequence
         orders.shuffle(&mut rand::rng());
@@ -321,7 +315,7 @@ impl TradingEngine {
             );
 
             if order.deadline < now {
-                let (_, note) = self.state.pluck_note(&order.id)?;
+                let note = self.state.get_note(&order.id)?;
                 warn!(
                     "Order {:?} is past deadline (by {})",
                     order.order_type,
@@ -353,7 +347,7 @@ impl TradingEngine {
                     );
                     let amount_out = amount_out.to::<u64>();
                     if amount_out > 0 && amount_out >= order.asset_out.amount() {
-                        let (_, note) = self.state.pluck_note(&order.id)?;
+                        let note = self.state.get_note(&order.id)?;
                         pools
                             .get_mut(&order.asset_in.faucet_id())
                             .ok_or(anyhow!("Missing pool in state"))?
@@ -376,7 +370,7 @@ impl TradingEngine {
                                 order.asset_out.amount()
                             );
                         }
-                        let (_, note) = self.state.pluck_note(&order.id)?;
+                        let note = self.state.get_note(&order.id)?;
                         order_executions.push(OrderExecution::FailedOrder(ExecutionDetails {
                             note,
                             order,
@@ -395,7 +389,7 @@ impl TradingEngine {
                     );
                     let amount_out = amount_out.to::<u64>();
                     if amount_out > 0 && amount_out >= order.asset_out.amount() {
-                        let (_, note) = self.state.pluck_note(&order.id)?;
+                        let note = self.state.get_note(&order.id)?;
                         pools
                             .get_mut(&order.asset_out.faucet_id())
                             .ok_or(anyhow!("Missing pool in state"))?
@@ -418,7 +412,14 @@ impl TradingEngine {
                                 order.asset_out.amount()
                             );
                         }
-                        self.state.pluck_note(&order.id)?;
+                        let note = self.state.get_note(&order.id)?;
+                        order_executions.push(OrderExecution::FailedOrder(ExecutionDetails {
+                            note,
+                            order,
+                            amount_out: order.asset_in.amount(),
+                            in_pool_balances: base_pool_state.balances,
+                            out_pool_balances: quote_pool_state.balances,
+                        }));
                     }
                 }
                 OrderType::Swap => {
@@ -454,7 +455,7 @@ impl TradingEngine {
                                 let pool_out = pools
                                     .get_mut(&order.asset_out.faucet_id())
                                     .ok_or(anyhow!("Missing pool in state"))?;
-                                let (_, note) = self.state.pluck_note(&order.id)?;
+                                let note = self.state.get_note(&order.id)?;
                                 order_executions.push(OrderExecution::FailedOrder(
                                     ExecutionDetails {
                                         in_pool_balances: pool_in.balances,
@@ -486,7 +487,7 @@ impl TradingEngine {
                             .get_mut(&order.asset_out.faucet_id())
                             .ok_or(anyhow!("Missing pool in state"))?
                             .update_balances(new_quote_pool_balance);
-                        let (_, note) = self.state.pluck_note(&order.id)?;
+                        let note = self.state.get_note(&order.id)?;
                         order_executions.push(OrderExecution::Swap(ExecutionDetails {
                             note,
                             order,
@@ -505,7 +506,7 @@ impl TradingEngine {
                                 order.asset_out.amount()
                             );
                         }
-                        let (_, note) = self.state.pluck_note(&order.id)?;
+                        let note = self.state.get_note(&order.id)?;
                         order_executions.push(OrderExecution::FailedOrder(ExecutionDetails {
                             note,
                             order,
@@ -645,7 +646,6 @@ impl TradingEngine {
                     expected_recipients = expected_output_recipients.len(),
                     "Failed to submit batch transaction"
                 );
-                // TODO: if this fails, return funds and propagate failure
                 anyhow::anyhow!("Failed to create and submit batch transaction: {:?}", e)
             })?;
         // Submitted the transaction (exactly like the test)
@@ -778,13 +778,13 @@ mod tests {
     use miden_client::{
         account::{AccountStorageMode, AccountType},
         address::NetworkId,
-        asset::{FungibleAsset, TokenSymbol},
+        asset::FungibleAsset,
         note::{
             NoteAssets, NoteExecutionHint, NoteInputs, NoteMetadata, NoteRecipient, NoteScript,
             NoteTag, NoteType,
         },
     };
-    use miden_lib::account::faucets::BasicFungibleFaucet;
+
     use miden_objects::{FieldElement, account::AccountIdVersion};
     use uuid::Uuid;
 
@@ -827,13 +827,6 @@ mod tests {
                 AccountType::RegularAccountUpdatableCode,
                 AccountStorageMode::Public,
             );
-
-            let symbol_a = TokenSymbol::new("TKA").unwrap();
-            let symbol_b = TokenSymbol::new("TKB").unwrap();
-            let faucet_a =
-                BasicFungibleFaucet::new(symbol_a, decimals_a, Felt::new(1_000_000_000)).unwrap();
-            let faucet_b =
-                BasicFungibleFaucet::new(symbol_b, decimals_b, Felt::new(1_000_000_000)).unwrap();
 
             let config = Config {
                 pool_account_id,
@@ -966,7 +959,7 @@ mod tests {
         };
 
         let engine = ctx.create_engine();
-        let result = engine.get_liq_pools_for_order(&ctx.state.liquidity_pools(), &order);
+        let result = engine.get_liq_pools_for_order(ctx.state.liquidity_pools(), &order);
 
         assert!(result.is_ok(), "Unable to get liquidity pools");
         let ((_base_pool, base_decimals), (_quote_pool, quote_decimals)) = result.unwrap();
@@ -1056,6 +1049,7 @@ mod tests {
             reserve_with_slippage: initial_reserve,
             total_liabilities: initial_reserve,
         };
+
         pool.lp_total_supply = initial_lp_supply;
 
         // When: calculating LP amount out for a deposit
