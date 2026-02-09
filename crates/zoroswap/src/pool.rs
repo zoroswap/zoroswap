@@ -238,6 +238,7 @@ pub fn create_set_pool_state_tx(
     let pool_account_path = format!("{masm_path}/accounts/zoropool.masm");
     let pool_code = fs::read_to_string(Path::new(&pool_account_path))
         .map_err(|e| anyhow!("Error opening {pool_account_path}: {e}"))?;
+    let assembler: Assembler = TransactionKernel::assembler();
     let account_component_lib = create_library(
         assembler.clone(),
         "external_contract::two_pools_contract",

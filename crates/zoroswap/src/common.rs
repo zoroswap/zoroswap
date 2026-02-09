@@ -100,8 +100,13 @@ pub async fn instantiate_client(
         .in_debug_mode(DebugMode::Enabled)
         .build()
         .await?;
-    info!("Importing pool account");
-    client.import_account_by_id(config.pool_account_id).await?;
+    let existing = client.get_account(config.pool_account_id).await?;
+    if existing.is_none() {
+        info!("Pool account not in local store, importing from node");
+        client.import_account_by_id(config.pool_account_id).await?;
+    } else {
+        info!("Pool account already in local store, skipping import");
+    }
     client
         .add_note_tag(NoteTag::with_account_target(config.pool_account_id))
         .await?;
