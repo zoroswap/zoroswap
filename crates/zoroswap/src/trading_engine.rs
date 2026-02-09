@@ -472,6 +472,7 @@ impl TradingEngine {
                         // Swap successful - create execution order for swap
                         info!(
                             creator = %order.creator_id.to_hex(),
+                            beneficiary = %order.beneficiary_id.to_hex(),
                             amount_in = amount_in,
                             amount_out = amount_out,
                             faucet_in = %order.asset_in.faucet_id().to_hex(),
@@ -671,7 +672,11 @@ impl TradingEngine {
                 execution_details.amount_out,
             )?
         };
-        let user_account_id = execution_details.order.creator_id;
+        let user_account_id = if return_asset_in {
+            execution_details.order.creator_id
+        } else {
+            execution_details.order.beneficiary_id
+        };
         let serial_num = execution_details.note.serial_num();
         let note = execution_details.note;
         let asset_out_faucet_id = asset_out.faucet_id().to_bech32(self.network_id.clone());
@@ -963,6 +968,7 @@ mod tests {
             order_type: OrderType::Swap,
             p2id_tag: 0,
             creator_id: ctx.pool_account_id,
+            beneficiary_id: AccountId::try_from(0_u128).unwrap(),
         };
 
         let engine = ctx.create_engine();
