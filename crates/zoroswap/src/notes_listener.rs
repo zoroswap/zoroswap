@@ -71,7 +71,10 @@ impl NotesListener {
         loop {
             // Sync state
             if let Err(e) = client.sync_state().await {
-                warn!("Error on sync in notes listener: {e}");
+                error!(
+                    error = ?e,
+                    "Error on sync in notes listener"
+                );
             }
 
             // Fetch notes and filter by tag
@@ -111,7 +114,7 @@ impl NotesListener {
                                     timestamp: Utc::now().timestamp_millis() as u64,
                                 };
                                 if let Err(e) = self.broadcaster.broadcast_order_update(event) {
-                                    error!("Failed to broadcast order update: {}", e);
+                                    error!("Failed to broadcast order update: {:?}", e);
                                 }
                             }
                             Err(e) => {
@@ -126,7 +129,7 @@ impl NotesListener {
                                 } else {
                                     // Real error with a malformed swap order
                                     error!(
-                                        "Error parsing order from note {}: {e}",
+                                        "Error parsing order from note {}: {e:?}",
                                         note.id().to_hex()
                                     );
                                     failed_notes.insert(note_miden_id);
@@ -136,7 +139,7 @@ impl NotesListener {
                     }
                 }
                 Err(e) => {
-                    error!("Error in listening for zoro swap notes: {}", e);
+                    error!("Error in listening for zoro swap notes: {:?}", e);
                 }
             };
 
