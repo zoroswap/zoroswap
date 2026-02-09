@@ -63,7 +63,6 @@ impl OrderExecution {
 pub(crate) struct MatchingCycle {
     executions: Vec<OrderExecution>,
     new_pool_states: DashMap<AccountId, PoolState>,
-    flushed_orders: Vec<Order>,
 }
 pub struct TradingEngine {
     state: Arc<AmmState>,
@@ -241,6 +240,8 @@ impl TradingEngine {
                                 let _ = self.state.pluck_note(&execution.details().order.id);
                             }
 
+                            self.state.flush_open_orders();
+
                             for (faucet_id, pool_state) in matching_cycle.new_pool_states {
                                 self.state.update_pool_state(&faucet_id, pool_state);
                             }
@@ -284,10 +285,6 @@ impl TradingEngine {
                         }
                         Err(e) => {
                             error!("Failed to execute orders: {e:?}");
-                            // We restore the orders so they can be retried.
-                            // This is safe because `execute_orders` submits a single atomic
-                            // batch transaction, so on failure no order went through.
-                            self.state.add_orders(matching_cycle.flushed_orders);
                         }
                     }
                 }
@@ -300,8 +297,7 @@ impl TradingEngine {
 
     pub(crate) fn run_matching_cycle(&self) -> Result<MatchingCycle> {
         let pools = self.state.liquidity_pools().clone();
-        let mut orders = self.state.flush_open_orders();
-        let flushed_orders = orders.clone();
+        let mut orders = self.state.get_open_orders();
 
         // MEV protection: randomize order processing sequence
         orders.shuffle(&mut rand::rng());
@@ -525,7 +521,6 @@ impl TradingEngine {
         Ok(MatchingCycle {
             executions: order_executions,
             new_pool_states: pools,
-            flushed_orders,
         })
     }
 
@@ -1121,69 +1116,6 @@ mod tests {
         assert!(
             pool_after_second.lp_total_supply > pool_after_first.lp_total_supply,
             "second deposit must increase lp_total_supply beyond first deposit"
-        );
-    }
-
-    /// Test that notes are preserved during matching and orders can be restored on failure.
-    ///
-    /// Without the possibility to restore notes on failure of `execute_orders`, users would
-    /// lose funds.
-    #[tokio::test]
-    async fn test_notes_preserved_and_orders_restorable_on_failure() {
-        // Given
-        // Context with fresh oracle prices
-        let ctx = TestContext::new().await;
-        let fresh_time = Utc::now().timestamp() as u64;
-        ctx.set_oracle_prices(fresh_time, 100_000_000);
-
-        // One order is added
-        let note = ctx.create_swap_note(1000, 1);
-        let order_id = {
-            let (_, id, _) = ctx
-                .state
-                .add_order(note, OrderType::Swap)
-                .expect("must add order");
-            id
-        };
-
-        // When
-        // Call `run_matching_cycle`
-        let engine = ctx.create_engine();
-        let matching_cycle = engine
-            .run_matching_cycle()
-            .expect("matching cycle must succeed");
-
-        // Note must still be in state (cloned, but not plucked)
-        assert!(
-            ctx.state.get_note(&order_id).is_ok(),
-            "note must still exist in state after run_matching_cycle"
-        );
-
-        // Then
-        // `flushed_orders` contains the orders for potential restoration
-        assert_eq!(
-            matching_cycle.flushed_orders.len(),
-            1,
-            "flushed_orders must contain the order"
-        );
-
-        // When
-        // simulating execution failure by restoring orders
-        ctx.state.add_orders(matching_cycle.flushed_orders);
-
-        // Then
-        // Orders are back in open_orders
-        assert_eq!(
-            ctx.state.get_open_orders().len(),
-            1,
-            "orders must be restored after add_orders"
-        );
-
-        // And
-        // Notes are still available
-        assert!(
-            ctx.state.get_note(&order_id).is_ok(),
-            "note must still exist after order restoration"
         );
     }
 }
