@@ -112,10 +112,11 @@ pub async fn get_note_by_tag(
 ) -> Result<()> {
     debug!("Getting note by tag: {:?}", tag);
     debug!("Note ID: {:?}", target_note_id);
+    // Ensure the client tracks this tag before starting the polling loop
+    client.add_note_tag(tag).await?;
     loop {
-        // Sync the state and add the tag
+        // Sync the state and check for the target note
         client.sync_state().await?;
-        client.add_note_tag(tag).await?;
 
         trace!(
             "All input notes: {:?}",
@@ -128,7 +129,6 @@ pub async fn get_note_by_tag(
         // Fetch notes
         let notes = client.get_consumable_notes(None).await?;
         trace!("Notes len: {:?}", notes.len());
-        // Check if any note matches the target_note_id
         let found = notes.iter().any(|(note, _)| note.id() == target_note_id);
 
         if found {
