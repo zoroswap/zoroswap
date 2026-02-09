@@ -1,6 +1,6 @@
 use crate::{
     amm_state::AmmState,
-    common::{instantiate_client, print_transaction_info},
+    common::{instantiate_client, p2id_serial_num, print_transaction_info},
     order::{Order, OrderType},
     pool::{
         PoolBalances, PoolState, get_curve_amount_out, get_deposit_lp_amount_out,
@@ -668,12 +668,7 @@ impl TradingEngine {
         let asset_out_faucet_id = asset_out.faucet_id().to_bech32(self.network_id.clone());
         let asset_out = Asset::Fungible(asset_out);
         debug!("prepare_payout asset_out: {:?}", asset_out);
-        let p2id_serial_num = [
-            serial_num[0],
-            serial_num[1],
-            serial_num[2],
-            Felt::new(serial_num[3].as_int() + 1),
-        ];
+        let p2id_serial_num = p2id_serial_num(serial_num);
 
         info!(
             "Calculated {asset_out:?} asset_out from faucet: {}, for recipient {} {} {} with serial number {:?}",
