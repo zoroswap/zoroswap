@@ -6,7 +6,7 @@ use miden_client::{
     Felt, Word,
     account::Account,
     asset::FungibleAsset,
-    crypto::FeltRng,
+    crypto::ClientRngBox,
     keystore::FilesystemKeyStore,
     note::{NoteTag, NoteType},
     transaction::{OutputNote, TransactionRequestBuilder},
@@ -126,7 +126,7 @@ async fn fund_user_wallet(
     wait_for_note(client, account, &minted_note).await?;
 
     let consume_req = TransactionRequestBuilder::new()
-        .authenticated_input_notes([(minted_note.id(), None)])
+        .input_notes([(minted_note.id(), None)])
         .build()
         .unwrap();
 
@@ -158,7 +158,7 @@ async fn e2e_private_deposit_withdraw_test() -> Result<()> {
     let min_lp_amount_out = (amount_in as f64) * (1.0 - max_slippage);
     let min_lp_amount_out = 0 as u64;
     let asset_in = FungibleAsset::new(pool.faucet_id, amount_in)?;
-    let p2id_tag = NoteTag::from_account_id(account.id());
+    let p2id_tag = NoteTag::with_account_target(account.id());
     let deadline = (Utc::now().timestamp_millis() as u64) + 10000;
     let inputs = vec![
         Felt::new(0),
@@ -170,7 +170,7 @@ async fn e2e_private_deposit_withdraw_test() -> Result<()> {
         account.id().suffix(),
         account.id().prefix().into(),
     ];
-    let _pool_contract_tag = NoteTag::from_account_id(config.pool_account_id);
+    let _pool_contract_tag = NoteTag::with_account_target(config.pool_account_id);
     let deposit_serial_num = client.rng().draw_word();
     println!(
         "Made an deposit note for {amount_in} {} expecting  at least {min_lp_amount_out} lp amount out.",
@@ -226,7 +226,7 @@ async fn e2e_private_deposit_withdraw_test() -> Result<()> {
     let min_asset_amount_out = min_asset_amount_out as u64;
     let asset_out: FungibleAsset = FungibleAsset::new(pool.faucet_id, min_asset_amount_out)?;
     // let requested_asset_word: Word = asset_out.into();
-    let p2id_tag = NoteTag::from_account_id(account.id());
+    let p2id_tag = NoteTag::with_account_target(account.id());
     let deadline = (Utc::now().timestamp_millis() as u64) + 10000;
     let asset_out_word: Word = asset_out.into();
     let inputs = vec![
@@ -243,7 +243,7 @@ async fn e2e_private_deposit_withdraw_test() -> Result<()> {
         account.id().suffix(),
         account.id().prefix().into(),
     ];
-    let _pool_contract_tag = NoteTag::from_account_id(config.pool_account_id);
+    let _pool_contract_tag = NoteTag::with_account_target(config.pool_account_id);
     let withdraw_serial_num = client.rng().draw_word();
     println!("######################################################### deadline: {deadline}");
     println!(
@@ -350,7 +350,7 @@ async fn e2e_private_note() -> Result<()> {
     let asset_in = FungibleAsset::new(pool0.faucet_id, amount_in)?;
     let asset_out = FungibleAsset::new(pool1.faucet_id, min_amount_out)?;
     let requested_asset_word: Word = asset_out.into();
-    let p2id_tag = NoteTag::from_account_id(account.id());
+    let p2id_tag = NoteTag::with_account_target(account.id());
     let deadline = (Utc::now().timestamp_millis() as u64) + 10000;
 
     let inputs = vec![
@@ -414,7 +414,7 @@ async fn e2e_private_note() -> Result<()> {
     let input_note_record = consumable_notes[0].clone().0;
     let note_id = input_note_record.id();
     let consume_req = TransactionRequestBuilder::new()
-        .authenticated_input_notes([(note_id, None)])
+        .input_notes([(note_id, None)])
         .build()
         .unwrap();
 

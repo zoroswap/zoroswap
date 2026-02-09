@@ -5,7 +5,7 @@ use miden_client::store::TransactionFilter;
 use miden_client::{
     Felt, Word,
     asset::FungibleAsset,
-    crypto::FeltRng,
+    crypto::ClientRngBox,
     keystore::FilesystemKeyStore,
     note::{NoteAssets, NoteDetails, NoteTag, NoteType},
     transaction::{OutputNote, TransactionRequestBuilder},
@@ -111,7 +111,7 @@ async fn e2e_public_note() -> Result<()> {
     wait_for_note(&mut client, &account, &minted_note).await?;
 
     let consume_req = TransactionRequestBuilder::new()
-        .authenticated_input_notes([(minted_note.id(), None)])
+        .input_notes([(minted_note.id(), None)])
         .build()
         .unwrap();
 
@@ -162,7 +162,7 @@ async fn e2e_public_note() -> Result<()> {
     let asset_in = FungibleAsset::new(pool0.faucet_id, amount_in)?;
     let asset_out = FungibleAsset::new(pool1.faucet_id, min_amount_out)?;
     let requested_asset_word: Word = asset_out.into();
-    let p2id_tag = NoteTag::from_account_id(account.id());
+    let p2id_tag = NoteTag::with_account_target(account.id());
     let deadline = (Utc::now().timestamp_millis() as u64) + 30000;
     let inputs = vec![
         requested_asset_word[0],
@@ -188,7 +188,7 @@ async fn e2e_public_note() -> Result<()> {
         vec![asset_in.into()],
         account.id(),
         zoroswap_serial_num,
-        NoteTag::from_account_id(config.pool_account_id),
+        NoteTag::with_account_target(config.pool_account_id),
         NoteType::Public,
     )?;
 
@@ -200,7 +200,7 @@ async fn e2e_public_note() -> Result<()> {
     // the ZOROSWAP note is consumed
     let p2id_assets = NoteAssets::new(vec![asset_out.into()])?;
     let p2id_note_details = NoteDetails::new(p2id_assets, expected_p2id_recipient);
-    let p2id_tag = NoteTag::from_account_id(account.id());
+    let p2id_tag = NoteTag::with_account_target(account.id());
 
     let note_req = TransactionRequestBuilder::new()
         .own_output_notes(vec![OutputNote::Full(zoroswap_note.clone())])
@@ -239,7 +239,7 @@ async fn e2e_public_note() -> Result<()> {
     let input_note_record = p2id_note.0.clone();
     let note_id = input_note_record.id();
     let consume_req = TransactionRequestBuilder::new()
-        .authenticated_input_notes([(note_id, None)])
+        .input_notes([(note_id, None)])
         .build()
         .unwrap();
 

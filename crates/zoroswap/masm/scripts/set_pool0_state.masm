@@ -1,6 +1,6 @@
-use.external_contract::two_pools_contract
+use external_contract::two_pools_contract
 
-use.std::sys
+use miden::core::sys
 
 begin
     # Inputs: [0, reserve_with_slippage, reserve, liabilities]

@@ -33,7 +33,7 @@ impl NotesListener {
 
     pub async fn start(&mut self) {
         let pool_id = self.state.config().pool_account_id;
-        let tag = NoteTag::from_account_id(pool_id);
+        let tag = NoteTag::with_account_target(pool_id);
         debug!(
             "Notes listener started. Listening for notes with pool account tag: {} (pool_id: {})",
             tag,
@@ -171,7 +171,7 @@ impl NotesListener {
                     Some((
                         Note::new(
                             n.assets().clone(),
-                            *metadata,
+                            metadata.clone(),
                             n.details().recipient().clone(),
                         ),
                         order_type,
