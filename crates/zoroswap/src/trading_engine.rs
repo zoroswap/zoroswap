@@ -295,7 +295,7 @@ impl TradingEngine {
                             }
                         }
                         Err(e) => {
-                            error!("{e}");
+                            error!("Failed to execute orders: {e:?}");
                             // We restore the orders so they can be retried.
                             // This is safe because `execute_orders` submits a single atomic
                             // batch transaction, so on failure no order went through.
@@ -305,7 +305,7 @@ impl TradingEngine {
                 }
             }
             Err(e) => {
-                error!("{e}")
+                error!("Failed to run matching cycle: {e:?}")
             }
         }
     }
@@ -323,9 +323,12 @@ impl TradingEngine {
         for order in orders {
             let ((base_pool_state, base_pool_decimals), (quote_pool_state, quote_pool_decimals)) =
                 self.get_liq_pools_for_order(&pools, &order)?;
-            debug!("---------------order: {:?}", order);
-            debug!("---------------base_pool_state: {:?}", base_pool_state);
-            debug!("---------------quote_pool_state: {:?}", quote_pool_state);
+            debug!(
+                order = ?order,
+                base_pool_state = ?base_pool_state,
+                quote_pool_state = ?quote_pool_state,
+                "Processing order"
+            );
 
             if order.deadline < now {
                 let note = self.state.get_note(&order.id)?;
@@ -439,21 +442,13 @@ impl TradingEngine {
                     // TODO: check for
                     //       ERR_MAX_COVERAGE_RATIO_EXCEEDED +
                     //       ERR_RESERVE_WITH_SLIPPAGE_EXCEEDS_ASSET_BALANCE
-
-                    // Check if order is past deadline
                     info!(
-                        "SWAP: in {} from faucet {}, out {} from faucet {} at price {}",
-                        order.asset_in.amount(),
-                        order
-                            .asset_in
-                            .faucet_id()
-                            .to_bech32(self.network_id.clone()),
-                        order.asset_out.amount(),
-                        order
-                            .asset_out
-                            .faucet_id()
-                            .to_bech32(self.network_id.clone()),
-                        price
+                        amount_in = order.asset_in.amount(),
+                        faucet_in = %order.asset_in.faucet_id().to_bech32(self.network_id.clone()),
+                        min_amount_out = order.asset_out.amount(),
+                        faucet_out = %order.asset_out.faucet_id().to_bech32(self.network_id.clone()),
+                        price = %price,
+                        "Processing swap order"
                     );
                     let amount_in = order.asset_in.amount();
                     let curve_result = get_curve_amount_out(
@@ -493,7 +488,12 @@ impl TradingEngine {
                     if amount_out > 0 && amount_out >= order.asset_out.amount() {
                         // Swap successful - create execution order for swap
                         info!(
-                            "Swap successful! Amount {amount_in:?} -> {amount_out:?}, New balances: {new_base_pool_balance:?}, {new_quote_pool_balance:?}"
+                            creator = %order.creator_id.to_hex(),
+                            amount_in = amount_in,
+                            amount_out = amount_out,
+                            faucet_in = %order.asset_in.faucet_id().to_hex(),
+                            faucet_out = %order.asset_out.faucet_id().to_hex(),
+                            "Swap successful"
                         );
                         pools
                             .get_mut(&order.asset_in.faucet_id())
@@ -604,6 +604,7 @@ impl TradingEngine {
                                 .to::<u64>(),
                         ),
                     ]));
+                    debug!("Withdraw payout details.args: {:?}", details.args);
                     NoteExecutionDetails::Payout(details)
                 }
             };
@@ -655,12 +656,12 @@ impl TradingEngine {
             .submit_new_transaction(pool_account_id, consume_req)
             .await
             .map_err(|e| {
-                error!("🔍 Detailed batch transaction creation error: {:?}", e);
-                error!("🔍 Pool ID: {}", pool_account_id.to_hex());
-                error!("🔍 Number of input notes: {}", input_notes.len());
                 error!(
-                    "🔍 Number of expected output recipients: {}",
-                    expected_output_recipients.len()
+                    error = ?e,
+                    pool_id = %pool_account_id.to_hex(),
+                    input_notes = input_notes.len(),
+                    expected_recipients = expected_output_recipients.len(),
+                    "Failed to submit batch transaction"
                 );
                 anyhow::anyhow!("Failed to create and submit batch transaction: {:?}", e)
             })?;

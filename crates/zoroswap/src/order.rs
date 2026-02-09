@@ -54,7 +54,7 @@ impl Order {
         }
         let asset_in = asset_in.unwrap_fungible();
         let note_inputs: &[Felt] = note.inputs().values();
-        debug!("Note inputs: {:?}", note_inputs);
+        debug!(note_inputs = ?note_inputs, "Parsing swap note");
         let requested: &[Felt] = note_inputs
             .get(..4)
             .ok_or(anyhow!("note has fewer than 4 inputs"))?;
@@ -94,7 +94,14 @@ impl Order {
             order_type: OrderType::Swap,
         };
 
-        info!("New swap order from {}: {order:?}", creator_id.to_hex());
+        info!(
+            order = ?order,
+            creator = %creator_id.to_hex(),
+            amount_in = asset_in.amount(),
+            faucet_in = %asset_in.faucet_id().to_hex(),
+            faucet_out = %asset_out.faucet_id().to_hex(),
+            "New swap order"
+        );
 
         Ok(order)
     }
@@ -111,15 +118,12 @@ impl Order {
             return Err(anyhow!("Note has no fungible assets!"));
         }
         let note_inputs: &[Felt] = note.inputs().values();
-        debug!("Note inputs: {:?}", note_inputs);
-        debug!("confirmation");
+        debug!(note_inputs = ?note_inputs, "Parsing deposit note");
         let vals = note.inputs().values();
-        debug!("vals: {vals:?}");
         let asset_in = asset_in.unwrap_fungible();
-        debug!("asset_in: {asset_in:?}");
         let min_lp_out: u64 = vals[1].into();
         let asset_out = FungibleAsset::new(asset_in.faucet_id(), min_lp_out)?;
-        debug!("Asset out: {:?}", asset_in);
+        debug!(asset_in = ?asset_in, asset_out = ?asset_out, "Deposit note assets");
 
         let deadline: u64 = vals[2].into();
         let p2id_tag: u64 = vals[3].into();
@@ -144,14 +148,20 @@ impl Order {
             order_type: OrderType::Deposit,
         };
 
-        info!("New deposit order from {}: {order:?}", creator_id.to_hex());
+        info!(
+            order = ?order,
+            creator = %creator_id.to_hex(),
+            amount = asset_in.amount(),
+            faucet = %asset_in.faucet_id().to_hex(),
+            "New deposit order"
+        );
 
         Ok(order)
     }
 
     pub fn from_withdraw_note(note: &Note) -> Result<Order> {
         let note_inputs: &[Felt] = note.inputs().values();
-        debug!("Note inputs: {:?}", note_inputs);
+        debug!(note_inputs = ?note_inputs, "Parsing withdraw note");
 
         let vals = note.inputs().values();
         let lp_withdraw_amount: u64 = vals[5].into();
@@ -170,11 +180,15 @@ impl Order {
         let creator_id = AccountId::try_from([creator_prefix, creator_suffix])
             .or(Err(anyhow!("Couldn't parse creator_id from order note")))?;
 
-        debug!("creator_id: {:?}", creator_id);
-        debug!("deadline: {:?}", deadline);
-        debug!("p2id_tag: {:?}", p2id_tag);
-        debug!("asset_in: {:?}", asset_in);
-        debug!("asset_out: {:?}", asset_out);
+        debug!(
+            creator_id = ?creator_id,
+            deadline = ?deadline,
+            p2id_tag = p2id_tag,
+            asset_in = ?asset_in,
+            asset_out = ?asset_out,
+            "Parsed withdraw note"
+        );
+
         let order = Order {
             created_at: Utc::now(),
             updated_at: Utc::now(),
@@ -188,7 +202,13 @@ impl Order {
             order_type: OrderType::Withdraw,
         };
 
-        info!("New withdraw order from {}: {order:?}", creator_id.to_hex());
+        info!(
+            order = ?order,
+            creator = %creator_id.to_hex(),
+            lp_amount = asset_in.amount(),
+            faucet = %asset_out.faucet_id().to_hex(),
+            "New withdraw order"
+        );
 
         Ok(order)
     }

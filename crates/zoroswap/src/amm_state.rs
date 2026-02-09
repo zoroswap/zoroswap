@@ -111,7 +111,7 @@ impl AmmState {
                     );
                 }
                 Err(e) => {
-                    error!("{e}")
+                    error!("Failed to map oracle id '{}' to faucet id: {e:?}", price_update.id)
                 }
             }
         }
