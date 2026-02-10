@@ -135,6 +135,10 @@ impl GuardedFaucet {
         Ok(format!("{:?}", tx_id))
     }
 
+    /// Syncs only the faucet account's commitments instead of calling `client.sync_state()`.
+    /// A full sync is too slow for fat faucet accounts (can take 30+ minutes).
+    /// This is analogous to how the official Miden faucet handles syncing:
+    /// https://github.com/0xMiden/miden-faucet/blob/main/crates/faucet/src/lib.rs
     async fn sync_state(
         client: &mut MidenClient,
         state_sync: &StateSync,
