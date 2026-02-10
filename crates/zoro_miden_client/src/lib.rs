@@ -109,6 +109,7 @@ pub async fn get_note_by_tag(
     // Ensure the client tracks this tag before starting the polling loop
     client.add_note_tag(tag).await?;
     loop {
+        // Sync the state and check for the target note
         client.sync_state().await?;
 
         trace!(

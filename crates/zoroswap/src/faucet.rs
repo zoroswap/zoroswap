@@ -138,7 +138,7 @@ impl GuardedFaucet {
     /// Syncs only the faucet account's commitments instead of calling `client.sync_state()`.
     /// A full sync is too slow for fat faucet accounts (can take 30+ minutes).
     /// This is analogous to how the official Miden faucet handles syncing:
-    /// https://github.com/0xMiden/miden-faucet/blob/main/bin/faucet/src/handlers.rs
+    /// https://github.com/0xMiden/miden-faucet/blob/main/crates/faucet/src/lib.rs
     async fn sync_state(
         client: &mut MidenClient,
         state_sync: &StateSync,
@@ -156,8 +156,10 @@ impl GuardedFaucet {
             .get_transactions(TransactionFilter::Uncommitted)
             .await?;
 
+        // Build current partial MMR
         let current_partial_mmr = client.get_current_partial_mmr().await?;
 
+        // Get the sync update from the network
         let state_sync_update = state_sync
             .sync_state(
                 current_partial_mmr,
@@ -169,6 +171,7 @@ impl GuardedFaucet {
             )
             .await?;
 
+        // Apply received and computed updates to the store
         client.apply_state_sync(state_sync_update).await?;
         Ok(())
     }
