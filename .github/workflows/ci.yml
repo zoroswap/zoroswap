@@ -143,6 +143,11 @@ jobs:
 
           cat config.toml
 
+      - name: Wait for faucets to be committed to a block
+        run: |
+          echo "Waiting 30s for faucet accounts to be committed to a block..."
+          sleep 30
+
       - name: Spawn pools
         id: spawn_pools
         run: |
