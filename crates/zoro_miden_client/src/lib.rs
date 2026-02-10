@@ -3,27 +3,24 @@ use miden_assembly::ast::{Module, ModuleKind};
 use miden_client::store::TransactionFilter;
 use miden_client::{
     Client, ClientError, Felt, Word,
-    account::{
-        Account, AccountBuilder, AccountId, AccountStorageMode, AccountType, NetworkId,
-    },
+    account::{Account, AccountBuilder, AccountId, AccountStorageMode, AccountType, NetworkId},
     asset::{Asset, FungibleAsset, TokenSymbol},
     auth::AuthSecretKey,
     builder::ClientBuilder,
     keystore::FilesystemKeyStore,
     note::{
-        Note, NoteAssets, NoteConsumability, NoteError, NoteId, NoteMetadata,
-        NoteTag, NoteType,
+        Note, NoteAssets, NoteConsumability, NoteError, NoteId, NoteMetadata, NoteTag, NoteType,
     },
     rpc::{Endpoint, GrpcClient},
     store::{InputNoteRecord, NoteFilter},
     transaction::{OutputNote, TransactionRequestBuilder},
 };
 use miden_client_sqlite_store::ClientBuilderSqliteExt;
+use miden_protocol::assembly::{Assembler, DefaultSourceManager};
 use miden_standards::{
     account::{auth::AuthFalcon512Rpo, faucets::BasicFungibleFaucet, wallets::BasicWallet},
     note::utils::build_p2id_recipient,
 };
-use miden_protocol::assembly::{Assembler, DefaultSourceManager};
 use rand::RngCore;
 use std::{sync::Arc, time::Duration};
 use tokio::time::sleep;
@@ -120,8 +117,7 @@ pub async fn get_note_by_tag(
             client.get_output_notes(NoteFilter::All).await?
         );
         // Fetch notes
-        let notes: Vec<(InputNoteRecord, Vec<NoteConsumability>)> =
-            client.get_consumable_notes(None).await?;
+        let notes = client.get_consumable_notes(None).await?;
         trace!("Notes len: {:?}", notes.len());
         // Check if any note matches the target_note_id
         let found = notes.iter().any(|(note, _)| note.id() == target_note_id);
@@ -151,14 +147,10 @@ pub fn create_library(
     library_path: &str,
     source_code: &str,
 ) -> Result<miden_assembly::Library, Box<dyn std::error::Error>> {
-    let source_manager: Arc<dyn miden_assembly::SourceManager> =
-        Arc::new(DefaultSourceManager::default());
+    let source_manager = Arc::new(DefaultSourceManager::default());
     let path = miden_assembly::Path::new(library_path);
-    let module = Module::parser(ModuleKind::Library).parse_str(
-        path,
-        source_code,
-        source_manager,
-    )?;
+    let module =
+        Module::parser(ModuleKind::Library).parse_str(path, source_code, source_manager)?;
     let library = assembler.clone().assemble_library([module])?;
     Ok(library)
 }
@@ -326,8 +318,7 @@ pub async fn wait_for_notes(
 ) -> Result<(), ClientError> {
     loop {
         client.sync_state().await?;
-        let notes: Vec<(InputNoteRecord, Vec<NoteConsumability>)> =
-            client.get_consumable_notes(Some(account.id())).await?;
+        let notes = client.get_consumable_notes(Some(account.id())).await?;
         if notes.len() >= expected {
             break;
         }
@@ -415,8 +406,7 @@ pub async fn wait_for_note(
 ) -> Result<(), ClientError> {
     loop {
         client.sync_state().await?;
-        let notes: Vec<(InputNoteRecord, Vec<NoteConsumability>)> =
-            client.get_consumable_notes(None).await?;
+        let notes = client.get_consumable_notes(None).await?;
         let found = notes.iter().any(|(rec, _)| rec.id() == expected.id());
         if found {
             info!("Note found {}", expected.id().to_hex());
@@ -442,8 +432,7 @@ pub async fn wait_for_consumable_notes(
 ) -> Result<Vec<(InputNoteRecord, Vec<NoteConsumability>)>> {
     loop {
         client.sync_state().await?;
-        let notes: Vec<(InputNoteRecord, Vec<NoteConsumability>)> =
-            client.get_consumable_notes(Some(account_id)).await?;
+        let notes = client.get_consumable_notes(Some(account_id)).await?;
         if !notes.is_empty() {
             return Ok(notes);
         }
@@ -460,10 +449,8 @@ pub async fn fetch_new_notes_by_tag(
     client: &mut MidenClient,
     pool_id_tag: &NoteTag,
 ) -> Result<Vec<Note>> {
-    use miden_client::store::OutputNoteRecord;
     client.sync_state().await?;
-    let all_notes: Vec<OutputNoteRecord> =
-        client.get_output_notes(NoteFilter::Committed).await?;
+    let all_notes = client.get_output_notes(NoteFilter::Committed).await?;
     let notes: Vec<Note> = all_notes
         .iter()
         .filter_map(|n| {
@@ -488,12 +475,7 @@ pub fn print_library_exports(masm_lib: &miden_assembly::Library) {
     masm_lib.exports().for_each(|export| {
         let path = export.path();
         if let Some(root) = masm_lib.get_procedure_root_by_path(&path) {
-            println!(
-                "Export: {:?} {:?} {:?}",
-                path,
-                root,
-                root.to_hex()
-            );
+            println!("Export: {:?} {:?} {:?}", path, root, root.to_hex());
         } else {
             println!("Export: {:?} (no procedure root)", path);
         }
