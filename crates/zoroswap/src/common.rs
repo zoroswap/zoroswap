@@ -3,14 +3,15 @@ use miden_client::{
     ClientError, Felt, Word,
     account::AccountId,
     note::{
-        Note, NoteAssets, NoteError, NoteMetadata, NoteRecipient, NoteTag,
+        Note, NoteAssets, NoteError, NoteMetadata, NoteRecipient, NoteScreener, NoteTag,
         NoteType,
     },
+    sync::StateSync,
 };
 use miden_client::{
     DebugMode, builder::ClientBuilder, keystore::FilesystemKeyStore, rpc::GrpcClient,
 };
-use miden_client_sqlite_store::ClientBuilderSqliteExt;
+use miden_client_sqlite_store::{ClientBuilderSqliteExt, SqliteStore};
 use miden_protocol::transaction::TransactionKernel;
 use miden_standards::code_builder::CodeBuilder;
 use miden_standards::note::utils::build_p2id_recipient;
@@ -100,6 +101,9 @@ pub async fn instantiate_client(
         .in_debug_mode(DebugMode::Enabled)
         .build()
         .await?;
+    // Sync first so the client knows the latest block height before importing accounts.
+    // Without this, import_account_by_id may fail because the client is at block 0.
+    client.sync_state().await?;
     let existing = client.get_account(config.pool_account_id).await?;
     if existing.is_none() {
         info!("Pool account not in local store, importing from node");
@@ -110,38 +114,46 @@ pub async fn instantiate_client(
     client
         .add_note_tag(NoteTag::with_account_target(config.pool_account_id))
         .await?;
-    client.sync_state().await?;
     info!("Miden client synced and ready");
     Ok(client)
 }
 
-pub async fn instantiate_faucet_client(config: Config, store_path: &str) -> Result<MidenClient> {
+pub async fn instantiate_faucet_client(
+    config: Config,
+    store_path: &str,
+) -> Result<(MidenClient, StateSync)> {
     info!("Creating a new Faucet client");
     info!("Keystore path: {}", config.keystore_path);
     info!("Database path: {}", store_path);
     let timeout_ms = 30_000;
     let rpc_client = Arc::new(GrpcClient::new(&config.miden_endpoint, timeout_ms));
-    let keystore = FilesystemKeyStore::new(config.keystore_path.into())
-        .unwrap_or_else(|err| {
-            panic!(
-                "Failed to create keystore at {}: {err:?}",
-                config.keystore_path
-            )
-        })
-        .into();
+    let keystore = FilesystemKeyStore::new(config.keystore_path.into()).unwrap_or_else(|err| {
+        panic!(
+            "Failed to create keystore at {}: {err:?}",
+            config.keystore_path
+        )
+    });
+    let keystore = Arc::new(keystore);
     let mut client = ClientBuilder::new()
         .rpc(rpc_client.clone())
-        .authenticator(keystore)
+        .authenticator(keystore.clone())
         .sqlite_store(store_path.into())
         .in_debug_mode(DebugMode::Enabled)
         .build()
         .await?;
+    client.ensure_genesis_in_place().await?;
+    let store_path = PathBuf::from(store_path);
+
+    let sqlite_store = Arc::new(SqliteStore::new(store_path).await?);
+    let note_screener = NoteScreener::new(sqlite_store.clone(), Some(keystore));
+    let state_sync = StateSync::new(rpc_client.clone(), Arc::new(note_screener), None);
+
     for pool in &config.liquidity_pools {
         info!("Importing faucet: {}", pool.faucet_id.to_hex());
         client.import_account_by_id(pool.faucet_id).await?;
     }
     info!("Faucet client ready");
-    Ok(client)
+    Ok((client, state_sync))
 }
 
 // --------------------------------------------------------------------------
@@ -154,10 +166,10 @@ pub async fn instantiate_faucet_client(config: Config, store_path: &str) -> Resu
 /// - Serial number:
 ///   `[swap_serial_num[0] + 1, swap_serial_num[1], swap_serial_num[2], swap_serial_num[3]]`
 /// - Script: `P2ID.masm` (using the hash stored via `proc.store_p2id_script_hash`)
-/// - Inputs: `[creator_id.suffix(), creator_id.prefix()]`
+/// - Inputs: `[beneficiary_id.suffix(), beneficiary_id.prefix()]`
 pub fn create_expected_p2id_recipient(
     swap_serial_num: Word,
-    creator_id: AccountId,
+    beneficiary_id: AccountId,
 ) -> Result<NoteRecipient, NoteError> {
     // Calculate P2ID serial number (increment first element by 1)
     let p2id_serial_num: Word = [
@@ -168,9 +180,9 @@ pub fn create_expected_p2id_recipient(
     ]
     .into();
 
-    debug!("P2ID creator id: {:?}", creator_id);
+    debug!("P2ID beneficiary id: {:?}", beneficiary_id);
     debug!("P2ID serial num: {:?}", p2id_serial_num);
-    let recipient = build_p2id_recipient(creator_id, p2id_serial_num)?;
+    let recipient = build_p2id_recipient(beneficiary_id, p2id_serial_num)?;
     debug!("P2ID recipient digest: {:?}", recipient.digest());
     Ok(recipient)
 }

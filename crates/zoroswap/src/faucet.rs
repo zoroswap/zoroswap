@@ -2,10 +2,14 @@ use crate::{common::instantiate_faucet_client, config::Config};
 use anyhow::Result;
 use chrono::Utc;
 use miden_client::{
-    account::AccountId, asset::FungibleAsset, note::NoteType,
+    account::AccountId,
+    asset::FungibleAsset,
+    note::NoteType,
+    store::{NoteFilter, TransactionFilter},
+    sync::StateSync,
     transaction::TransactionRequestBuilder,
 };
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use tokio::sync::mpsc::{Receiver, Sender};
 use tracing::{debug, error, info, trace, warn};
 use zoro_miden_client::MidenClient;
@@ -37,7 +41,7 @@ impl GuardedFaucet {
 
     pub async fn start(&mut self) -> Result<()> {
         // Create our own client for faucet operations (with retry for DB contention)
-        let mut client =
+        let (mut client, state_sync) =
             instantiate_faucet_client(self.config.clone(), self.config.store_path).await?;
 
         while let Some(mint_instruction) = self.rx.recv().await {
@@ -100,7 +104,7 @@ impl GuardedFaucet {
                 }
 
                 // sync commitments
-                client.sync_state().await?;
+                Self::sync_state(&mut client, &state_sync, mint_instruction.faucet_id).await?;
             } else {
                 debug!(
                     "Rate limited: {} from faucet {}",
@@ -129,5 +133,43 @@ impl GuardedFaucet {
             .submit_new_transaction(faucet_id, transaction_request)
             .await?;
         Ok(format!("{:?}", tx_id))
+    }
+
+    /// Syncs only the faucet account's commitments instead of calling `client.sync_state()`.
+    /// A full sync is too slow for fat faucet accounts (can take 30+ minutes).
+    /// This is analogous to how the official Miden faucet handles syncing:
+    /// https://github.com/0xMiden/miden-faucet/blob/main/bin/faucet/src/handlers.rs
+    async fn sync_state(
+        client: &mut MidenClient,
+        state_sync: &StateSync,
+        faucet_id: AccountId,
+    ) -> Result<()> {
+        let accounts = client
+            .get_account_header_by_id(faucet_id)
+            .await?
+            .map(|(header, _)| vec![header])
+            .unwrap_or_default();
+        let note_tags = BTreeSet::new();
+        let input_notes = vec![];
+        let expected_output_notes = client.get_output_notes(NoteFilter::Expected).await?;
+        let uncommitted_transactions = client
+            .get_transactions(TransactionFilter::Uncommitted)
+            .await?;
+
+        let current_partial_mmr = client.get_current_partial_mmr().await?;
+
+        let state_sync_update = state_sync
+            .sync_state(
+                current_partial_mmr,
+                accounts,
+                note_tags,
+                input_notes,
+                expected_output_notes,
+                uncommitted_transactions,
+            )
+            .await?;
+
+        client.apply_state_sync(state_sync_update).await?;
+        Ok(())
     }
 }

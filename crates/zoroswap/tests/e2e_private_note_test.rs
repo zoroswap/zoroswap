@@ -6,12 +6,11 @@ use miden_client::{
     Felt, Word,
     account::Account,
     asset::FungibleAsset,
-    crypto::ClientRngBox,
+    crypto::FeltRng,
     keystore::FilesystemKeyStore,
     note::{NoteTag, NoteType},
     transaction::{OutputNote, TransactionRequestBuilder},
 };
-use rand::rngs::StdRng;
 use std::{str::FromStr, time::Duration};
 use url::Url;
 use zoro_miden_client::{
@@ -32,7 +31,7 @@ struct Accounts {
 async fn set_up() -> Result<(
     Config,
     MidenClient,
-    FilesystemKeyStore<StdRng>,
+    FilesystemKeyStore,
     Accounts,
     Vec<LiquidityPoolConfig>,
 )> {
@@ -126,7 +125,7 @@ async fn fund_user_wallet(
     wait_for_note(client, account, &minted_note).await?;
 
     let consume_req = TransactionRequestBuilder::new()
-        .input_notes([(minted_note.id(), None)])
+        .input_notes([(minted_note, None)])
         .build()
         .unwrap();
 
@@ -181,7 +180,7 @@ async fn e2e_private_deposit_withdraw_test() -> Result<()> {
         vec![asset_in.into()],
         account.id(),
         deposit_serial_num,
-        NoteTag::LocalAny(0),
+        NoteTag::new(0),
         NoteType::Private,
     )?;
 
@@ -255,7 +254,7 @@ async fn e2e_private_deposit_withdraw_test() -> Result<()> {
         vec![],
         account.id(),
         withdraw_serial_num,
-        NoteTag::LocalAny(0),
+        NoteTag::new(0),
         NoteType::Private,
     )?;
 
@@ -353,6 +352,7 @@ async fn e2e_private_note() -> Result<()> {
     let p2id_tag = NoteTag::with_account_target(account.id());
     let deadline = (Utc::now().timestamp_millis() as u64) + 10000;
 
+    let beneficiary_id = account.id();
     let inputs = vec![
         requested_asset_word[0],
         requested_asset_word[1],
@@ -362,8 +362,8 @@ async fn e2e_private_note() -> Result<()> {
         p2id_tag.into(),     // p2id tag
         Felt::new(0),
         Felt::new(0),
-        Felt::new(0),
-        Felt::new(0),
+        beneficiary_id.suffix(),
+        beneficiary_id.prefix().into(),
         account.id().suffix(),
         account.id().prefix().into(),
     ];
@@ -377,7 +377,7 @@ async fn e2e_private_note() -> Result<()> {
         vec![asset_in.into()],
         account.id(),
         zoroswap_serial_num,
-        NoteTag::LocalAny(0),
+        NoteTag::new(0),
         NoteType::Private,
     )?;
 
@@ -412,9 +412,9 @@ async fn e2e_private_note() -> Result<()> {
     let consumable_notes = wait_for_consumable_notes(&mut client, account.id()).await?;
     println!("Received {} consumable notes.", consumable_notes.len());
     let input_note_record = consumable_notes[0].clone().0;
-    let note_id = input_note_record.id();
+    let note = miden_client::note::Note::try_from(input_note_record).expect("Failed to convert InputNoteRecord to Note");
     let consume_req = TransactionRequestBuilder::new()
-        .input_notes([(note_id, None)])
+        .input_notes([(note, None)])
         .build()
         .unwrap();
 

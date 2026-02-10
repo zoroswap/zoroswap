@@ -106,10 +106,10 @@ pub async fn get_note_by_tag(
 ) -> Result<()> {
     debug!("Getting note by tag: {:?}", tag);
     debug!("Note ID: {:?}", target_note_id);
+    // Ensure the client tracks this tag before starting the polling loop
+    client.add_note_tag(tag).await?;
     loop {
-        // Sync the state and add the tag
         client.sync_state().await?;
-        client.add_note_tag(tag).await?;
 
         trace!(
             "All input notes: {:?}",
