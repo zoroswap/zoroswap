@@ -120,13 +120,16 @@ jobs:
           # Format: Faucet account ID (BTC): "mtst1qz..."
           BTC_FAUCET=$(echo "$FAUCETS_OUTPUT" | grep "Faucet account ID (BTC):" | sed 's/.*: "\(.*\)"/\1/')
           ETH_FAUCET=$(echo "$FAUCETS_OUTPUT" | grep "Faucet account ID (ETH):" | sed 's/.*: "\(.*\)"/\1/')
+          USDC_FAUCET=$(echo "$FAUCETS_OUTPUT" | grep "Faucet account ID (USDC):" | sed 's/.*: "\(.*\)"/\1/')
 
           echo "BTC Faucet: $BTC_FAUCET"
           echo "ETH Faucet: $ETH_FAUCET"
+          echo "USDC Faucet: $USDC_FAUCET"
 
-          awk -v btc="$BTC_FAUCET" -v eth="$ETH_FAUCET" '
+          awk -v btc="$BTC_FAUCET" -v eth="$ETH_FAUCET" -v usdc="$USDC_FAUCET" '
             /name = "Bitcoin pool"/ { in_btc=1 }
             /name = "Ethereum pool"/ { in_btc=0; in_eth=1 }
+            /name = "USDC pool"/ { in_eth=0; in_usdc=1 }
             /faucet_id/ {
               if (in_btc) {
                 print "faucet_id = \"" btc "\""
@@ -135,6 +138,10 @@ jobs:
               } else if (in_eth) {
                 print "faucet_id = \"" eth "\""
                 in_eth=0
+                next
+              } else if (in_usdc) {
+                print "faucet_id = \"" usdc "\""
+                in_usdc=0
                 next
               }
             }
@@ -151,8 +158,9 @@ jobs:
       - name: Spawn pools
         id: spawn_pools
         run: |
-          POOLS_OUTPUT=$(cargo run --release --bin spawn_pools 2>&1)
+          POOLS_OUTPUT=$(cargo run --release --bin spawn_pools 2>&1) || true
           echo "$POOLS_OUTPUT"
+          echo "$POOLS_OUTPUT" | grep -qE "contract id:|New pool created:" || { echo "ERROR: spawn_pools failed"; exit 1; }
 
           # Extract pool id from output
           # Format: contract id: "mlcl1qpr..." or New pool created: "mlcl1qpr..."
