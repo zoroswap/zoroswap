@@ -237,7 +237,13 @@ async fn e2e_public_note() -> Result<()> {
     let p2id_note = consumable_notes.last().expect("No P2ID notes found");
 
     let input_note_record = p2id_note.0.clone();
-    let note = miden_client::note::Note::try_from(input_note_record).expect("Failed to convert InputNoteRecord to Note");
+    let details = input_note_record.details();
+    let metadata = input_note_record.metadata().expect("Note metadata not available");
+    let note = miden_client::note::Note::new(
+        details.assets().clone(),
+        metadata.clone(),
+        details.recipient().clone(),
+    );
     let consume_req = TransactionRequestBuilder::new()
         .input_notes([(note, None)])
         .build()

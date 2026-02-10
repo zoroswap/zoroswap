@@ -412,7 +412,13 @@ async fn e2e_private_note() -> Result<()> {
     let consumable_notes = wait_for_consumable_notes(&mut client, account.id()).await?;
     println!("Received {} consumable notes.", consumable_notes.len());
     let input_note_record = consumable_notes[0].clone().0;
-    let note = miden_client::note::Note::try_from(input_note_record).expect("Failed to convert InputNoteRecord to Note");
+    let details = input_note_record.details();
+    let metadata = input_note_record.metadata().expect("Note metadata not available");
+    let note = miden_client::note::Note::new(
+        details.assets().clone(),
+        metadata.clone(),
+        details.recipient().clone(),
+    );
     let consume_req = TransactionRequestBuilder::new()
         .input_notes([(note, None)])
         .build()
