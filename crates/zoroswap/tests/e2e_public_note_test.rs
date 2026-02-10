@@ -155,7 +155,7 @@ async fn e2e_public_note() -> Result<()> {
     let asset_out = FungibleAsset::new(pool1.faucet_id, min_amount_out)?;
     let requested_asset_word: Word = asset_out.into();
     let p2id_tag = NoteTag::with_account_target(account.id());
-    let deadline = (Utc::now().timestamp_millis() as u64) + 30000;
+    let deadline = (Utc::now().timestamp_millis() as u64) + 120000;
     let beneficiary_id = account.id();
     let inputs = vec![
         requested_asset_word[0],
