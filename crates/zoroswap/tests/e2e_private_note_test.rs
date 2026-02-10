@@ -6,17 +6,16 @@ use miden_client::{
     Felt, Word,
     account::Account,
     asset::FungibleAsset,
-    crypto::ClientRngBox,
     keystore::FilesystemKeyStore,
     note::{NoteTag, NoteType},
     transaction::{OutputNote, TransactionRequestBuilder},
 };
-use rand::rngs::StdRng;
 use std::{str::FromStr, time::Duration};
 use url::Url;
 use zoro_miden_client::{
     MidenClient, create_basic_account, wait_for_consumable_notes, wait_for_note,
 };
+use zoroswap::draw_random_word;
 use zoroswap::{
     Config, config::LiquidityPoolConfig, create_deposit_note, create_withdraw_note,
     create_zoroswap_note, fetch_lp_total_supply_from_chain, fetch_pool_state_from_chain,
@@ -32,7 +31,7 @@ struct Accounts {
 async fn set_up() -> Result<(
     Config,
     MidenClient,
-    FilesystemKeyStore<StdRng>,
+    FilesystemKeyStore,
     Accounts,
     Vec<LiquidityPoolConfig>,
 )> {
@@ -126,7 +125,7 @@ async fn fund_user_wallet(
     wait_for_note(client, account, &minted_note).await?;
 
     let consume_req = TransactionRequestBuilder::new()
-        .input_notes([(minted_note.id(), None)])
+        .input_notes([(minted_note, None)])
         .build()
         .unwrap();
 
@@ -155,8 +154,7 @@ async fn e2e_private_deposit_withdraw_test() -> Result<()> {
     println!("\n\t[STEP 1] Create DEPOSIT note\n");
     let amount_in: u64 = amount_in * 10u64.pow(pool.decimals as u32 - 2);
     let max_slippage = 0.005; // 0.5 %
-    let min_lp_amount_out = (amount_in as f64) * (1.0 - max_slippage);
-    let min_lp_amount_out = 0 as u64;
+    let min_lp_amount_out = ((amount_in as f64) * (1.0 - max_slippage)) as u64;
     let asset_in = FungibleAsset::new(pool.faucet_id, amount_in)?;
     let p2id_tag = NoteTag::with_account_target(account.id());
     let deadline = (Utc::now().timestamp_millis() as u64) + 10000;
@@ -171,7 +169,7 @@ async fn e2e_private_deposit_withdraw_test() -> Result<()> {
         account.id().prefix().into(),
     ];
     let _pool_contract_tag = NoteTag::with_account_target(config.pool_account_id);
-    let deposit_serial_num = client.rng().draw_word();
+    let deposit_serial_num = draw_random_word(&mut client)?;
     println!(
         "Made an deposit note for {amount_in} {} expecting  at least {min_lp_amount_out} lp amount out.",
         pool.symbol
@@ -181,7 +179,7 @@ async fn e2e_private_deposit_withdraw_test() -> Result<()> {
         vec![asset_in.into()],
         account.id(),
         deposit_serial_num,
-        NoteTag::LocalAny(0),
+        NoteTag::new(0),
         NoteType::Private,
     )?;
 
@@ -244,7 +242,7 @@ async fn e2e_private_deposit_withdraw_test() -> Result<()> {
         account.id().prefix().into(),
     ];
     let _pool_contract_tag = NoteTag::with_account_target(config.pool_account_id);
-    let withdraw_serial_num = client.rng().draw_word();
+    let withdraw_serial_num = draw_random_word(&mut client)?;
     println!("######################################################### deadline: {deadline}");
     println!(
         "Made an deposit note for {amount_in} {} expecting  at least {min_lp_amount_out} lp amount out.",
@@ -255,7 +253,7 @@ async fn e2e_private_deposit_withdraw_test() -> Result<()> {
         vec![],
         account.id(),
         withdraw_serial_num,
-        NoteTag::LocalAny(0),
+        NoteTag::new(0),
         NoteType::Private,
     )?;
 
@@ -296,7 +294,7 @@ async fn e2e_private_deposit_withdraw_test() -> Result<()> {
 
 #[tokio::test]
 async fn e2e_private_note() -> Result<()> {
-    let (config, mut client, keystore, accounts, pools) = set_up().await?;
+    let (config, mut client, _, accounts, pools) = set_up().await?;
     let account = accounts.user;
     let pool0 = pools[0];
     let pool1 = pools[1];
@@ -368,7 +366,7 @@ async fn e2e_private_note() -> Result<()> {
         account.id().suffix(),
         account.id().prefix().into(),
     ];
-    let zoroswap_serial_num = client.rng().draw_word();
+    let zoroswap_serial_num = draw_random_word(&mut client)?;
     println!(
         "Made an order note requesting {amount_in} {} for at least {min_amount_out} {}.",
         pool0.symbol, pool1.symbol
@@ -378,7 +376,7 @@ async fn e2e_private_note() -> Result<()> {
         vec![asset_in.into()],
         account.id(),
         zoroswap_serial_num,
-        NoteTag::LocalAny(0),
+        NoteTag::new(123),
         NoteType::Private,
     )?;
 
@@ -412,11 +410,8 @@ async fn e2e_private_note() -> Result<()> {
     println!("\n\t[STEP 6] Wait for notes back\n");
     let consumable_notes = wait_for_consumable_notes(&mut client, account.id()).await?;
     println!("Received {} consumable notes.", consumable_notes.len());
-    let input_note_record = consumable_notes[0].clone().0;
-    let note_id = input_note_record.id();
     let consume_req = TransactionRequestBuilder::new()
-        .input_notes([(note_id, None)])
-        .build()
+        .build_consume_notes(consumable_notes)
         .unwrap();
 
     let tx_id = client

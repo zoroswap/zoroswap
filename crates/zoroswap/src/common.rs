@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use miden_client::{
     ClientError, Felt, Word,
     account::AccountId,
@@ -11,9 +11,10 @@ use miden_client::{
     DebugMode, builder::ClientBuilder, keystore::FilesystemKeyStore, rpc::GrpcClient,
 };
 use miden_client_sqlite_store::{ClientBuilderSqliteExt, SqliteStore};
-use miden_protocol::transaction::TransactionKernel;
+use miden_protocol::{crypto::rand::Randomizable, transaction::TransactionKernel};
 use miden_standards::code_builder::CodeBuilder;
 use miden_standards::note::utils::build_p2id_recipient;
+use rand::RngCore;
 use rusqlite::Connection;
 use std::sync::Arc;
 use std::{fs, path::PathBuf};
@@ -353,4 +354,12 @@ pub fn get_script_root_for_order_type(order_type: OrderType) -> Word {
         .unwrap();
 
     note_script.root()
+}
+
+pub fn draw_random_word(client: &mut MidenClient) -> Result<Word> {
+    let mut bytes = [0u8; 32];
+    client.rng().fill_bytes(&mut bytes);
+    let random_word =
+        Word::from_random_bytes(&bytes).ok_or(anyhow!("Error generating random word"))?;
+    Ok(random_word)
 }

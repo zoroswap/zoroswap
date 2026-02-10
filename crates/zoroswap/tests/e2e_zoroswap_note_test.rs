@@ -3,7 +3,6 @@ use miden_client::{
     Felt, Word,
     asset::FungibleAsset,
     builder::ClientBuilder,
-    crypto::ClientRngBox,
     keystore::FilesystemKeyStore,
     note::{NoteTag, NoteType},
     rpc::{Endpoint, GrpcClient},
@@ -12,7 +11,7 @@ use miden_client::{
 use miden_client_sqlite_store::ClientBuilderSqliteExt;
 use std::sync::Arc;
 use zoro_miden_client::{create_p2id_note, setup_accounts_and_faucets};
-use zoroswap::{create_zoroswap_note, fetch_vault_for_account_from_chain};
+use zoroswap::{create_zoroswap_note, draw_random_word, fetch_vault_for_account_from_chain};
 
 #[tokio::test]
 async fn zero_note_create_consume_with_refund_test() -> Result<()> {
@@ -66,7 +65,7 @@ async fn zero_note_create_consume_with_refund_test() -> Result<()> {
     let amount_b = 50;
     let asset_b = FungibleAsset::new(faucet_b.id(), amount_b).unwrap();
 
-    let zero_serial_num = client.rng().draw_word();
+    let zero_serial_num = draw_random_word(&mut client)?;
 
     let requested_asset_word: Word = asset_b.into();
     // let inputs = vec![Felt::new(128), Felt::new(33)];
@@ -85,22 +84,20 @@ async fn zero_note_create_consume_with_refund_test() -> Result<()> {
         Felt::new(0),
         beneficiary_id.suffix(),
         beneficiary_id.prefix().into(),
-        alice_account.id().suffix().into(),
+        alice_account.id().suffix(),
         alice_account.id().prefix().into(),
     ];
 
     let assets = vec![asset_a.into()];
     let zero_note = create_zoroswap_note(
-        inputs.into(),
-        assets.into(),
+        inputs,
+        assets,
         alice_account.id(),
         zero_serial_num,
-        NoteTag::LocalAny(123),
+        NoteTag::new(123),
         NoteType::Private,
     )
     .unwrap();
-
-    let zero_tag = zero_note.metadata().tag();
 
     let note_req = TransactionRequestBuilder::new()
         .own_output_notes(vec![OutputNote::Full(zero_note.clone())])
@@ -115,13 +112,6 @@ async fn zero_note_create_consume_with_refund_test() -> Result<()> {
 
     client.sync_state().await?;
 
-    let zero_note_id = zero_note.id();
-
-    // Time from after ZOROSWAP creation
-    // let start_time = Instant::now();
-
-    // let _ = get_note_by_tag(&mut client, zero_tag, zero_note_id).await;
-
     // -------------------------------------------------------------------------
     // STEP 2: Partial Consume SWAPP note
     // -------------------------------------------------------------------------
@@ -129,16 +119,8 @@ async fn zero_note_create_consume_with_refund_test() -> Result<()> {
     println!("\n[STEP 2] Execute ZERO note");
 
     let amount_out = Felt::new(49);
-    let pool_0_state = [Felt::new(556), Felt::new(556), Felt::new(556), Felt::new(0)];
-    let pool_1_state = [
-        Felt::new(1274),
-        Felt::new(1274),
-        Felt::new(1274),
-        Felt::new(0),
-    ];
-
     let zero_note_args = [Felt::new(0), Felt::new(0), Felt::new(0), amount_out];
-    let p2id_note_asset = asset_a.clone();
+    let p2id_note_asset = asset_a;
     let p2id_serial_num = [
         zero_serial_num[0],
         zero_serial_num[1],
@@ -230,7 +212,7 @@ async fn zero_note_create_consume_test() -> Result<()> {
     let amount_b = 50;
     let asset_b = FungibleAsset::new(faucet_b.id(), amount_b).unwrap();
 
-    let zero_serial_num = client.rng().draw_word();
+    let zero_serial_num = draw_random_word(&mut client)?;
 
     let requested_asset_word: Word = asset_b.into();
     // let inputs = vec![Felt::new(128), Felt::new(33)];
@@ -249,22 +231,20 @@ async fn zero_note_create_consume_test() -> Result<()> {
         Felt::new(0),
         beneficiary_id.suffix(),
         beneficiary_id.prefix().into(),
-        alice_account.id().suffix().into(),
+        alice_account.id().suffix(),
         alice_account.id().prefix().into(),
     ];
 
     let assets = vec![asset_a.into()];
     let zero_note = create_zoroswap_note(
-        inputs.into(),
-        assets.into(),
+        inputs,
+        assets,
         alice_account.id(),
         zero_serial_num,
-        NoteTag::LocalPublicAny(123),
+        NoteTag::new(123),
         NoteType::Private,
     )
     .unwrap();
-
-    let zero_tag = zero_note.metadata().tag();
 
     let note_req = TransactionRequestBuilder::new()
         .own_output_notes(vec![OutputNote::Full(zero_note.clone())])
@@ -280,13 +260,6 @@ async fn zero_note_create_consume_test() -> Result<()> {
     // let _ = client.submit_transaction(tx_result).await;
     client.sync_state().await?;
 
-    let zero_note_id = zero_note.id();
-
-    // Time from after ZOROSWAP creation
-    // let start_time = Instant::now();
-
-    // let _ = get_note_by_tag(&mut client, zero_tag, zero_note_id).await;
-
     // -------------------------------------------------------------------------
     // STEP 2: Partial Consume SWAPP note
     // -------------------------------------------------------------------------
@@ -294,16 +267,8 @@ async fn zero_note_create_consume_test() -> Result<()> {
     println!("\n[STEP 2] Execute ZERO note");
 
     let amount_out = Felt::new(51);
-    let pool_0_state = [Felt::new(556), Felt::new(556), Felt::new(556), Felt::new(0)];
-    let pool_1_state = [
-        Felt::new(1274),
-        Felt::new(1274),
-        Felt::new(1274),
-        Felt::new(0),
-    ];
-
     let zero_note_args = [Felt::new(0), Felt::new(0), Felt::new(0), amount_out];
-    let p2id_note_asset = asset_b.clone();
+    let p2id_note_asset = asset_b;
     let p2id_serial_num = [
         zero_serial_num[0],
         zero_serial_num[1],

@@ -429,11 +429,15 @@ pub async fn wait_for_note(
 pub async fn wait_for_consumable_notes(
     client: &mut MidenClient,
     account_id: AccountId,
-) -> Result<Vec<(InputNoteRecord, Vec<NoteConsumability>)>> {
+) -> Result<Vec<Note>> {
     loop {
         client.sync_state().await?;
         let notes = client.get_consumable_notes(Some(account_id)).await?;
         if !notes.is_empty() {
+            let notes = notes
+                .iter()
+                .map(|(note, _)| note.clone().try_into())
+                .collect::<Result<Vec<_>, _>>()?;
             return Ok(notes);
         }
         debug!(
