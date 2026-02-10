@@ -158,7 +158,7 @@ async fn e2e_private_deposit_withdraw_test() -> Result<()> {
     let min_lp_amount_out = 0 as u64;
     let asset_in = FungibleAsset::new(pool.faucet_id, amount_in)?;
     let p2id_tag = NoteTag::with_account_target(account.id());
-    let deadline = (Utc::now().timestamp_millis() as u64) + 10000;
+    let deadline = (Utc::now().timestamp_millis() as u64) + 120000;
     let inputs = vec![
         Felt::new(0),
         Felt::new(min_lp_amount_out), // min_lp_amount_out
@@ -226,7 +226,7 @@ async fn e2e_private_deposit_withdraw_test() -> Result<()> {
     let asset_out: FungibleAsset = FungibleAsset::new(pool.faucet_id, min_asset_amount_out)?;
     // let requested_asset_word: Word = asset_out.into();
     let p2id_tag = NoteTag::with_account_target(account.id());
-    let deadline = (Utc::now().timestamp_millis() as u64) + 10000;
+    let deadline = (Utc::now().timestamp_millis() as u64) + 120000;
     let asset_out_word: Word = asset_out.into();
     let inputs = vec![
         asset_out_word[0],
@@ -350,7 +350,7 @@ async fn e2e_private_note() -> Result<()> {
     let asset_out = FungibleAsset::new(pool1.faucet_id, min_amount_out)?;
     let requested_asset_word: Word = asset_out.into();
     let p2id_tag = NoteTag::with_account_target(account.id());
-    let deadline = (Utc::now().timestamp_millis() as u64) + 10000;
+    let deadline = (Utc::now().timestamp_millis() as u64) + 120000;
 
     let beneficiary_id = account.id();
     let inputs = vec![

@@ -297,7 +297,7 @@ async fn main() -> Result<()> {
         //let asset_out: FungibleAsset = FungibleAsset::new(pool1.faucet_id, min_amount_out)?;
         // let requested_asset_word: Word = asset_out.into();
         let p2id_tag = NoteTag::with_account_target(lp_account.id());
-        let deadline = (Utc::now().timestamp_millis() as u64) + 10000;
+        let deadline = (Utc::now().timestamp_millis() as u64) + 120000;
         let inputs = vec![
             Felt::new(0),
             Felt::new(min_lp_amount_out), // min_lp_amount_out
