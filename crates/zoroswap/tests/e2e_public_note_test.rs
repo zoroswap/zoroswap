@@ -42,20 +42,21 @@ async fn e2e_public_note() -> Result<()> {
     let endpoint = config.miden_endpoint;
     let keystore = FilesystemKeyStore::new(config.keystore_path.into()).unwrap();
     let sync_summary = client.sync_state().await?;
+    let pool0 = config
+        .liquidity_pools
+        .first()
+        .expect("No liquidity pools found in config.");
+    let pool1 = config
+        .liquidity_pools
+        .last()
+        .expect("No liquidity pools found in config.");
+
     println!("\nLatest block: {}", sync_summary.block_num);
 
-    let (balances_pool_0, _) = fetch_pool_state_from_chain(
-        &mut client,
-        config.pool_account_id,
-        config.liquidity_pools[0].faucet_id,
-    )
-    .await?;
-    let (balances_pool_1, _) = fetch_pool_state_from_chain(
-        &mut client,
-        config.pool_account_id,
-        config.liquidity_pools[1].faucet_id,
-    )
-    .await?;
+    let (balances_pool_0, _) =
+        fetch_pool_state_from_chain(&mut client, config.pool_account_id, pool0.faucet_id).await?;
+    let (balances_pool_1, _) =
+        fetch_pool_state_from_chain(&mut client, config.pool_account_id, pool1.faucet_id).await?;
     let vault = fetch_vault_for_account_from_chain(&mut client, config.pool_account_id).await?;
     println!("balances for liq pool 0: {balances_pool_0:?}");
     println!("balances for liq pool 1: {balances_pool_1:?}");
@@ -73,15 +74,6 @@ async fn e2e_public_note() -> Result<()> {
 
     // ---------------------------------------------------------------------------------
     println!("\n\t[STEP 2] Fund user wallet\n");
-
-    let pool0 = config
-        .liquidity_pools
-        .first()
-        .expect("No liquidity pools found in config.");
-    let pool1 = config
-        .liquidity_pools
-        .last()
-        .expect("No liquidity pools found in config.");
     println!("Pool0 faucet ID: {}", pool0.faucet_id);
     println!("Pool0 faucet ID (suffix): {}", pool0.faucet_id.suffix());
     let amount: u64 = 5 * 10u64.pow(pool0.decimals as u32 - 2); // 0.05
@@ -164,6 +156,7 @@ async fn e2e_public_note() -> Result<()> {
     let requested_asset_word: Word = asset_out.into();
     let p2id_tag = NoteTag::with_account_target(account.id());
     let deadline = (Utc::now().timestamp_millis() as u64) + 30000;
+    let beneficiary_id = account.id();
     let inputs = vec![
         requested_asset_word[0],
         requested_asset_word[1],
@@ -173,8 +166,8 @@ async fn e2e_public_note() -> Result<()> {
         p2id_tag.into(),     // p2id tag
         Felt::new(0),
         Felt::new(0),
-        Felt::new(0),
-        Felt::new(0),
+        beneficiary_id.suffix(),
+        beneficiary_id.prefix().into(),
         account.id().suffix(),
         account.id().prefix().as_felt(),
     ];
@@ -254,18 +247,10 @@ async fn e2e_public_note() -> Result<()> {
 
     // ---------------------------------------------------------------------------------
     println!("\n\t[STEP 6] Confirm pool states updated accordingly\n");
-    let (new_balances_pool_0, _) = fetch_pool_state_from_chain(
-        &mut client,
-        config.pool_account_id,
-        config.liquidity_pools[0].faucet_id,
-    )
-    .await?;
-    let (new_balances_pool_1, _) = fetch_pool_state_from_chain(
-        &mut client,
-        config.pool_account_id,
-        config.liquidity_pools[1].faucet_id,
-    )
-    .await?;
+    let (new_balances_pool_0, _) =
+        fetch_pool_state_from_chain(&mut client, config.pool_account_id, pool0.faucet_id).await?;
+    let (new_balances_pool_1, _) =
+        fetch_pool_state_from_chain(&mut client, config.pool_account_id, pool1.faucet_id).await?;
     let new_vault = fetch_vault_for_account_from_chain(&mut client, config.pool_account_id).await?;
     println!("previous balances for liq pool 0: {balances_pool_0:?}");
     println!("previouse balances for liq pool 1: {balances_pool_1:?}");

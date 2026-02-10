@@ -154,10 +154,10 @@ pub async fn instantiate_faucet_client(config: Config, store_path: &str) -> Resu
 /// - Serial number:
 ///   `[swap_serial_num[0] + 1, swap_serial_num[1], swap_serial_num[2], swap_serial_num[3]]`
 /// - Script: `P2ID.masm` (using the hash stored via `proc.store_p2id_script_hash`)
-/// - Inputs: `[creator_id.suffix(), creator_id.prefix()]`
+/// - Inputs: `[beneficiary_id.suffix(), beneficiary_id.prefix()]`
 pub fn create_expected_p2id_recipient(
     swap_serial_num: Word,
-    creator_id: AccountId,
+    beneficiary_id: AccountId,
 ) -> Result<NoteRecipient, NoteError> {
     // Calculate P2ID serial number (increment first element by 1)
     let p2id_serial_num: Word = [
@@ -168,9 +168,9 @@ pub fn create_expected_p2id_recipient(
     ]
     .into();
 
-    debug!("P2ID creator id: {:?}", creator_id);
+    debug!("P2ID beneficiary id: {:?}", beneficiary_id);
     debug!("P2ID serial num: {:?}", p2id_serial_num);
-    let recipient = build_p2id_recipient(creator_id, p2id_serial_num)?;
+    let recipient = build_p2id_recipient(beneficiary_id, p2id_serial_num)?;
     debug!("P2ID recipient digest: {:?}", recipient.digest());
     Ok(recipient)
 }

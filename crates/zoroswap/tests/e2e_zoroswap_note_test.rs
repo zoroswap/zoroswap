@@ -73,6 +73,7 @@ async fn zero_note_create_consume_with_refund_test() -> Result<()> {
 
     let p2id_tag = NoteTag::with_account_target(alice_account.id());
 
+    let beneficiary_id = alice_account.id();
     let inputs = vec![
         requested_asset_word[0],
         requested_asset_word[1],
@@ -82,8 +83,8 @@ async fn zero_note_create_consume_with_refund_test() -> Result<()> {
         p2id_tag.into(), // p2id tag
         Felt::new(0),
         Felt::new(0),
-        Felt::new(0),
-        Felt::new(0),
+        beneficiary_id.suffix(),
+        beneficiary_id.prefix().into(),
         alice_account.id().suffix().into(),
         alice_account.id().prefix().into(),
     ];
@@ -236,6 +237,7 @@ async fn zero_note_create_consume_test() -> Result<()> {
 
     let p2id_tag = NoteTag::with_account_target(alice_account.id());
 
+    let beneficiary_id = alice_account.id();
     let inputs = vec![
         requested_asset_word[0],
         requested_asset_word[1],
@@ -245,8 +247,8 @@ async fn zero_note_create_consume_test() -> Result<()> {
         p2id_tag.into(), // p2id tag
         Felt::new(0),
         Felt::new(0),
-        Felt::new(0),
-        Felt::new(0),
+        beneficiary_id.suffix(),
+        beneficiary_id.prefix().into(),
         alice_account.id().suffix().into(),
         alice_account.id().prefix().into(),
     ];
