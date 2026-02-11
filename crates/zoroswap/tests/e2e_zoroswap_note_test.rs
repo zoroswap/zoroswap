@@ -10,6 +10,7 @@ use miden_client::{
     transaction::{OutputNote, TransactionRequestBuilder},
 };
 use miden_client_sqlite_store::ClientBuilderSqliteExt;
+use miden_protocol::vm::AdviceMap;
 use std::sync::Arc;
 use zoro_miden_client::{create_p2id_note, setup_accounts_and_faucets};
 use zoroswap::{create_zoroswap_note, fetch_vault_for_account_from_chain};
@@ -137,7 +138,16 @@ async fn zero_note_create_consume_with_refund_test() -> Result<()> {
         Felt::new(0),
     ];
 
-    let zero_note_args = [Felt::new(0), Felt::new(0), Felt::new(0), amount_out];
+    // The ZOROSWAP MASM reads args from the advice map (adv.push_mapval) keyed
+    // by the note's serial number. The value is 8 felts: [in_pool_state, out_pool_state].
+    let advice_map_value: Vec<Felt> = pool_0_state
+        .iter()
+        .chain(pool_1_state.iter())
+        .cloned()
+        .collect();
+    let mut advice_map = AdviceMap::default();
+    advice_map.insert(zero_serial_num, advice_map_value);
+
     let p2id_note_asset = asset_a.clone();
     let p2id_serial_num = [
         zero_serial_num[0],
@@ -156,7 +166,8 @@ async fn zero_note_create_consume_with_refund_test() -> Result<()> {
     .unwrap();
 
     let consume_zero_req = TransactionRequestBuilder::new()
-        .input_notes([(zero_note, Some(zero_note_args.into()))])
+        .extend_advice_map(advice_map)
+        .input_notes([(zero_note, None)])
         .expected_output_recipients(vec![p2id_note.recipient().clone()])
         .build()
         .unwrap();
@@ -302,7 +313,14 @@ async fn zero_note_create_consume_test() -> Result<()> {
         Felt::new(0),
     ];
 
-    let zero_note_args = [Felt::new(0), Felt::new(0), Felt::new(0), amount_out];
+    let advice_map_value: Vec<Felt> = pool_0_state
+        .iter()
+        .chain(pool_1_state.iter())
+        .cloned()
+        .collect();
+    let mut advice_map = AdviceMap::default();
+    advice_map.insert(zero_serial_num, advice_map_value);
+
     let p2id_note_asset = asset_b.clone();
     let p2id_serial_num = [
         zero_serial_num[0],
@@ -321,7 +339,8 @@ async fn zero_note_create_consume_test() -> Result<()> {
     .unwrap();
 
     let consume_zero_req = TransactionRequestBuilder::new()
-        .input_notes([(zero_note, Some(zero_note_args.into()))])
+        .extend_advice_map(advice_map)
+        .input_notes([(zero_note, None)])
         .expected_output_recipients(vec![p2id_note.recipient().clone()])
         .build()
         .unwrap();
