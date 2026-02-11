@@ -221,6 +221,12 @@ jobs:
         run: |
           cargo test --release e2e_private_note -- --nocapture
 
+      - name: Run `e2e_private_deposit_withdraw` test
+        env:
+          MIDEN_NODE_ENDPOINT: localhost
+        run: |
+          cargo test --release e2e_private_deposit_withdraw_test -- --exact --nocapture
+
       - name: Run `e2e_public_note` test
         env:
           # needs to be set explicitly here, for `cargo test` to pass it through.
