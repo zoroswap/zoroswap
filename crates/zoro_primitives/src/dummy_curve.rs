@@ -1,10 +1,11 @@
 use crate::traits::Curve;
 use alloy::primitives::{I256, U256};
 
-/// A simple linear curve implementation for demonstration purposes.
+/// An identity curve implementation for development and CI testing.
 ///
-/// This is a basic curve that returns linear values. It's provided as a reference
-/// implementation and placeholder for the proprietary curve implementation.
+/// This curve applies no slippage or imbalance adjustments:
+/// `psi(b, l) = b`, meaning `reserve_with_slippage = reserve`.
+/// It's provided as a placeholder for the proprietary curve implementation.
 ///
 /// # Warning
 ///
