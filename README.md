@@ -21,8 +21,8 @@ You can find our testnet deployment here: [https://zoroswap.com](https://zoroswa
 ## Curve Setup
 
 Zoro uses a pluggable curve implementation for AMM calculations. By default, it uses a simple
-linear curve ([`DummyCurve`](./crates/zoro_primitives/src/dummy_curve.rs)) to demonstrate
-its functionality.
+identity curve ([`DummyCurve`](./crates/zoro_primitives/src/dummy_curve.rs)) that applies no
+slippage or imbalance adjustments, suitable for development and CI testing.
 
 | Curve             | Feature Flag                  | Repository                                                                 | Use Case                          |
 |-------------------|-------------------------------|----------------------------------------------------------------------------|-----------------------------------|
