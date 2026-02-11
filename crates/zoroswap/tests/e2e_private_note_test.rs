@@ -1,6 +1,7 @@
 use anyhow::{Context, Result, anyhow};
 use chrono::Utc;
 use dotenv::dotenv;
+use miden_client::crypto::FeltRng;
 use miden_client::store::TransactionFilter;
 use miden_client::{
     Felt, Word,
@@ -15,7 +16,6 @@ use url::Url;
 use zoro_miden_client::{
     MidenClient, create_basic_account, wait_for_consumable_notes, wait_for_note,
 };
-use zoroswap::draw_random_word;
 use zoroswap::{
     Config, config::LiquidityPoolConfig, create_deposit_note, create_withdraw_note,
     create_zoroswap_note, fetch_lp_total_supply_from_chain, fetch_pool_state_from_chain,
@@ -169,7 +169,7 @@ async fn e2e_private_deposit_withdraw_test() -> Result<()> {
         account.id().prefix().into(),
     ];
     let _pool_contract_tag = NoteTag::with_account_target(config.pool_account_id);
-    let deposit_serial_num = draw_random_word(&mut client)?;
+    let deposit_serial_num = client.rng().draw_word();
     println!(
         "Made an deposit note for {amount_in} {} expecting  at least {min_lp_amount_out} lp amount out.",
         pool.symbol
@@ -242,7 +242,7 @@ async fn e2e_private_deposit_withdraw_test() -> Result<()> {
         account.id().prefix().into(),
     ];
     let _pool_contract_tag = NoteTag::with_account_target(config.pool_account_id);
-    let withdraw_serial_num = draw_random_word(&mut client)?;
+    let withdraw_serial_num = client.rng().draw_word();
     println!("######################################################### deadline: {deadline}");
     println!(
         "Made an deposit note for {amount_in} {} expecting  at least {min_lp_amount_out} lp amount out.",
@@ -366,7 +366,7 @@ async fn e2e_private_note() -> Result<()> {
         account.id().suffix(),
         account.id().prefix().into(),
     ];
-    let zoroswap_serial_num = draw_random_word(&mut client)?;
+    let zoroswap_serial_num = client.rng().draw_word();
     println!(
         "Made an order note requesting {amount_in} {} for at least {min_amount_out} {}.",
         pool0.symbol, pool1.symbol

@@ -209,9 +209,10 @@ proc build_p2id_recipient_hash
     # mem_storew_le stores in little-endian: stack[0]→pos0, stack[1]→pos1, etc.
     # hash_elements (via mem_stream) reads pos0 first → rate[0], pos1 → rate[1]
     # So we need suffix on top (it goes to pos0) and prefix below (pos1)
-    padw
-    mem_load.P2ID_TARGET_ID_SUFFIX mem_load.P2ID_TARGET_ID_PREFIX
+    # padw
     push.0.0
+
+    mem_load.P2ID_TARGET_ID_PREFIX mem_load.P2ID_TARGET_ID_SUFFIX
 
     push.4000 mem_storew_le dropw
     # => mem[4000] pos0=suffix, pos1=prefix (LE), stack=[SERIAL_SCRIPT_HASH]

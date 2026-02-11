@@ -140,19 +140,27 @@ proc build_p2id_recipient_hash
 
     # Compute inputs commitment: hash_elements([suffix, prefix])
     # Must match build_p2id_recipient() from miden_standards which internally
-    # computes NoteInputs::new(vec![suffix, prefix]).commitment()
+    # computes NoteInputs::new(vec![suffix, prefix]).commitment() via
+    # Rpo256::hash_elements(&[suffix, prefix])
+    #
+    # mem_storew_le stores in little-endian: stack[0]→pos0, stack[1]→pos1, etc.
+    # hash_elements (via mem_stream) reads pos0 first → rate[0], pos1 → rate[1]
+    # So we need suffix on top (it goes to pos0) and prefix below (pos1)
+    # padw
     push.0.0
+
     mem_load.DEPOSIT_CREATOR_ID_PREFIX mem_load.DEPOSIT_CREATOR_ID_SUFFIX
-    # => [suffix, prefix, 0, 0, SERIAL_SCRIPT_HASH]
 
     push.4000 mem_storew_le dropw
     # => mem[4000] pos0=suffix, pos1=prefix (LE), stack=[SERIAL_SCRIPT_HASH]
 
     push.2.4000
+    # => [ptr=4000, num_elements=2, SERIAL_SCRIPT_HASH]
     exec.rpo256::hash_elements
     # => [INPUTS_COMMITMENT, SERIAL_SCRIPT_HASH]
     hmerge
     # => [P2ID_RECIPIENT]
+
 end
 
 # input: [SERIAL_NUM,...]

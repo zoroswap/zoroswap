@@ -1,6 +1,7 @@
 use anyhow::{Context, Result, anyhow};
 use chrono::Utc;
 use dotenv::dotenv;
+use miden_client::crypto::FeltRng;
 use miden_client::store::TransactionFilter;
 use miden_client::{
     Felt, Word,
@@ -11,9 +12,9 @@ use miden_client::{
 };
 use zoro_miden_client::{create_basic_account, wait_for_consumable_notes, wait_for_note};
 use zoroswap::{
-    Config, create_expected_p2id_recipient, create_zoroswap_note, draw_random_word,
-    fetch_pool_state_from_chain, fetch_vault_for_account_from_chain, get_oracle_prices,
-    instantiate_client, print_note_info, print_transaction_info,
+    Config, create_expected_p2id_recipient, create_zoroswap_note, fetch_pool_state_from_chain,
+    fetch_vault_for_account_from_chain, get_oracle_prices, instantiate_client, print_note_info,
+    print_transaction_info,
 };
 
 #[tokio::test]
@@ -170,7 +171,7 @@ async fn e2e_public_note() -> Result<()> {
         account.id().suffix(),
         account.id().prefix().as_felt(),
     ];
-    let zoroswap_serial_num = draw_random_word(&mut client)?;
+    let zoroswap_serial_num = client.rng().draw_word();
     println!(
         "Made an order note requesting {amount_in} {} for at least {min_amount_out} {}.",
         pool0.symbol, pool1.symbol

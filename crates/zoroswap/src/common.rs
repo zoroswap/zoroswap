@@ -355,11 +355,3 @@ pub fn get_script_root_for_order_type(order_type: OrderType) -> Word {
 
     note_script.root()
 }
-
-pub fn draw_random_word(client: &mut MidenClient) -> Result<Word> {
-    let mut bytes = [0u8; 32];
-    client.rng().fill_bytes(&mut bytes);
-    let random_word =
-        Word::from_random_bytes(&bytes).ok_or(anyhow!("Error generating random word"))?;
-    Ok(random_word)
-}
