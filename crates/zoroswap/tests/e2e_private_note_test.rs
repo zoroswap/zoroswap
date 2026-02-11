@@ -299,7 +299,10 @@ async fn e2e_private_deposit_withdraw_test() -> Result<()> {
 
 #[tokio::test]
 async fn e2e_private_note() -> Result<()> {
-    let (config, mut client, keystore, accounts, pools) = set_up_with_store("../../testing_store.sqlite3").await?;
+    // Use a fresh store to avoid leftover data from prior test runs.
+    let store_path = "../../swap_test_store.sqlite3";
+    let _ = std::fs::remove_file(store_path);
+    let (config, mut client, keystore, accounts, pools) = set_up_with_store(store_path).await?;
     let account = accounts.user;
     let pool0 = pools[0];
     let pool1 = pools[1];

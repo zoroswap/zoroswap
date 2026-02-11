@@ -27,18 +27,22 @@ async fn e2e_public_note() -> Result<()> {
     // ---------------------------------------------------------------------------------
     println!("\n\t[STEP 0] Init client and config\n");
 
+    // Use a fresh store to avoid leftover data from prior test runs.
+    let store_path = "../../public_test_store.sqlite3";
+    let _ = std::fs::remove_file(store_path);
+
     let config = Config::from_config_file(
         "../../config.toml",
         "../../masm",
         "../../keystore",
-        "../../testing_store.sqlite3",
+        store_path,
     )?;
     println!("Config keystore_path: {}", config.keystore_path);
     assert!(
         config.liquidity_pools.len() > 1,
         "Less than 2 liquidity pools configured"
     );
-    let mut client = instantiate_client(config.clone(), "../../testing_store.sqlite3").await?;
+    let mut client = instantiate_client(config.clone(), store_path).await?;
     let endpoint = config.miden_endpoint;
     let keystore = FilesystemKeyStore::new(config.keystore_path.into()).unwrap();
     let sync_summary = client.sync_state().await?;
