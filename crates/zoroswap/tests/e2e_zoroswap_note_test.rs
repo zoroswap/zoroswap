@@ -16,6 +16,7 @@ use zoro_miden_client::{create_p2id_note, setup_accounts_and_faucets};
 use zoroswap::{create_zoroswap_note, fetch_vault_for_account_from_chain};
 
 #[tokio::test]
+#[ignore = "requires pool contract account, not a basic wallet"]
 async fn zero_note_create_consume_with_refund_test() -> Result<()> {
     // Reset the store and initialize the client.
     // delete_keystore_and_store().await;
