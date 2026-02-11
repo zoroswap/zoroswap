@@ -236,8 +236,12 @@ async fn main() -> Result<()> {
 
         let consumable_notes = client.get_consumable_notes(Some(lp_account.id())).await?;
         let notes: Vec<Note> = consumable_notes.iter().filter_map(|(rec, _)| {
-            let note: Result<Note, _> = rec.try_into();
-            note.ok()
+            let metadata = rec.metadata()?;
+            Some(Note::new(
+                rec.details().assets().clone(),
+                metadata.clone(),
+                rec.details().recipient().clone(),
+            ))
         }).collect();
 
         if notes.len() == config.liquidity_pools.len() {

@@ -28,7 +28,7 @@ struct Accounts {
     pub user: Account,
 }
 
-async fn set_up() -> Result<(
+async fn set_up_with_store(store_path: &str) -> Result<(
     Config,
     MidenClient,
     FilesystemKeyStore,
@@ -41,7 +41,7 @@ async fn set_up() -> Result<(
         "../../config.toml",
         "../../masm",
         "../../keystore",
-        "../../testing_store.sqlite3",
+        store_path,
     )
     .unwrap();
 
@@ -49,7 +49,7 @@ async fn set_up() -> Result<(
         config.liquidity_pools.len() > 1,
         "Less than 2 liquidity pools configured"
     );
-    let mut client = instantiate_client(config.clone(), "../../testing_store.sqlite3")
+    let mut client = instantiate_client(config.clone(), store_path)
         .await
         .unwrap();
     let endpoint = config.miden_endpoint.clone();
@@ -142,7 +142,10 @@ async fn fund_user_wallet(
 
 #[tokio::test]
 async fn e2e_private_deposit_withdraw_test() -> Result<()> {
-    let (config, mut client, _keystore, accounts, pools) = set_up().await?;
+    // Use a fresh store to avoid leftover data from prior test runs.
+    let store_path = "../../deposit_test_store.sqlite3";
+    let _ = std::fs::remove_file(store_path);
+    let (config, mut client, _keystore, accounts, pools) = set_up_with_store(store_path).await?;
     let account = accounts.user;
     let pool = pools[0];
 
@@ -202,7 +205,8 @@ async fn e2e_private_deposit_withdraw_test() -> Result<()> {
     )
     .await?;
 
-    tokio::time::sleep(Duration::from_secs(10)).await;
+    tokio::time::sleep(Duration::from_secs(30)).await;
+    client.sync_state().await?;
 
     let lp_total_supply_after =
         fetch_lp_total_supply_from_chain(&mut client, config.pool_account_id, pool.faucet_id)
@@ -216,6 +220,7 @@ async fn e2e_private_deposit_withdraw_test() -> Result<()> {
     );
 
     println!("\n\t[STEP 2] Create WITHDRAW note\n");
+    client.sync_state().await?;
 
     let amount_to_withdraw = 2;
     let amount_to_withdraw: u64 = amount_to_withdraw * 10u64.pow(pool.decimals as u32 - 2);
@@ -294,7 +299,7 @@ async fn e2e_private_deposit_withdraw_test() -> Result<()> {
 
 #[tokio::test]
 async fn e2e_private_note() -> Result<()> {
-    let (config, mut client, _, accounts, pools) = set_up().await?;
+    let (config, mut client, keystore, accounts, pools) = set_up_with_store("../../testing_store.sqlite3").await?;
     let account = accounts.user;
     let pool0 = pools[0];
     let pool1 = pools[1];

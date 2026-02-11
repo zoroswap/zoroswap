@@ -1,4 +1,4 @@
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use miden_client::{
     ClientError, Felt, Word,
     account::AccountId,
@@ -11,10 +11,9 @@ use miden_client::{
     DebugMode, builder::ClientBuilder, keystore::FilesystemKeyStore, rpc::GrpcClient,
 };
 use miden_client_sqlite_store::{ClientBuilderSqliteExt, SqliteStore};
-use miden_protocol::{crypto::rand::Randomizable, transaction::TransactionKernel};
+use miden_protocol::transaction::TransactionKernel;
 use miden_standards::code_builder::CodeBuilder;
 use miden_standards::note::utils::build_p2id_recipient;
-use rand::RngCore;
 use rusqlite::Connection;
 use std::sync::Arc;
 use std::{fs, path::PathBuf};
@@ -101,6 +100,9 @@ pub async fn instantiate_client(
         .in_debug_mode(DebugMode::Enabled)
         .build()
         .await?;
+    // Sync first so the client knows the latest block height before importing accounts.
+    // Without this, import_account_by_id may fail because the client is at block 0.
+    client.sync_state().await?;
     let existing = client.get_account(config.pool_account_id).await?;
     if existing.is_none() {
         info!("Pool account not in local store, importing from node");
@@ -111,7 +113,6 @@ pub async fn instantiate_client(
     client
         .add_note_tag(NoteTag::with_account_target(config.pool_account_id))
         .await?;
-    client.sync_state().await?;
     info!("Miden client synced and ready");
     Ok(client)
 }

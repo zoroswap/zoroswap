@@ -51,6 +51,13 @@ async fn e2e_public_note() -> Result<()> {
         .last()
         .expect("No liquidity pools found in config.");
 
+    // Import faucet accounts so we can mint tokens
+    for pool in &config.liquidity_pools {
+        if let Err(e) = client.import_account_by_id(pool.faucet_id).await {
+            eprintln!("Note: faucet import returned: {e:?}");
+        }
+    }
+
     println!("\nLatest block: {}", sync_summary.block_num);
 
     let (balances_pool_0, _) =
