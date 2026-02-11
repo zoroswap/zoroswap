@@ -221,6 +221,9 @@ async fn e2e_private_deposit_withdraw_test() -> Result<()> {
 
     println!("\n\t[STEP 2] Create WITHDRAW note\n");
     client.sync_state().await?;
+    // Re-import the pool account to refresh its storage roots in the local store,
+    // since the deposit changed the pool's on-chain state.
+    client.import_account_by_id(config.pool_account_id).await?;
 
     let amount_to_withdraw = 2;
     let amount_to_withdraw: u64 = amount_to_withdraw * 10u64.pow(pool.decimals as u32 - 2);

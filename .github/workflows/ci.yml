@@ -219,7 +219,7 @@ jobs:
           # needs to be set explicitly here, for `cargo test` to pass it through.
           MIDEN_NODE_ENDPOINT: localhost
         run: |
-          cargo test --release e2e_private_note -- --nocapture
+          cargo test --release e2e_private_note -- --exact --nocapture
 
       - name: Run `e2e_private_deposit_withdraw` test
         env:
@@ -232,7 +232,7 @@ jobs:
           # needs to be set explicitly here, for `cargo test` to pass it through.
           MIDEN_NODE_ENDPOINT: localhost
         run: |
-          cargo test --release e2e_public_note -- --nocapture
+          cargo test --release e2e_public_note -- --exact --nocapture
 
       - name: Run `e2e_zoroswap_note_test` test
         env:
