@@ -190,7 +190,6 @@ impl Order {
         let creator_id = AccountId::try_from([creator_prefix, creator_suffix])
             .or(Err(anyhow!("Couldn't parse creator_id from order note")))?;
 
-        let dummy_beneficiary_id = AccountId::try_from(0_u128)?;
         debug!(
             creator_id = ?creator_id,
             deadline = ?deadline,
@@ -208,7 +207,7 @@ impl Order {
             asset_in,
             asset_out,
             creator_id,
-            beneficiary_id: dummy_beneficiary_id,
+            beneficiary_id: creator_id,
             id: Uuid::new_v4(),
             p2id_tag,
             order_type: OrderType::Withdraw,
