@@ -221,7 +221,6 @@ async fn e2e_private_deposit_withdraw_test() -> Result<()> {
 
     println!("\n\t[STEP 2] Create WITHDRAW note\n");
     // Recreate the client since the pool account's state changed on-chain.
-    drop(client);
     let mut client = instantiate_client(config.clone(), store_path).await?;
 
     let amount_to_withdraw = 2;
