@@ -388,6 +388,7 @@ impl TradingEngine {
                         U256::from(base_pool_state.lp_total_supply),
                         U256::from(base_pool_decimals),
                     );
+
                     let amount_out = amount_out.to::<u64>();
                     if amount_out > 0 && amount_out >= order.asset_out.amount() {
                         let note = self.state.get_note(&order.id)?;
@@ -724,6 +725,7 @@ impl TradingEngine {
                 } else {
                     execution_details.amount_out
                 };
+
                 let args = Some(Word::from(&[
                     Felt::new(amount_out),
                     Felt::new(
