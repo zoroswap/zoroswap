@@ -28,7 +28,9 @@ struct Accounts {
     pub user: Account,
 }
 
-async fn set_up_with_store(store_path: &str) -> Result<(
+async fn set_up_with_store(
+    store_path: &str,
+) -> Result<(
     Config,
     MidenClient,
     FilesystemKeyStore,
@@ -158,14 +160,15 @@ async fn e2e_private_deposit_withdraw_test() -> Result<()> {
     let amount_in: u64 = amount_in * 10u64.pow(pool.decimals as u32 - 2);
     let max_slippage = 0.005; // 0.5 %
     let min_lp_amount_out = ((amount_in as f64) * (1.0 - max_slippage)) as u64;
+    println!("\n\t min amount out: {min_lp_amount_out}");
     let asset_in = FungibleAsset::new(pool.faucet_id, amount_in)?;
     let p2id_tag = NoteTag::with_account_target(account.id());
     let deadline = (Utc::now().timestamp_millis() as u64) + 120000;
     let inputs = vec![
-        Felt::new(0),
         Felt::new(min_lp_amount_out), // min_lp_amount_out
         Felt::new(deadline),          // deadline
         p2id_tag.into(),              // p2id tag
+        Felt::new(0),
         Felt::new(0),
         Felt::new(0),
         account.id().suffix(),

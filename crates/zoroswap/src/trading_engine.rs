@@ -81,7 +81,7 @@ enum NoteExecutionDetails {
 struct PayoutDetails {
     pub note: Note,
     pub args: Option<Word>,
-    pub advice_map_value: Vec<Felt>,
+    pub advice_map_value: Option<Vec<Felt>>,
     pub details: NoteDetails,
     pub tag: NoteTag,
     pub recipient: NoteRecipient,
@@ -571,25 +571,7 @@ impl TradingEngine {
                     ))
                 }
                 OrderExecution::Withdraw(execution_details) => {
-                    let mut details = self.prepare_payout(execution_details.clone(), false)?;
-                    details.args = Some(Word::from(&[
-                        Felt::new(execution_details.amount_out),
-                        Felt::new(
-                            execution_details
-                                .in_pool_balances
-                                .reserve_with_slippage
-                                .to::<u64>(),
-                        ),
-                        Felt::new(execution_details.in_pool_balances.reserve.to::<u64>()),
-                        Felt::new(
-                            execution_details
-                                .in_pool_balances
-                                .total_liabilities
-                                .to::<u64>(),
-                        ),
-                    ]));
-                    debug!("Withdraw payout details.args: {:?}", details.args);
-                    NoteExecutionDetails::Payout(details)
+                    NoteExecutionDetails::Payout(self.prepare_payout(execution_details, false)?)
                 }
             };
 
@@ -600,7 +582,9 @@ impl TradingEngine {
                     expected_future_notes.push((payout.details, payout.tag));
                     expected_output_recipients.push(payout.recipient);
                     input_notes.push((payout.note, payout.args));
-                    advice_map.insert(advice_key, payout.advice_map_value);
+                    if let Some(advice_map_value) = payout.advice_map_value {
+                        advice_map.insert(advice_key, advice_map_value);
+                    }
                 }
                 NoteExecutionDetails::ConsumeWithArgs((note, args)) => {
                     input_notes.push((note, Some(args)));
@@ -621,7 +605,12 @@ impl TradingEngine {
             }
         }
 
-        debug!("Input notes count: {:?}", input_notes.len());
+        info!("Input notes count: {:?}", input_notes.len());
+        info!("All Recipients: {:?}", expected_output_recipients.len());
+        for recipient in expected_output_recipients.clone() {
+            info!("Recipient digest: {:?}", recipient.digest());
+        }
+        info!("All Future notes: {:?}", expected_future_notes.len());
 
         let consume_req = TransactionRequestBuilder::new()
             .extend_advice_map(advice_map)
@@ -630,11 +619,6 @@ impl TradingEngine {
             .expected_output_recipients(expected_output_recipients.clone())
             .build()
             .map_err(|e| anyhow::anyhow!("Failed to build batch transaction request: {}", e))?;
-
-        info!("All Recipients: {:?}", expected_output_recipients.len());
-        for recipient in expected_output_recipients.clone() {
-            info!("Recipient digest: {:?}", recipient.digest());
-        }
 
         let tx_id = client
             .submit_new_transaction(pool_account_id, consume_req)
@@ -717,20 +701,52 @@ impl TradingEngine {
             out_pool_balances
         );
 
-        let advice_map_value = vec![
-            Felt::new(in_pool_balances.total_liabilities.to::<u64>()),
-            Felt::new(in_pool_balances.reserve.to::<u64>()),
-            Felt::new(in_pool_balances.reserve_with_slippage.to::<u64>()),
-            Felt::new(asset_out.unwrap_fungible().amount()),
-            Felt::new(out_pool_balances.total_liabilities.to::<u64>()),
-            Felt::new(out_pool_balances.reserve.to::<u64>()),
-            Felt::new(out_pool_balances.reserve_with_slippage.to::<u64>()),
-            Felt::new(0),
-        ];
+        let (args, advice_map_value): (Option<Word>, Option<Vec<Felt>>) =
+            if execution_details.order.order_type.eq(&OrderType::Swap) {
+                let advice_map_value = vec![
+                    Felt::new(in_pool_balances.total_liabilities.to::<u64>()),
+                    Felt::new(in_pool_balances.reserve.to::<u64>()),
+                    Felt::new(in_pool_balances.reserve_with_slippage.to::<u64>()),
+                    Felt::new(asset_out.unwrap_fungible().amount()),
+                    Felt::new(out_pool_balances.total_liabilities.to::<u64>()),
+                    Felt::new(out_pool_balances.reserve.to::<u64>()),
+                    Felt::new(out_pool_balances.reserve_with_slippage.to::<u64>()),
+                    Felt::new(0),
+                ];
+                (None, Some(advice_map_value))
+            } else if execution_details.order.order_type.eq(&OrderType::Deposit)
+                || execution_details.order.order_type.eq(&OrderType::Withdraw)
+            {
+                // set amount_out to zero so it triggers returning asset in MASM
+                let amount_out = if return_asset_in {
+                    0
+                } else {
+                    execution_details.amount_out
+                };
+                let args = Some(Word::from(&[
+                    Felt::new(amount_out),
+                    Felt::new(
+                        execution_details
+                            .in_pool_balances
+                            .reserve_with_slippage
+                            .to::<u64>(),
+                    ),
+                    Felt::new(execution_details.in_pool_balances.reserve.to::<u64>()),
+                    Felt::new(
+                        execution_details
+                            .in_pool_balances
+                            .total_liabilities
+                            .to::<u64>(),
+                    ),
+                ]));
+                (args, None)
+            } else {
+                (None, None)
+            };
 
         Ok(PayoutDetails {
             note,
-            args: None,
+            args,
             advice_map_value,
             details: NoteDetails::from(p2id.clone()),
             tag: p2id.metadata().tag(),

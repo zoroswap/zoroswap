@@ -19,7 +19,7 @@ pub struct Asset {
     pub decimals: u8,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum OrderType {
     Deposit,
     Withdraw,
