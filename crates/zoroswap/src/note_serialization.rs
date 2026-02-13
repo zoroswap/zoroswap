@@ -1,7 +1,7 @@
 use anyhow::{Result, anyhow};
 use base64::{Engine as _, engine::general_purpose};
 use miden_client::note::Note;
-use miden_tx::utils::{Deserializable, Serializable};
+use miden_protocol::utils::{Deserializable, Serializable};
 
 pub fn serialize_note(note: &Note) -> Result<String> {
     // Use the proper Miden serialization method

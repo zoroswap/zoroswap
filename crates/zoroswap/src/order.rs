@@ -19,7 +19,7 @@ pub struct Asset {
     pub decimals: u8,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum OrderType {
     Deposit,
     Withdraw,
@@ -129,12 +129,12 @@ impl Order {
         debug!(note_inputs = ?note_inputs, "Parsing deposit note");
         let vals = note.inputs().values();
         let asset_in = asset_in.unwrap_fungible();
-        let min_lp_out: u64 = vals[1].into();
+        let min_lp_out: u64 = vals[0].into();
         let asset_out = FungibleAsset::new(asset_in.faucet_id(), min_lp_out)?;
         debug!(asset_in = ?asset_in, asset_out = ?asset_out, "Deposit note assets");
 
-        let deadline: u64 = vals[2].into();
-        let p2id_tag: u64 = vals[3].into();
+        let deadline: u64 = vals[1].into();
+        let p2id_tag: u64 = vals[2].into();
         let deadline = DateTime::from_timestamp_millis(deadline as i64).ok_or(anyhow!(
             "Error parsing deadline for order. Timestamp: {deadline}"
         ))?;
@@ -190,7 +190,6 @@ impl Order {
         let creator_id = AccountId::try_from([creator_prefix, creator_suffix])
             .or(Err(anyhow!("Couldn't parse creator_id from order note")))?;
 
-        let dummy_beneficiary_id = AccountId::try_from(0_u128)?;
         debug!(
             creator_id = ?creator_id,
             deadline = ?deadline,
@@ -208,7 +207,7 @@ impl Order {
             asset_in,
             asset_out,
             creator_id,
-            beneficiary_id: dummy_beneficiary_id,
+            beneficiary_id: creator_id,
             id: Uuid::new_v4(),
             p2id_tag,
             order_type: OrderType::Withdraw,

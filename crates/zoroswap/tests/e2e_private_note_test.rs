@@ -1,17 +1,16 @@
 use anyhow::{Context, Result, anyhow};
 use chrono::Utc;
 use dotenv::dotenv;
+use miden_client::crypto::FeltRng;
 use miden_client::store::TransactionFilter;
 use miden_client::{
     Felt, Word,
     account::Account,
     asset::FungibleAsset,
-    crypto::FeltRng,
     keystore::FilesystemKeyStore,
     note::{NoteTag, NoteType},
     transaction::{OutputNote, TransactionRequestBuilder},
 };
-use rand::rngs::StdRng;
 use std::{str::FromStr, time::Duration};
 use url::Url;
 use zoro_miden_client::{
@@ -29,10 +28,12 @@ struct Accounts {
     pub user: Account,
 }
 
-async fn set_up() -> Result<(
+async fn set_up_with_store(
+    store_path: &str,
+) -> Result<(
     Config,
     MidenClient,
-    FilesystemKeyStore<StdRng>,
+    FilesystemKeyStore,
     Accounts,
     Vec<LiquidityPoolConfig>,
 )> {
@@ -42,7 +43,7 @@ async fn set_up() -> Result<(
         "../../config.toml",
         "../../masm",
         "../../keystore",
-        "../../testing_store.sqlite3",
+        store_path,
     )
     .unwrap();
 
@@ -50,7 +51,7 @@ async fn set_up() -> Result<(
         config.liquidity_pools.len() > 1,
         "Less than 2 liquidity pools configured"
     );
-    let mut client = instantiate_client(config.clone(), "../../testing_store.sqlite3")
+    let mut client = instantiate_client(config.clone(), store_path)
         .await
         .unwrap();
     let endpoint = config.miden_endpoint.clone();
@@ -71,7 +72,7 @@ async fn set_up() -> Result<(
         user: account.clone(),
     };
 
-    println!("\n\t[STEP 2] Fund user wallet\n");
+    println!("\n\t[STEP 1] Fund user wallet\n");
     let pool0 = config
         .liquidity_pools
         .first()
@@ -126,7 +127,7 @@ async fn fund_user_wallet(
     wait_for_note(client, account, &minted_note).await?;
 
     let consume_req = TransactionRequestBuilder::new()
-        .authenticated_input_notes([(minted_note.id(), None)])
+        .input_notes([(minted_note, None)])
         .build()
         .unwrap();
 
@@ -143,7 +144,10 @@ async fn fund_user_wallet(
 
 #[tokio::test]
 async fn e2e_private_deposit_withdraw_test() -> Result<()> {
-    let (config, mut client, _keystore, accounts, pools) = set_up().await?;
+    // Use a fresh store to avoid leftover data from prior test runs.
+    let store_path = "../../deposit_test_store.sqlite3";
+    let _ = std::fs::remove_file(store_path);
+    let (config, mut client, _keystore, accounts, pools) = set_up_with_store(store_path).await?;
     let account = accounts.user;
     let pool = pools[0];
 
@@ -152,25 +156,25 @@ async fn e2e_private_deposit_withdraw_test() -> Result<()> {
             .await?;
 
     let amount_in = 4;
-    println!("\n\t[STEP 1] Create DEPOSIT note\n");
+    println!("\n\t[STEP 2] Create DEPOSIT note\n");
     let amount_in: u64 = amount_in * 10u64.pow(pool.decimals as u32 - 2);
     let max_slippage = 0.005; // 0.5 %
-    let min_lp_amount_out = (amount_in as f64) * (1.0 - max_slippage);
-    let min_lp_amount_out = 0 as u64;
+    let min_lp_amount_out = ((amount_in as f64) * (1.0 - max_slippage)) as u64;
+    println!("\n\t min amount out: {min_lp_amount_out}");
     let asset_in = FungibleAsset::new(pool.faucet_id, amount_in)?;
-    let p2id_tag = NoteTag::from_account_id(account.id());
-    let deadline = (Utc::now().timestamp_millis() as u64) + 10000;
+    let p2id_tag = NoteTag::with_account_target(account.id());
+    let deadline = (Utc::now().timestamp_millis() as u64) + 120000;
     let inputs = vec![
-        Felt::new(0),
         Felt::new(min_lp_amount_out), // min_lp_amount_out
         Felt::new(deadline),          // deadline
         p2id_tag.into(),              // p2id tag
         Felt::new(0),
         Felt::new(0),
+        Felt::new(0),
         account.id().suffix(),
         account.id().prefix().into(),
     ];
-    let _pool_contract_tag = NoteTag::from_account_id(config.pool_account_id);
+    let _pool_contract_tag = NoteTag::with_account_target(config.pool_account_id);
     let deposit_serial_num = client.rng().draw_word();
     println!(
         "Made an deposit note for {amount_in} {} expecting  at least {min_lp_amount_out} lp amount out.",
@@ -181,7 +185,7 @@ async fn e2e_private_deposit_withdraw_test() -> Result<()> {
         vec![asset_in.into()],
         account.id(),
         deposit_serial_num,
-        NoteTag::LocalAny(0),
+        NoteTag::new(0),
         NoteType::Private,
     )?;
 
@@ -204,7 +208,8 @@ async fn e2e_private_deposit_withdraw_test() -> Result<()> {
     )
     .await?;
 
-    tokio::time::sleep(Duration::from_secs(10)).await;
+    tokio::time::sleep(Duration::from_secs(30)).await;
+    client.sync_state().await?;
 
     let lp_total_supply_after =
         fetch_lp_total_supply_from_chain(&mut client, config.pool_account_id, pool.faucet_id)
@@ -217,8 +222,7 @@ async fn e2e_private_deposit_withdraw_test() -> Result<()> {
         "LP total supply didnt increase"
     );
 
-    println!("\n\t[STEP 2] Create WITHDRAW note\n");
-
+    println!("\n\t[STEP 3] Create WITHDRAW note\n");
     let amount_to_withdraw = 2;
     let amount_to_withdraw: u64 = amount_to_withdraw * 10u64.pow(pool.decimals as u32 - 2);
     let max_slippage = 0.005; // 0.5 %
@@ -226,8 +230,8 @@ async fn e2e_private_deposit_withdraw_test() -> Result<()> {
     let min_asset_amount_out = min_asset_amount_out as u64;
     let asset_out: FungibleAsset = FungibleAsset::new(pool.faucet_id, min_asset_amount_out)?;
     // let requested_asset_word: Word = asset_out.into();
-    let p2id_tag = NoteTag::from_account_id(account.id());
-    let deadline = (Utc::now().timestamp_millis() as u64) + 10000;
+    let p2id_tag = NoteTag::with_account_target(account.id());
+    let deadline = (Utc::now().timestamp_millis() as u64) - 120000;
     let asset_out_word: Word = asset_out.into();
     let inputs = vec![
         asset_out_word[0],
@@ -243,11 +247,11 @@ async fn e2e_private_deposit_withdraw_test() -> Result<()> {
         account.id().suffix(),
         account.id().prefix().into(),
     ];
-    let _pool_contract_tag = NoteTag::from_account_id(config.pool_account_id);
+    let _pool_contract_tag = NoteTag::with_account_target(config.pool_account_id);
     let withdraw_serial_num = client.rng().draw_word();
     println!("######################################################### deadline: {deadline}");
     println!(
-        "Made an deposit note for {amount_in} {} expecting  at least {min_lp_amount_out} lp amount out.",
+        "Made withdrawal note for {amount_to_withdraw} {} expecting  at least {min_asset_amount_out} lp amount out.",
         pool.symbol
     );
     let withdraw_note = create_withdraw_note(
@@ -255,7 +259,7 @@ async fn e2e_private_deposit_withdraw_test() -> Result<()> {
         vec![],
         account.id(),
         withdraw_serial_num,
-        NoteTag::LocalAny(0),
+        NoteTag::new(0),
         NoteType::Private,
     )?;
 
@@ -296,7 +300,10 @@ async fn e2e_private_deposit_withdraw_test() -> Result<()> {
 
 #[tokio::test]
 async fn e2e_private_note() -> Result<()> {
-    let (config, mut client, keystore, accounts, pools) = set_up().await?;
+    // Use a fresh store to avoid leftover data from prior test runs.
+    let store_path = "../../swap_test_store.sqlite3";
+    let _ = std::fs::remove_file(store_path);
+    let (config, mut client, keystore, accounts, pools) = set_up_with_store(store_path).await?;
     let account = accounts.user;
     let pool0 = pools[0];
     let pool1 = pools[1];
@@ -350,8 +357,8 @@ async fn e2e_private_note() -> Result<()> {
     let asset_in = FungibleAsset::new(pool0.faucet_id, amount_in)?;
     let asset_out = FungibleAsset::new(pool1.faucet_id, min_amount_out)?;
     let requested_asset_word: Word = asset_out.into();
-    let p2id_tag = NoteTag::from_account_id(account.id());
-    let deadline = (Utc::now().timestamp_millis() as u64) + 10000;
+    let p2id_tag = NoteTag::with_account_target(account.id());
+    let deadline = (Utc::now().timestamp_millis() as u64) + 120000;
 
     let beneficiary_id = account.id();
     let inputs = vec![
@@ -378,7 +385,7 @@ async fn e2e_private_note() -> Result<()> {
         vec![asset_in.into()],
         account.id(),
         zoroswap_serial_num,
-        NoteTag::LocalAny(0),
+        NoteTag::new(123),
         NoteType::Private,
     )?;
 
@@ -412,11 +419,8 @@ async fn e2e_private_note() -> Result<()> {
     println!("\n\t[STEP 6] Wait for notes back\n");
     let consumable_notes = wait_for_consumable_notes(&mut client, account.id()).await?;
     println!("Received {} consumable notes.", consumable_notes.len());
-    let input_note_record = consumable_notes[0].clone().0;
-    let note_id = input_note_record.id();
     let consume_req = TransactionRequestBuilder::new()
-        .authenticated_input_notes([(note_id, None)])
-        .build()
+        .build_consume_notes(consumable_notes)
         .unwrap();
 
     let tx_id = client

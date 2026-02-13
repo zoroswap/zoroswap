@@ -17,7 +17,7 @@ on:
 env:
   RUST_LOG:            debug
   MIDEN_NODE_ENDPOINT: localhost
-  MIDEN_NODE_VERSION:  v0.12.5
+  MIDEN_NODE_VERSION:  v0.13.4
 
 jobs:
   e2e-tests:
@@ -120,13 +120,16 @@ jobs:
           # Format: Faucet account ID (BTC): "mtst1qz..."
           BTC_FAUCET=$(echo "$FAUCETS_OUTPUT" | grep "Faucet account ID (BTC):" | sed 's/.*: "\(.*\)"/\1/')
           ETH_FAUCET=$(echo "$FAUCETS_OUTPUT" | grep "Faucet account ID (ETH):" | sed 's/.*: "\(.*\)"/\1/')
+          USDC_FAUCET=$(echo "$FAUCETS_OUTPUT" | grep "Faucet account ID (USDC):" | sed 's/.*: "\(.*\)"/\1/')
 
           echo "BTC Faucet: $BTC_FAUCET"
           echo "ETH Faucet: $ETH_FAUCET"
+          echo "USDC Faucet: $USDC_FAUCET"
 
-          awk -v btc="$BTC_FAUCET" -v eth="$ETH_FAUCET" '
+          awk -v btc="$BTC_FAUCET" -v eth="$ETH_FAUCET" -v usdc="$USDC_FAUCET" '
             /name = "Bitcoin pool"/ { in_btc=1 }
             /name = "Ethereum pool"/ { in_btc=0; in_eth=1 }
+            /name = "USDC pool"/ { in_eth=0; in_usdc=1 }
             /faucet_id/ {
               if (in_btc) {
                 print "faucet_id = \"" btc "\""
@@ -136,6 +139,10 @@ jobs:
                 print "faucet_id = \"" eth "\""
                 in_eth=0
                 next
+              } else if (in_usdc) {
+                print "faucet_id = \"" usdc "\""
+                in_usdc=0
+                next
               }
             }
             { print }
@@ -143,11 +150,17 @@ jobs:
 
           cat config.toml
 
+      - name: Wait for faucets to be committed to a block
+        run: |
+          echo "Waiting 30s for faucet accounts to be committed to a block..."
+          sleep 30
+
       - name: Spawn pools
         id: spawn_pools
         run: |
-          POOLS_OUTPUT=$(cargo run --release --bin spawn_pools 2>&1)
+          POOLS_OUTPUT=$(cargo run --release --bin spawn_pools 2>&1) || true
           echo "$POOLS_OUTPUT"
+          echo "$POOLS_OUTPUT" | grep -qE "contract id:|New pool created:" || { echo "ERROR: spawn_pools failed"; exit 1; }
 
           # Extract pool id from output
           # Format: contract id: "mlcl1qpr..." or New pool created: "mlcl1qpr..."
@@ -160,6 +173,11 @@ jobs:
 
           echo "Pools spawned and config updated"
           cat config.toml
+
+      - name: Wait for pool account to be committed to a block
+        run: |
+          echo "Waiting 30s for pool account to be committed to a block..."
+          sleep 30
 
       - name: Copy store to testing store
         run: |
@@ -201,14 +219,20 @@ jobs:
           # needs to be set explicitly here, for `cargo test` to pass it through.
           MIDEN_NODE_ENDPOINT: localhost
         run: |
-          cargo test --release e2e_private_note -- --nocapture
+          cargo test --release e2e_private_note -- --exact --nocapture
+
+      - name: Run `e2e_private_deposit_withdraw` test
+        env:
+          MIDEN_NODE_ENDPOINT: localhost
+        run: |
+          cargo test --release e2e_private_deposit_withdraw_test -- --exact --nocapture
 
       - name: Run `e2e_public_note` test
         env:
           # needs to be set explicitly here, for `cargo test` to pass it through.
           MIDEN_NODE_ENDPOINT: localhost
         run: |
-          cargo test --release e2e_public_note -- --nocapture
+          cargo test --release e2e_public_note -- --exact --nocapture
 
       - name: Run `e2e_zoroswap_note_test` test
         env:

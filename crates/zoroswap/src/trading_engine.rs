@@ -20,7 +20,7 @@ use miden_client::{
     note::{Note, NoteRecipient, NoteTag, NoteType},
     transaction::TransactionRequestBuilder,
 };
-use miden_objects::{note::NoteDetails, vm::AdviceMap};
+use miden_protocol::{note::NoteDetails, vm::AdviceMap};
 use rand::seq::SliceRandom;
 use std::{
     sync::{Arc, Mutex},
@@ -81,7 +81,7 @@ enum NoteExecutionDetails {
 struct PayoutDetails {
     pub note: Note,
     pub args: Option<Word>,
-    pub advice_map_value: Vec<Felt>,
+    pub advice_map_value: Option<Vec<Felt>>,
     pub details: NoteDetails,
     pub tag: NoteTag,
     pub recipient: NoteRecipient,
@@ -233,14 +233,15 @@ impl TradingEngine {
                         }
                     }
 
+                    // TODO: Put this down on success after Poisoned note problem is resolved
+                    self.state.flush_open_orders();
+
                     // Execute swaps and broadcast success
                     match self.execute_orders(executions.clone(), client).await {
                         Ok(_) => {
                             for execution in &executions {
                                 let _ = self.state.pluck_note(&execution.details().order.id);
                             }
-
-                            self.state.flush_open_orders();
 
                             for (faucet_id, pool_state) in matching_cycle.new_pool_states {
                                 self.state.update_pool_state(&faucet_id, pool_state);
@@ -383,10 +384,11 @@ impl TradingEngine {
                 OrderType::Withdraw => {
                     let (amount_out, new_pool_state) = get_withdraw_asset_amount_out(
                         &base_pool_state,
-                        U256::from(order.asset_in.amount()),
+                        U256::from(order.asset_out.amount()),
                         U256::from(base_pool_state.lp_total_supply),
                         U256::from(base_pool_decimals),
                     );
+
                     let amount_out = amount_out.to::<u64>();
                     if amount_out > 0 && amount_out >= order.asset_out.amount() {
                         let note = self.state.get_note(&order.id)?;
@@ -571,25 +573,7 @@ impl TradingEngine {
                     ))
                 }
                 OrderExecution::Withdraw(execution_details) => {
-                    let mut details = self.prepare_payout(execution_details.clone(), false)?;
-                    details.args = Some(Word::from(&[
-                        Felt::new(execution_details.amount_out),
-                        Felt::new(
-                            execution_details
-                                .in_pool_balances
-                                .reserve_with_slippage
-                                .to::<u64>(),
-                        ),
-                        Felt::new(execution_details.in_pool_balances.reserve.to::<u64>()),
-                        Felt::new(
-                            execution_details
-                                .in_pool_balances
-                                .total_liabilities
-                                .to::<u64>(),
-                        ),
-                    ]));
-                    debug!("Withdraw payout details.args: {:?}", details.args);
-                    NoteExecutionDetails::Payout(details)
+                    NoteExecutionDetails::Payout(self.prepare_payout(execution_details, false)?)
                 }
             };
 
@@ -600,7 +584,9 @@ impl TradingEngine {
                     expected_future_notes.push((payout.details, payout.tag));
                     expected_output_recipients.push(payout.recipient);
                     input_notes.push((payout.note, payout.args));
-                    advice_map.insert(advice_key, payout.advice_map_value);
+                    if let Some(advice_map_value) = payout.advice_map_value {
+                        advice_map.insert(advice_key, advice_map_value);
+                    }
                 }
                 NoteExecutionDetails::ConsumeWithArgs((note, args)) => {
                     input_notes.push((note, Some(args)));
@@ -621,20 +607,20 @@ impl TradingEngine {
             }
         }
 
-        debug!("Input notes count: {:?}", input_notes.len());
-
-        let consume_req = TransactionRequestBuilder::new()
-            .extend_advice_map(advice_map)
-            .unauthenticated_input_notes(input_notes.clone())
-            .expected_future_notes(expected_future_notes)
-            .expected_output_recipients(expected_output_recipients.clone())
-            .build()
-            .map_err(|e| anyhow::anyhow!("Failed to build batch transaction request: {}", e))?;
-
+        info!("Input notes count: {:?}", input_notes.len());
         info!("All Recipients: {:?}", expected_output_recipients.len());
         for recipient in expected_output_recipients.clone() {
             info!("Recipient digest: {:?}", recipient.digest());
         }
+        info!("All Future notes: {:?}", expected_future_notes.len());
+
+        let consume_req = TransactionRequestBuilder::new()
+            .extend_advice_map(advice_map)
+            .input_notes(input_notes.clone())
+            .expected_future_notes(expected_future_notes)
+            .expected_output_recipients(expected_output_recipients.clone())
+            .build()
+            .map_err(|e| anyhow::anyhow!("Failed to build batch transaction request: {}", e))?;
 
         let tx_id = client
             .submit_new_transaction(pool_account_id, consume_req)
@@ -703,7 +689,6 @@ impl TradingEngine {
             user_account_id,
             vec![asset_out],
             NoteType::Public,
-            Felt::new(0),
             p2id_serial_num.into(),
         )?;
 
@@ -718,20 +703,53 @@ impl TradingEngine {
             out_pool_balances
         );
 
-        let advice_map_value = vec![
-            Felt::new(in_pool_balances.total_liabilities.to::<u64>()),
-            Felt::new(in_pool_balances.reserve.to::<u64>()),
-            Felt::new(in_pool_balances.reserve_with_slippage.to::<u64>()),
-            Felt::new(asset_out.unwrap_fungible().amount()),
-            Felt::new(out_pool_balances.total_liabilities.to::<u64>()),
-            Felt::new(out_pool_balances.reserve.to::<u64>()),
-            Felt::new(out_pool_balances.reserve_with_slippage.to::<u64>()),
-            Felt::new(0),
-        ];
+        let (args, advice_map_value): (Option<Word>, Option<Vec<Felt>>) =
+            if execution_details.order.order_type.eq(&OrderType::Swap) {
+                let advice_map_value = vec![
+                    Felt::new(in_pool_balances.total_liabilities.to::<u64>()),
+                    Felt::new(in_pool_balances.reserve.to::<u64>()),
+                    Felt::new(in_pool_balances.reserve_with_slippage.to::<u64>()),
+                    Felt::new(asset_out.unwrap_fungible().amount()),
+                    Felt::new(out_pool_balances.total_liabilities.to::<u64>()),
+                    Felt::new(out_pool_balances.reserve.to::<u64>()),
+                    Felt::new(out_pool_balances.reserve_with_slippage.to::<u64>()),
+                    Felt::new(0),
+                ];
+                (None, Some(advice_map_value))
+            } else if execution_details.order.order_type.eq(&OrderType::Deposit)
+                || execution_details.order.order_type.eq(&OrderType::Withdraw)
+            {
+                // set amount_out to zero so it triggers returning asset in MASM
+                let amount_out = if return_asset_in {
+                    0
+                } else {
+                    execution_details.amount_out
+                };
+
+                let args = Some(Word::from(&[
+                    Felt::new(amount_out),
+                    Felt::new(
+                        execution_details
+                            .in_pool_balances
+                            .reserve_with_slippage
+                            .to::<u64>(),
+                    ),
+                    Felt::new(execution_details.in_pool_balances.reserve.to::<u64>()),
+                    Felt::new(
+                        execution_details
+                            .in_pool_balances
+                            .total_liabilities
+                            .to::<u64>(),
+                    ),
+                ]));
+                (args, None)
+            } else {
+                (None, None)
+            };
 
         Ok(PayoutDetails {
             note,
-            args: None,
+            args,
             advice_map_value,
             details: NoteDetails::from(p2id.clone()),
             tag: p2id.metadata().tag(),
@@ -785,12 +803,10 @@ mod tests {
         address::NetworkId,
         asset::FungibleAsset,
         note::{
-            NoteAssets, NoteExecutionHint, NoteInputs, NoteMetadata, NoteRecipient, NoteScript,
-            NoteTag, NoteType,
+            NoteAssets, NoteInputs, NoteMetadata, NoteRecipient, NoteScript, NoteTag, NoteType,
         },
     };
-
-    use miden_objects::{FieldElement, account::AccountIdVersion};
+    use miden_protocol::{FieldElement, account::AccountIdVersion};
     use uuid::Uuid;
 
     struct TestContext {
@@ -911,15 +927,8 @@ mod tests {
             inputs[11] = user_felts[0];
 
             let note_inputs = NoteInputs::new(inputs).unwrap();
-            let note_tag = NoteTag::from_account_id(self.pool_account_id);
-            let metadata = NoteMetadata::new(
-                self.user_account_id,
-                NoteType::Public,
-                note_tag,
-                NoteExecutionHint::always(),
-                Felt::ZERO,
-            )
-            .unwrap();
+            let note_tag = NoteTag::with_account_target(self.pool_account_id);
+            let metadata = NoteMetadata::new(self.user_account_id, NoteType::Public, note_tag);
             let assets = NoteAssets::new(vec![asset_in.into()]).unwrap();
             let serial_num: Word = [Felt::new(1), Felt::new(2), Felt::new(3), Felt::new(4)].into();
             let recipient = NoteRecipient::new(serial_num, NoteScript::mock(), note_inputs);

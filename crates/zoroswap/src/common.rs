@@ -1,10 +1,9 @@
 use anyhow::Result;
 use miden_client::{
-    ClientError, Felt, ScriptBuilder, Word,
+    ClientError, Felt, Word,
     account::AccountId,
     note::{
-        Note, NoteAssets, NoteError, NoteExecutionHint, NoteMetadata, NoteRecipient, NoteScreener,
-        NoteTag, NoteType,
+        Note, NoteAssets, NoteError, NoteMetadata, NoteRecipient, NoteScreener, NoteTag, NoteType,
     },
     sync::StateSync,
 };
@@ -12,7 +11,9 @@ use miden_client::{
     DebugMode, builder::ClientBuilder, keystore::FilesystemKeyStore, rpc::GrpcClient,
 };
 use miden_client_sqlite_store::{ClientBuilderSqliteExt, SqliteStore};
-use miden_lib::{note::utils::build_p2id_recipient, transaction::TransactionKernel};
+use miden_protocol::transaction::TransactionKernel;
+use miden_standards::code_builder::CodeBuilder;
+use miden_standards::note::utils::build_p2id_recipient;
 use rusqlite::Connection;
 use std::sync::Arc;
 use std::{fs, path::PathBuf};
@@ -99,12 +100,19 @@ pub async fn instantiate_client(
         .in_debug_mode(DebugMode::Enabled)
         .build()
         .await?;
-    info!("Importing pool account");
-    client.import_account_by_id(config.pool_account_id).await?;
-    client
-        .add_note_tag(NoteTag::from_account_id(config.pool_account_id))
-        .await?;
+    // Sync first so the client knows the latest block height before importing accounts.
+    // Without this, import_account_by_id may fail because the client is at block 0.
     client.sync_state().await?;
+    let existing = client.get_account(config.pool_account_id).await?;
+    if existing.is_none() {
+        info!("Pool account not in local store, importing from node");
+        client.import_account_by_id(config.pool_account_id).await?;
+    } else {
+        info!("Pool account already in local store, skipping import");
+    }
+    client
+        .add_note_tag(NoteTag::with_account_target(config.pool_account_id))
+        .await?;
     info!("Miden client synced and ready");
     Ok(client)
 }
@@ -192,9 +200,7 @@ pub fn create_zoroswap_note(
     use miden_client::note::NoteInputs;
 
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
-    let assembler = TransactionKernel::assembler()
-        .with_debug_mode(true)
-        .with_warnings_as_errors(true);
+    let assembler = TransactionKernel::assembler().with_warnings_as_errors(true);
 
     let path: PathBuf = [manifest_dir, "masm", "notes", "ZOROSWAP.masm"]
         .iter()
@@ -208,24 +214,17 @@ pub fn create_zoroswap_note(
         .unwrap_or_else(|err| panic!("Error reading {}: {}", pool_code_path.display(), err));
 
     let pool_component_lib =
-        create_library(assembler.clone(), "zoro::zoropool", &pool_code).unwrap();
+        create_library(assembler.clone(), "zoroswap::zoropool", &pool_code).unwrap();
 
-    let note_script = ScriptBuilder::new(true)
+    let note_script = CodeBuilder::new()
         .with_dynamically_linked_library(&pool_component_lib)
         .unwrap()
         .compile_note_script(note_code)
         .unwrap();
 
     let inputs = NoteInputs::new(inputs)?;
-    let aux = Felt::new(0);
     // build the outgoing note
-    let metadata = NoteMetadata::new(
-        creator,
-        note_type,
-        note_tag,
-        NoteExecutionHint::always(),
-        aux,
-    )?;
+    let metadata = NoteMetadata::new(creator, note_type, note_tag);
 
     let assets = NoteAssets::new(assets)?;
     let recipient = NoteRecipient::new(swap_serial_num, note_script, inputs);
@@ -248,9 +247,7 @@ pub fn create_deposit_note(
     use miden_client::note::NoteInputs;
 
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
-    let assembler = TransactionKernel::assembler()
-        .with_debug_mode(true)
-        .with_warnings_as_errors(true);
+    let assembler = TransactionKernel::assembler().with_warnings_as_errors(true);
 
     let path: PathBuf = [manifest_dir, "masm", "notes", "DEPOSIT.masm"]
         .iter()
@@ -264,24 +261,17 @@ pub fn create_deposit_note(
         .unwrap_or_else(|err| panic!("Error reading {}: {}", pool_code_path.display(), err));
 
     let pool_component_lib =
-        create_library(assembler.clone(), "zoro::zoropool", &pool_code).unwrap();
+        create_library(assembler.clone(), "zoroswap::zoropool", &pool_code).unwrap();
 
-    let note_script = ScriptBuilder::new(true)
+    let note_script = CodeBuilder::new()
         .with_dynamically_linked_library(&pool_component_lib)
         .unwrap()
         .compile_note_script(note_code)
         .unwrap();
 
     let inputs = NoteInputs::new(inputs)?;
-    let aux = Felt::new(0);
     // build the outgoing note
-    let metadata = NoteMetadata::new(
-        creator,
-        note_type,
-        note_tag,
-        NoteExecutionHint::always(),
-        aux,
-    )?;
+    let metadata = NoteMetadata::new(creator, note_type, note_tag);
 
     let assets = NoteAssets::new(assets)?;
     let recipient = NoteRecipient::new(swap_serial_num, note_script, inputs);
@@ -304,9 +294,7 @@ pub fn create_withdraw_note(
     use miden_client::note::NoteInputs;
 
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
-    let assembler = TransactionKernel::assembler()
-        .with_debug_mode(true)
-        .with_warnings_as_errors(true);
+    let assembler = TransactionKernel::assembler().with_warnings_as_errors(true);
 
     let path: PathBuf = [manifest_dir, "masm", "notes", "WITHDRAW.masm"]
         .iter()
@@ -320,24 +308,17 @@ pub fn create_withdraw_note(
         .unwrap_or_else(|err| panic!("Error reading {}: {}", pool_code_path.display(), err));
 
     let pool_component_lib =
-        create_library(assembler.clone(), "zoro::zoropool", &pool_code).unwrap();
+        create_library(assembler.clone(), "zoroswap::zoropool", &pool_code).unwrap();
 
-    let note_script = ScriptBuilder::new(true)
+    let note_script = CodeBuilder::new()
         .with_dynamically_linked_library(&pool_component_lib)
         .unwrap()
         .compile_note_script(note_code)
         .unwrap();
 
     let inputs = NoteInputs::new(inputs)?;
-    let aux = Felt::new(0);
     // build the outgoing note
-    let metadata = NoteMetadata::new(
-        creator,
-        note_type,
-        note_tag,
-        NoteExecutionHint::always(),
-        aux,
-    )?;
+    let metadata = NoteMetadata::new(creator, note_type, note_tag);
 
     let assets = NoteAssets::new(assets)?;
     let recipient = NoteRecipient::new(swap_serial_num, note_script, inputs);
@@ -353,9 +334,7 @@ pub fn get_script_root_for_order_type(order_type: OrderType) -> Word {
         OrderType::Swap => "ZOROSWAP.masm",
     };
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
-    let assembler = TransactionKernel::assembler()
-        .with_debug_mode(true)
-        .with_warnings_as_errors(true);
+    let assembler = TransactionKernel::assembler().with_warnings_as_errors(true);
 
     let path: PathBuf = [manifest_dir, "masm", "notes", script].iter().collect();
     let note_code = fs::read_to_string(&path)
@@ -367,9 +346,9 @@ pub fn get_script_root_for_order_type(order_type: OrderType) -> Word {
         .unwrap_or_else(|err| panic!("Error reading {}: {}", pool_code_path.display(), err));
 
     let pool_component_lib =
-        create_library(assembler.clone(), "zoro::zoropool", &pool_code).unwrap();
+        create_library(assembler.clone(), "zoroswap::zoropool", &pool_code).unwrap();
 
-    let note_script = ScriptBuilder::new(true)
+    let note_script = CodeBuilder::new()
         .with_dynamically_linked_library(&pool_component_lib)
         .unwrap()
         .compile_note_script(note_code)

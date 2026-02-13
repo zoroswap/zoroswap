@@ -1,11 +1,11 @@
 use anyhow::{Context, Result, anyhow};
 use chrono::Utc;
 use dotenv::dotenv;
+use miden_client::crypto::FeltRng;
 use miden_client::store::TransactionFilter;
 use miden_client::{
     Felt, Word,
     asset::FungibleAsset,
-    crypto::FeltRng,
     keystore::FilesystemKeyStore,
     note::{NoteAssets, NoteDetails, NoteTag, NoteType},
     transaction::{OutputNote, TransactionRequestBuilder},
@@ -27,18 +27,22 @@ async fn e2e_public_note() -> Result<()> {
     // ---------------------------------------------------------------------------------
     println!("\n\t[STEP 0] Init client and config\n");
 
+    // Use a fresh store to avoid leftover data from prior test runs.
+    let store_path = "../../public_test_store.sqlite3";
+    let _ = std::fs::remove_file(store_path);
+
     let config = Config::from_config_file(
         "../../config.toml",
         "../../masm",
         "../../keystore",
-        "../../testing_store.sqlite3",
+        store_path,
     )?;
     println!("Config keystore_path: {}", config.keystore_path);
     assert!(
         config.liquidity_pools.len() > 1,
         "Less than 2 liquidity pools configured"
     );
-    let mut client = instantiate_client(config.clone(), "../../testing_store.sqlite3").await?;
+    let mut client = instantiate_client(config.clone(), store_path).await?;
     let endpoint = config.miden_endpoint;
     let keystore = FilesystemKeyStore::new(config.keystore_path.into()).unwrap();
     let sync_summary = client.sync_state().await?;
@@ -50,6 +54,13 @@ async fn e2e_public_note() -> Result<()> {
         .liquidity_pools
         .last()
         .expect("No liquidity pools found in config.");
+
+    // Import faucet accounts so we can mint tokens
+    for pool in &config.liquidity_pools {
+        if let Err(e) = client.import_account_by_id(pool.faucet_id).await {
+            eprintln!("Note: faucet import returned: {e:?}");
+        }
+    }
 
     println!("\nLatest block: {}", sync_summary.block_num);
 
@@ -103,7 +114,7 @@ async fn e2e_public_note() -> Result<()> {
     wait_for_note(&mut client, &account, &minted_note).await?;
 
     let consume_req = TransactionRequestBuilder::new()
-        .authenticated_input_notes([(minted_note.id(), None)])
+        .input_notes([(minted_note, None)])
         .build()
         .unwrap();
 
@@ -154,8 +165,8 @@ async fn e2e_public_note() -> Result<()> {
     let asset_in = FungibleAsset::new(pool0.faucet_id, amount_in)?;
     let asset_out = FungibleAsset::new(pool1.faucet_id, min_amount_out)?;
     let requested_asset_word: Word = asset_out.into();
-    let p2id_tag = NoteTag::from_account_id(account.id());
-    let deadline = (Utc::now().timestamp_millis() as u64) + 30000;
+    let p2id_tag = NoteTag::with_account_target(account.id());
+    let deadline = (Utc::now().timestamp_millis() as u64) + 120000;
     let beneficiary_id = account.id();
     let inputs = vec![
         requested_asset_word[0],
@@ -181,7 +192,7 @@ async fn e2e_public_note() -> Result<()> {
         vec![asset_in.into()],
         account.id(),
         zoroswap_serial_num,
-        NoteTag::from_account_id(config.pool_account_id),
+        NoteTag::with_account_target(config.pool_account_id),
         NoteType::Public,
     )?;
 
@@ -193,7 +204,7 @@ async fn e2e_public_note() -> Result<()> {
     // the ZOROSWAP note is consumed
     let p2id_assets = NoteAssets::new(vec![asset_out.into()])?;
     let p2id_note_details = NoteDetails::new(p2id_assets, expected_p2id_recipient);
-    let p2id_tag = NoteTag::from_account_id(account.id());
+    let p2id_tag = NoteTag::with_account_target(account.id());
 
     let note_req = TransactionRequestBuilder::new()
         .own_output_notes(vec![OutputNote::Full(zoroswap_note.clone())])
@@ -226,14 +237,8 @@ async fn e2e_public_note() -> Result<()> {
         account.id().prefix().as_felt()
     );
 
-    // Get the most recently created note (last in the list, which should be the newest)
-    let p2id_note = consumable_notes.last().expect("No P2ID notes found");
-
-    let input_note_record = p2id_note.0.clone();
-    let note_id = input_note_record.id();
     let consume_req = TransactionRequestBuilder::new()
-        .authenticated_input_notes([(note_id, None)])
-        .build()
+        .build_consume_notes(consumable_notes)
         .unwrap();
 
     let tx_id = client

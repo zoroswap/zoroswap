@@ -12,7 +12,7 @@ use miden_client::{
     rpc::Endpoint,
     transaction::TransactionRequestBuilder,
 };
-use miden_lib::account::{auth::AuthRpoFalcon512, faucets::BasicFungibleFaucet};
+use miden_standards::account::{auth::AuthFalcon512Rpo, faucets::BasicFungibleFaucet};
 use rand::RngCore;
 use serde::Deserialize;
 use zoro_miden_client::instantiate_simple_client;
@@ -67,14 +67,14 @@ async fn main() -> Result<()> {
     let sync_summary = client.sync_state().await?;
     println!("Latest block: {}", sync_summary.block_num);
 
-    let keystore: FilesystemKeyStore<rand::prelude::StdRng> =
+    let keystore: FilesystemKeyStore =
         FilesystemKeyStore::new(args.keystore_path.into())
             .unwrap_or_else(|err| panic!("Failed to create keystore: {err:?}"));
 
     println!("\nDeploying a new fungible faucet.");
 
     // Generate key pair
-    let key_pair = AuthSecretKey::new_rpo_falcon512_with_rng(client.rng());
+    let key_pair = AuthSecretKey::new_falcon512_rpo_with_rng(client.rng());
     for faucet in faucets {
         // Faucet parameters
         let symbol = TokenSymbol::new(&faucet.symbol)
@@ -90,7 +90,7 @@ async fn main() -> Result<()> {
         let builder = AccountBuilder::new(init_seed)
             .account_type(AccountType::FungibleFaucet)
             .storage_mode(AccountStorageMode::Public)
-            .with_auth_component(AuthRpoFalcon512::new(key_pair.public_key().to_commitment()))
+            .with_auth_component(AuthFalcon512Rpo::new(key_pair.public_key().to_commitment()))
             .with_component(
                 BasicFungibleFaucet::new(symbol, decimals, max_supply)
                     .unwrap_or_else(|err| panic!("Failed to create BasicFungibleFaucet: {err:?}")),

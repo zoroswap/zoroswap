@@ -7,6 +7,8 @@ store.sqlite3
 ammstate_store.sqlite3
 faucet_store.sqlite3
 listening_store.sqlite3
+deposit_test_store.sqlite3
+swap_test_store.sqlite3
 trading_store.sqlite3
 testing_store.sqlite3
 .DS_Store*
