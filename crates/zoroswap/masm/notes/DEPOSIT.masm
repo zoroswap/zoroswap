@@ -222,7 +222,6 @@ proc execute_DEPOSIT
         exec.create_p2id_reverse_note
         call.zoropool::bounce_asset
     else
-        debug.mem
         mem_load.LP_AMOUNT_OUT mem_load.DEPOSIT_CREATOR_ID_SUFFIX mem_load.DEPOSIT_CREATOR_ID_PREFIX
         # => [creator_id_prefix, creator_id_suffix]
         push.0 mem_load.RESERVE_WITH_SLIPPAGE mem_load.RESERVE mem_load.LIABILITIES 
