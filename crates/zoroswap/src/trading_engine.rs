@@ -233,14 +233,15 @@ impl TradingEngine {
                         }
                     }
 
+                    // TODO: Put this down on success after Poisoned note problem is resolved
+                    self.state.flush_open_orders();
+
                     // Execute swaps and broadcast success
                     match self.execute_orders(executions.clone(), client).await {
                         Ok(_) => {
                             for execution in &executions {
                                 let _ = self.state.pluck_note(&execution.details().order.id);
                             }
-
-                            self.state.flush_open_orders();
 
                             for (faucet_id, pool_state) in matching_cycle.new_pool_states {
                                 self.state.update_pool_state(&faucet_id, pool_state);
@@ -383,7 +384,7 @@ impl TradingEngine {
                 OrderType::Withdraw => {
                     let (amount_out, new_pool_state) = get_withdraw_asset_amount_out(
                         &base_pool_state,
-                        U256::from(order.asset_in.amount()),
+                        U256::from(order.asset_out.amount()),
                         U256::from(base_pool_state.lp_total_supply),
                         U256::from(base_pool_decimals),
                     );

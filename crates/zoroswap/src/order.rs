@@ -129,12 +129,12 @@ impl Order {
         debug!(note_inputs = ?note_inputs, "Parsing deposit note");
         let vals = note.inputs().values();
         let asset_in = asset_in.unwrap_fungible();
-        let min_lp_out: u64 = vals[1].into();
+        let min_lp_out: u64 = vals[0].into();
         let asset_out = FungibleAsset::new(asset_in.faucet_id(), min_lp_out)?;
         debug!(asset_in = ?asset_in, asset_out = ?asset_out, "Deposit note assets");
 
-        let deadline: u64 = vals[2].into();
-        let p2id_tag: u64 = vals[3].into();
+        let deadline: u64 = vals[1].into();
+        let p2id_tag: u64 = vals[2].into();
         let deadline = DateTime::from_timestamp_millis(deadline as i64).ok_or(anyhow!(
             "Error parsing deadline for order. Timestamp: {deadline}"
         ))?;
