@@ -28,7 +28,9 @@ struct Accounts {
     pub user: Account,
 }
 
-async fn set_up_with_store(store_path: &str) -> Result<(
+async fn set_up_with_store(
+    store_path: &str,
+) -> Result<(
     Config,
     MidenClient,
     FilesystemKeyStore,
@@ -70,7 +72,7 @@ async fn set_up_with_store(store_path: &str) -> Result<(
         user: account.clone(),
     };
 
-    println!("\n\t[STEP 2] Fund user wallet\n");
+    println!("\n\t[STEP 1] Fund user wallet\n");
     let pool0 = config
         .liquidity_pools
         .first()
@@ -154,18 +156,19 @@ async fn e2e_private_deposit_withdraw_test() -> Result<()> {
             .await?;
 
     let amount_in = 4;
-    println!("\n\t[STEP 1] Create DEPOSIT note\n");
+    println!("\n\t[STEP 2] Create DEPOSIT note\n");
     let amount_in: u64 = amount_in * 10u64.pow(pool.decimals as u32 - 2);
     let max_slippage = 0.005; // 0.5 %
     let min_lp_amount_out = ((amount_in as f64) * (1.0 - max_slippage)) as u64;
+    println!("\n\t min amount out: {min_lp_amount_out}");
     let asset_in = FungibleAsset::new(pool.faucet_id, amount_in)?;
     let p2id_tag = NoteTag::with_account_target(account.id());
     let deadline = (Utc::now().timestamp_millis() as u64) + 120000;
     let inputs = vec![
-        Felt::new(0),
         Felt::new(min_lp_amount_out), // min_lp_amount_out
         Felt::new(deadline),          // deadline
         p2id_tag.into(),              // p2id tag
+        Felt::new(0),
         Felt::new(0),
         Felt::new(0),
         account.id().suffix(),
@@ -219,10 +222,7 @@ async fn e2e_private_deposit_withdraw_test() -> Result<()> {
         "LP total supply didnt increase"
     );
 
-    println!("\n\t[STEP 2] Create WITHDRAW note\n");
-    // Recreate the client since the pool account's state changed on-chain.
-    let mut client = instantiate_client(config.clone(), store_path).await?;
-
+    println!("\n\t[STEP 3] Create WITHDRAW note\n");
     let amount_to_withdraw = 2;
     let amount_to_withdraw: u64 = amount_to_withdraw * 10u64.pow(pool.decimals as u32 - 2);
     let max_slippage = 0.005; // 0.5 %
@@ -231,7 +231,7 @@ async fn e2e_private_deposit_withdraw_test() -> Result<()> {
     let asset_out: FungibleAsset = FungibleAsset::new(pool.faucet_id, min_asset_amount_out)?;
     // let requested_asset_word: Word = asset_out.into();
     let p2id_tag = NoteTag::with_account_target(account.id());
-    let deadline = (Utc::now().timestamp_millis() as u64) + 120000;
+    let deadline = (Utc::now().timestamp_millis() as u64) - 120000;
     let asset_out_word: Word = asset_out.into();
     let inputs = vec![
         asset_out_word[0],
@@ -251,7 +251,7 @@ async fn e2e_private_deposit_withdraw_test() -> Result<()> {
     let withdraw_serial_num = client.rng().draw_word();
     println!("######################################################### deadline: {deadline}");
     println!(
-        "Made an deposit note for {amount_in} {} expecting  at least {min_lp_amount_out} lp amount out.",
+        "Made withdrawal note for {amount_to_withdraw} {} expecting  at least {min_asset_amount_out} lp amount out.",
         pool.symbol
     );
     let withdraw_note = create_withdraw_note(

@@ -5,8 +5,8 @@ edition = "2024"
 license = "GPL-3.0-only"
 
 [dependencies]
-miden-client = { version = "0.13", features = ["testing", "tonic"] }
-miden-client-sqlite-store = { version = "0.13" }
+miden-client = { version = "0.13.1", features = ["testing", "tonic"] }
+miden-client-sqlite-store = { version = "0.13.1" }
 miden-standards = { version = "0.13", default-features = false }
 miden-protocol = { version = "0.13", default-features = false, features = ["testing"] }
 miden-assembly = "0.20"

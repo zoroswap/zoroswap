@@ -189,7 +189,6 @@ proc create_p2id_reverse_note
     exec.build_p2id_recipient_hash
     # => [P2ID_RECIPIENT, pad(8), ASSET_TO_BE_SENT]
 
-
     push.PUBLIC_NOTE
     # => [note_type, P2ID_RECIPIENT, pad(8), ASSET_TO_BE_SENT]
     mem_load.P2ID_TAG
@@ -202,9 +201,8 @@ proc create_p2id_reverse_note
 
     swapw.2 swapw
     
-    call.zoropool::bounce_asset
     # => [ASSET, note_idx, pad(3), NEW_OUT_POOL_STATE, pad(4)]
-    dropw dropw drop
+    # dropw dropw drop
     # => []
 end
 
@@ -219,10 +217,10 @@ proc execute_DEPOSIT
     mem_load.MIN_LP_AMOUNT_OUT
     lt
     # min amount out is not met
-
     if.true
         mem_loadw_be.DEPOSIT_ASSET_WORD
         exec.create_p2id_reverse_note
+        call.zoropool::bounce_asset
     else
         mem_load.LP_AMOUNT_OUT mem_load.DEPOSIT_CREATOR_ID_SUFFIX mem_load.DEPOSIT_CREATOR_ID_PREFIX
         # => [creator_id_prefix, creator_id_suffix]
@@ -231,12 +229,8 @@ proc execute_DEPOSIT
         push.0.0.0.0
         mem_loadw_be.DEPOSIT_ASSET_WORD
         # => [ASSET, liabilities,reserve, reserve_with_slippage, 0, creator_id_prefix, creator_id_suffix]
-    
         call.zoropool::deposit
-
     end
-
-
 
     #mem_load.POOL0_RESERVE_WITH_SLIPPAGE mem_load.POOL0_RESERVE mem_load.POOL0_LIABILITIES 
     #call.zoropool::set_pool0_state
@@ -244,14 +238,9 @@ end
 
 begin
     exec.store_args_to_memory
-
     exec.store_inputs_to_memory
-
     exec.store_asset_in_to_memory
-
     exec.store_p2id_script_hash
-
     exec.execute_DEPOSIT
-
     exec.sys::truncate_stack
 end
