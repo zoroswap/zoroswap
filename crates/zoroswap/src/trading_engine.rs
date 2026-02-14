@@ -384,7 +384,7 @@ impl TradingEngine {
                 OrderType::Withdraw => {
                     let (amount_out, new_pool_state) = get_withdraw_asset_amount_out(
                         &base_pool_state,
-                        U256::from(order.asset_out.amount()),
+                        U256::from(order.asset_in.amount()),
                         U256::from(base_pool_state.lp_total_supply),
                         U256::from(base_pool_decimals),
                     );
