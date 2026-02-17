@@ -45,6 +45,7 @@ impl GuardedFaucet {
             instantiate_faucet_client(self.config.clone(), self.config.store_path).await?;
 
         while let Some(mint_instruction) = self.rx.recv().await {
+            Self::sync_state(&mut client, &state_sync, mint_instruction.faucet_id).await?;
             let last_mint = self
                 .recipients
                 .get(&(mint_instruction.account_id, mint_instruction.faucet_id))
@@ -102,9 +103,6 @@ impl GuardedFaucet {
                         );
                     }
                 }
-
-                // sync commitments
-                Self::sync_state(&mut client, &state_sync, mint_instruction.faucet_id).await?;
             } else {
                 debug!(
                     "Rate limited: {} from faucet {}",
@@ -129,10 +127,23 @@ impl GuardedFaucet {
             NoteType::Public,
             client.rng(),
         )?;
-        let tx_id = client
-            .submit_new_transaction(faucet_id, transaction_request)
+
+        let tx_result = client
+            .execute_transaction(faucet_id, transaction_request)
             .await?;
-        Ok(format!("{:?}", tx_id))
+
+        // TODO: add remote proving
+        let proven_transaction = client.prove_transaction(&tx_result).await?;
+
+        let submission_height = client
+            .submit_proven_transaction(proven_transaction, &tx_result)
+            .await?;
+
+        client
+            .apply_transaction(&tx_result, submission_height)
+            .await?;
+
+        Ok(format!("{:?}", tx_result.id()))
     }
 
     /// Syncs only the faucet account's commitments instead of calling `client.sync_state()`.
