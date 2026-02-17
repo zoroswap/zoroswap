@@ -655,7 +655,7 @@ mod tests {
 
     #[test]
     fn test_constants() {
-        assert_eq!(FEE_PRECISION, U256::from(1_000_000_000_000_000_000u64));
-        assert_eq!(_PRICE_SCALING_FACTOR, 1_000_000_000_000_000_000i128);
+        assert_eq!(FEE_PRECISION, U256::from(1_000_000u64));
+        assert_eq!(_PRICE_SCALING_FACTOR, 1_000_000_000_000i128);
     }
 }
