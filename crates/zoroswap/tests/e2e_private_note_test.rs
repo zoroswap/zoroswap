@@ -28,7 +28,7 @@ async fn e2e_private_deposit_withdraw_test() -> Result<()> {
     let pool = setup.pools[0];
 
     println!("\n\t[STEP 1] Fund user wallet\n");
-    fund_user_wallet(&mut setup.client, &account, &pool, 0).await?;
+    fund_user_wallet(&mut setup.client, &account, &pool, None).await?;
 
     let lp_total_supply_before = fetch_lp_total_supply_from_chain(
         &mut setup.client,
@@ -198,7 +198,7 @@ async fn e2e_private_note() -> Result<()> {
     let pool1 = setup.pools[1];
 
     println!("\n\t[STEP 1] Fund user wallet\n");
-    fund_user_wallet(&mut setup.client, &account, &pool0, 0).await?;
+    fund_user_wallet(&mut setup.client, &account, &pool0, None).await?;
 
     let (balances_pool_0, _) = fetch_pool_state_from_chain(
         &mut setup.client,
