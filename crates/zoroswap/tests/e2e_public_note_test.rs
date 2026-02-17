@@ -55,7 +55,7 @@ async fn e2e_public_note() -> Result<()> {
 
     // ---------------------------------------------------------------------------------
     println!("\n\t[STEP 1] Fund user wallet\n");
-    fund_user_wallet(&mut setup.client, &account, &pool0, 0).await?;
+    fund_user_wallet(&mut setup.client, &account, &pool0, None).await?;
 
     // ---------------------------------------------------------------------------------
     println!("\n\t[STEP 2] Fetching latest prices from the oracle\n");

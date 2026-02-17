@@ -71,18 +71,14 @@ pub async fn setup_test_environment(store_path: &str) -> Result<TestSetup> {
 }
 
 /// Mint tokens from a pool's faucet and consume them into the user's wallet.
-/// Pass `amount = 0` to use the default (0.05 of the pool's token).
+/// Pass `None` to use the default (0.05 of the pool's token).
 pub async fn fund_user_wallet(
     client: &mut MidenClient,
     account: &Account,
     pool: &LiquidityPoolConfig,
-    amount: u64,
+    amount: Option<u64>,
 ) -> Result<()> {
-    let amount: u64 = if amount > 0 {
-        amount
-    } else {
-        5 * 10u64.pow(pool.decimals as u32 - 2)
-    }; // 0.05
+    let amount = amount.unwrap_or_else(|| 5 * 10u64.pow(pool.decimals as u32 - 2)); // default: 0.05
     let fungible_asset = FungibleAsset::new(pool.faucet_id, amount)?;
     client.import_account_by_id(pool.faucet_id).await?;
     let transaction_request = TransactionRequestBuilder::new().build_mint_fungible_asset(
@@ -174,8 +170,8 @@ pub fn build_zoroswap_inputs(
         requested_asset_word[3],
         Felt::new(deadline),
         p2id_tag.into(),
-        Felt::new(0),
-        Felt::new(0),
+        Felt::new(0), // padding (unused by note script)
+        Felt::new(0), // padding (unused by note script)
         beneficiary_id.suffix(),
         beneficiary_id.prefix().into(),
         sender_id.suffix(),
