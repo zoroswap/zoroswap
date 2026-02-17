@@ -69,6 +69,7 @@ pub struct TradingEngine {
     store_path: String,
     broadcaster: Arc<EventBroadcaster>,
     last_match_time: Arc<Mutex<Instant>>,
+    last_pool_refresh: Instant,
     network_id: NetworkId,
     pool_account_id: AccountId,
 }
@@ -97,6 +98,7 @@ impl TradingEngine {
             state,
             broadcaster,
             last_match_time: Arc::new(Mutex::new(Instant::now())),
+            last_pool_refresh: Instant::now(),
             network_id,
             pool_account_id,
         }
@@ -220,11 +222,15 @@ impl TradingEngine {
             return;
         }
 
-        // Refresh pool states from chain before matching to prevent stale
-        // reserve_with_slippage values from causing MASM assertion failures.
-        if let Err(e) = self.refresh_pool_states_from_chain(client).await {
-            error!("Failed to refresh pool states from chain: {e:?}");
-            return;
+        // Periodically refresh pool states from chain to correct drift caused
+        // by external interactions with the pool account.
+        const POOL_REFRESH_INTERVAL: Duration = Duration::from_secs(30);
+        if self.last_pool_refresh.elapsed() >= POOL_REFRESH_INTERVAL {
+            if let Err(e) = self.refresh_pool_states_from_chain(client).await {
+                error!("Failed to refresh pool states from chain: {e:?}");
+                return;
+            }
+            self.last_pool_refresh = Instant::now();
         }
 
         // Run existing matching logic
@@ -322,6 +328,7 @@ impl TradingEngine {
                                     "Failed to refresh pool states after execution failure: {sync_err:?}"
                                 );
                             }
+                            self.last_pool_refresh = Instant::now();
                         }
                     }
                 }
