@@ -54,20 +54,11 @@ async fn e2e_public_note() -> Result<()> {
     println!("pool vault on-chain: {vault:?}");
 
     // ---------------------------------------------------------------------------------
-    println!("\n\t[STEP 1] Create user account\n");
-    println!(
-        "Created Account ⇒ ID: {:?}",
-        account
-            .id()
-            .to_bech32(setup.config.miden_endpoint.to_network_id())
-    );
-
-    // ---------------------------------------------------------------------------------
-    println!("\n\t[STEP 2] Fund user wallet\n");
+    println!("\n\t[STEP 1] Fund user wallet\n");
     fund_user_wallet(&mut setup.client, &account, &pool0, 0).await?;
 
     // ---------------------------------------------------------------------------------
-    println!("\n\t[STEP 3] Fetching latest prices from the oracle\n");
+    println!("\n\t[STEP 2] Fetching latest prices from the oracle\n");
 
     let prices = get_oracle_prices(
         setup.config.oracle_https,
@@ -83,7 +74,7 @@ async fn e2e_public_note() -> Result<()> {
     );
 
     // ---------------------------------------------------------------------------------
-    println!("\n\t[STEP 4] Create user zoroswap note\n");
+    println!("\n\t[STEP 3] Create user zoroswap note\n");
     let amount_in = 3 * 10u64.pow(pool0.decimals as u32 - 2); // 0.03
     let max_slippage = 0.005; // 0.5 %
     let min_amount_out =
@@ -144,7 +135,7 @@ async fn e2e_public_note() -> Result<()> {
     setup.client.sync_state().await?;
 
     // ---------------------------------------------------------------------------------
-    println!("\n\t[STEP 5] Wait for notes back\n");
+    println!("\n\t[STEP 4] Wait for notes back\n");
     println!("Waiting for consumable note for {account:?}");
     let consumable_notes =
         zoro_miden_client::wait_for_consumable_notes(&mut setup.client, account.id()).await?;
@@ -175,7 +166,7 @@ async fn e2e_public_note() -> Result<()> {
     print_transaction_info(&tx_id);
 
     // ---------------------------------------------------------------------------------
-    println!("\n\t[STEP 6] Confirm pool states updated accordingly\n");
+    println!("\n\t[STEP 5] Confirm pool states updated accordingly\n");
     assert_pool_states_changed(
         &mut setup.client,
         setup.config.pool_account_id,

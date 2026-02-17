@@ -220,7 +220,7 @@ async fn e2e_private_note() -> Result<()> {
     println!("pool vault on-chain: {vault:?}");
 
     // ---------------------------------------------------------------------------------
-    println!("\n\t[STEP 3] Fetching latest prices from the oracle\n");
+    println!("\n\t[STEP 2] Fetching latest prices from the oracle\n");
 
     let prices = get_oracle_prices(
         setup.config.oracle_https,
@@ -236,7 +236,7 @@ async fn e2e_private_note() -> Result<()> {
     );
 
     // ---------------------------------------------------------------------------------
-    println!("\n\t[STEP 4] Create user zoroswap note\n");
+    println!("\n\t[STEP 3] Create user zoroswap note\n");
     let amount_in = 3 * 10u64.pow(pool0.decimals as u32 - 2); // 0.03
     let max_slippage = 0.005; // 0.5 %
     let min_amount_out = (((pool0_price as f64) / (pool1_price as f64))
@@ -286,7 +286,7 @@ async fn e2e_private_note() -> Result<()> {
     setup.client.sync_state().await?;
 
     // ---------------------------------------------------------------------------------
-    println!("\n\t[STEP 5] Send note to the server\n");
+    println!("\n\t[STEP 4] Send note to the server\n");
 
     let serialized_note = serialize_note(&zoroswap_note)?;
     send_to_server(
@@ -297,7 +297,7 @@ async fn e2e_private_note() -> Result<()> {
     .await?;
 
     // ---------------------------------------------------------------------------------
-    println!("\n\t[STEP 6] Wait for notes back\n");
+    println!("\n\t[STEP 5] Wait for notes back\n");
     let consumable_notes =
         zoro_miden_client::wait_for_consumable_notes(&mut setup.client, account.id()).await?;
     println!("Received {} consumable notes.", consumable_notes.len());
@@ -317,7 +317,7 @@ async fn e2e_private_note() -> Result<()> {
     print_transaction_info(&tx_id);
 
     // ---------------------------------------------------------------------------------
-    println!("\n\t[STEP 7] Confirm pool states updated accordingly\n");
+    println!("\n\t[STEP 6] Confirm pool states updated accordingly\n");
     assert_pool_states_changed(
         &mut setup.client,
         setup.config.pool_account_id,

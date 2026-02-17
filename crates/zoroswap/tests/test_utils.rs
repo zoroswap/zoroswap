@@ -103,7 +103,7 @@ pub async fn fund_user_wallet(
         .get_transactions(TransactionFilter::Ids(vec![tx_id]))
         .await?
         .pop()
-        .with_context(|| "failed to find transaction {tx_id:?} after submission")
+        .with_context(|| format!("failed to find transaction {tx_id:?} after submission"))
         .unwrap();
     let minted_note = match transaction.details.output_notes.get_note(0) {
         OutputNote::Full(n) => n.clone(),
@@ -202,7 +202,7 @@ pub async fn assert_pool_states_changed(
     let new_vault = fetch_vault_for_account_from_chain(client, pool_account_id).await?;
 
     println!("previous balances for liq pool 0: {old_balances_0:?}");
-    println!("previouse balances for liq pool 1: {old_balances_1:?}");
+    println!("previous balances for liq pool 1: {old_balances_1:?}");
     println!("new balances for liq pool 0: {new_balances_pool_0:?}");
     println!("new balances for liq pool 1: {new_balances_pool_1:?}");
     println!("pool vault: {old_vault:?}");
@@ -215,7 +215,7 @@ pub async fn assert_pool_states_changed(
         *old_balances_1 != new_balances_pool_1,
         "Balances for pool 1 havent changed"
     );
-    assert!(new_vault != *old_vault, "Balances for pool 1 havent changed");
+    assert!(new_vault != *old_vault, "Vault hasn't changed");
 
     Ok(())
 }
