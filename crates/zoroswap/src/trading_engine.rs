@@ -3,8 +3,8 @@ use crate::{
     common::{instantiate_client, print_transaction_info},
     order::{Order, OrderType},
     pool::{
-        PoolBalances, PoolState, fetch_lp_total_supply_from_chain, fetch_pool_state_from_chain,
-        get_curve_amount_out, get_deposit_lp_amount_out, get_withdraw_asset_amount_out,
+        PoolBalances, PoolState, extract_pool_state_from_account, get_curve_amount_out,
+        get_deposit_lp_amount_out, get_withdraw_asset_amount_out,
     },
     websocket::{EventBroadcaster, OrderStatus, OrderUpdateDetails, OrderUpdateEvent},
 };
@@ -18,6 +18,7 @@ use miden_client::{
     address::NetworkId,
     asset::{Asset, FungibleAsset},
     note::{Note, NoteRecipient, NoteTag, NoteType},
+    rpc::{GrpcClient, NodeRpcClient, domain::account::FetchedAccount},
     transaction::TransactionRequestBuilder,
 };
 use miden_protocol::{note::NoteDetails, vm::AdviceMap};
@@ -68,6 +69,7 @@ pub struct TradingEngine {
     state: Arc<AmmState>,
     store_path: String,
     broadcaster: Arc<EventBroadcaster>,
+    rpc_client: Arc<GrpcClient>,
     last_match_time: Arc<Mutex<Instant>>,
     last_pool_refresh: Instant,
     network_id: NetworkId,
@@ -93,10 +95,12 @@ impl TradingEngine {
         let config = state.config();
         let pool_account_id = config.pool_account_id;
         let network_id = config.miden_endpoint.to_network_id();
+        let rpc_client = Arc::new(GrpcClient::new(&config.miden_endpoint, 30_000));
         Self {
             store_path: store_path.to_string(),
             state,
             broadcaster,
+            rpc_client,
             last_match_time: Arc::new(Mutex::new(Instant::now())),
             last_pool_refresh: Instant::now(),
             network_id,
@@ -181,17 +185,24 @@ impl TradingEngine {
     }
 
     /// Refresh in-memory pool states from the on-chain account storage.
-    /// This ensures the trading engine's view of reserves, slippage, and liabilities
-    /// matches what the MASM contract will validate against.
-    async fn refresh_pool_states_from_chain(&self, client: &mut MidenClient) -> Result<()> {
-        client.sync_state().await?;
-        let pool_account_id = self.pool_account_id;
+    /// Uses a single `get_account_details` RPC call to fetch the pool account,
+    /// then extracts all pool states from its storage slots locally.
+    async fn refresh_pool_states_from_chain(&self) -> Result<()> {
+        let fetched = self
+            .rpc_client
+            .get_account_details(self.pool_account_id)
+            .await
+            .map_err(|e| anyhow!("Failed to fetch pool account from node: {e}"))?;
+        let account = match fetched {
+            FetchedAccount::Public(account, _) => account,
+            FetchedAccount::Private(_, _) => {
+                return Err(anyhow!("Pool account is private, cannot read state"));
+            }
+        };
         for pool_config in &self.state.config().liquidity_pools {
             let faucet_id = pool_config.faucet_id;
-            let (new_balances, new_settings) =
-                fetch_pool_state_from_chain(client, pool_account_id, faucet_id).await?;
-            let lp_total_supply =
-                fetch_lp_total_supply_from_chain(client, pool_account_id, faucet_id).await?;
+            let (new_balances, new_settings, lp_total_supply) =
+                extract_pool_state_from_account(&account, faucet_id)?;
             if let Some(mut pool) = self.state.liquidity_pools().get_mut(&faucet_id) {
                 pool.balances = new_balances;
                 pool.settings = new_settings;
@@ -226,7 +237,7 @@ impl TradingEngine {
         // by external interactions with the pool account.
         const POOL_REFRESH_INTERVAL: Duration = Duration::from_secs(30);
         if self.last_pool_refresh.elapsed() >= POOL_REFRESH_INTERVAL {
-            if let Err(e) = self.refresh_pool_states_from_chain(client).await {
+            if let Err(e) = self.refresh_pool_states_from_chain().await {
                 error!("Failed to refresh pool states from chain: {e:?}");
                 return;
             }
@@ -322,7 +333,7 @@ impl TradingEngine {
                             error!("Failed to execute orders: {e:?}");
                             // Refresh pool state from chain to recover from drift
                             if let Err(sync_err) =
-                                self.refresh_pool_states_from_chain(client).await
+                                self.refresh_pool_states_from_chain().await
                             {
                                 error!(
                                     "Failed to refresh pool states after execution failure: {sync_err:?}"

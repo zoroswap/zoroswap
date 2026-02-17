@@ -109,6 +109,49 @@ impl PoolState {
     }
 }
 
+/// Extracts pool balances, settings, and LP total supply from an `Account` object
+/// without any RPC or store calls. Use with an account fetched via
+/// `rpc_client.get_account_details()` for a lightweight single-RPC refresh.
+pub fn extract_pool_state_from_account(
+    account: &Account,
+    faucet_id: AccountId,
+) -> Result<(PoolBalances, PoolSettings, u64)> {
+    let storage = account.storage();
+    let asset_address: Word = [
+        Felt::new(0),
+        Felt::new(0),
+        faucet_id.suffix(),
+        faucet_id.prefix().as_felt(),
+    ]
+    .into();
+
+    let balances_slot = StorageSlotName::new("zoroswap::pool_state").expect("valid slot name");
+    let curve_slot = StorageSlotName::new("zoroswap::pool_curve").expect("valid slot name");
+    let fees_slot = StorageSlotName::new("zoroswap::fees").expect("valid slot name");
+    let lp_supply_slot = StorageSlotName::new("zoroswap::user_deposits").expect("valid slot name");
+
+    let pool_balances_raw = storage.get_map_item(&balances_slot, asset_address)?;
+    let pool_curve = storage.get_map_item(&curve_slot, asset_address)?;
+    let pool_fees = storage.get_map_item(&fees_slot, asset_address)?;
+    let total_supply_raw = storage.get_map_item(&lp_supply_slot, asset_address)?;
+
+    let balances = PoolBalances {
+        reserve_with_slippage: U256::from(pool_balances_raw[1].as_int()),
+        reserve: U256::from(pool_balances_raw[2].as_int()),
+        total_liabilities: U256::from(pool_balances_raw[3].as_int()),
+    };
+    let settings = PoolSettings {
+        beta: I256::from_str(&pool_curve[0].as_int().to_string())?,
+        c: I256::from_str(&pool_curve[1].as_int().to_string())?,
+        swap_fee: U256::from(pool_fees[0].as_int()),
+        backstop_fee: U256::from(pool_fees[1].as_int()),
+        protocol_fee: U256::from(pool_fees[2].as_int()),
+    };
+    let lp_total_supply = total_supply_raw[0].as_int();
+
+    Ok((balances, settings, lp_total_supply))
+}
+
 pub async fn fetch_lp_total_supply_from_chain(
     client: &mut MidenClient,
     pool_account_id: AccountId,
