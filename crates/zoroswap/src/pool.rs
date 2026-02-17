@@ -600,7 +600,7 @@ mod tests {
             },
             pool_account_id: AccountId::from_hex("0x000000000000000000000000000000").unwrap(),
             faucet_account_id: AccountId::from_hex("0x000000000000000000000000000000").unwrap(),
-            lp_total_supply: parse_ether("1000").unwrap().to::<u64>(),
+            lp_total_supply: 1_000_000_000u64,
         };
         let quote_pool = base_pool;
         let result = get_curve_amount_out(
@@ -615,7 +615,12 @@ mod tests {
         assert!(result.is_ok());
         let amount_out = result.unwrap().0;
         println!("final amount_out: {}", amount_out);
-        let expected_amount_out = U256::from(9994944708456040182u64);
+        let amount_in = parse_ether("10").unwrap(); // 10e18
+        let total_fee = U256::from(600); // backstop (300) + protocol (300)
+        let lp_fee = U256::from(200); // swap fee
+        let expected_amount_out = amount_in
+            - amount_in * total_fee / FEE_PRECISION // backstop + protocol fee
+            - amount_in * lp_fee / FEE_PRECISION; // swap (LP) fee
         assert_eq!(amount_out, expected_amount_out);
     }
 
