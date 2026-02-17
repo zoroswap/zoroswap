@@ -116,7 +116,15 @@ impl GuardedFaucet {
                 }
 
                 // sync commitments
-                Self::sync_state(&mut client, &state_sync, mint_instruction.faucet_id).await?;
+                if let Err(e) =
+                    Self::sync_state(&mut client, &state_sync, mint_instruction.faucet_id).await
+                {
+                    error!(
+                        faucet = %mint_instruction.faucet_id.to_hex(),
+                        error = ?e,
+                        "Failed to sync after mint"
+                    );
+                }
             } else {
                 debug!(
                     "Rate limited: {} from faucet {}",

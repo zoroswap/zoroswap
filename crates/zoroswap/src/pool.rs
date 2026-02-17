@@ -163,17 +163,8 @@ pub async fn fetch_lp_total_supply_from_chain(
         pool_account_id
     ))?;
     let account = extract_full_account(record.account_data())?;
-    let account_storage = account.storage();
-    let asset_address: Word = [
-        Felt::new(0),
-        Felt::new(0),
-        faucet_id.suffix(),
-        faucet_id.prefix().as_felt(),
-    ]
-    .into();
-    let lp_supply_slot = StorageSlotName::new("zoroswap::user_deposits").expect("valid slot name");
-    let total_supply = account_storage.get_map_item(&lp_supply_slot, asset_address)?;
-    Ok(total_supply[0].as_int())
+    let (_, _, lp_total_supply) = extract_pool_state_from_account(account, faucet_id)?;
+    Ok(lp_total_supply)
 }
 
 pub async fn fetch_pool_state_from_chain(
@@ -187,35 +178,8 @@ pub async fn fetch_pool_state_from_chain(
         pool_account_id
     ))?;
     let account = extract_full_account(record.account_data())?;
-    let account_storage = account.storage();
-    let asset_address: Word = [
-        Felt::new(0),
-        Felt::new(0),
-        faucet_id.suffix(),
-        faucet_id.prefix().as_felt(),
-    ]
-    .into();
-
-    let balances_slot = StorageSlotName::new("zoroswap::pool_state").expect("valid slot name");
-    let curve_slot = StorageSlotName::new("zoroswap::pool_curve").expect("valid slot name");
-    let fees_slot = StorageSlotName::new("zoroswap::fees").expect("valid slot name");
-    let pool_balances = account_storage.get_map_item(&balances_slot, asset_address)?;
-    let pool_curve = account_storage.get_map_item(&curve_slot, asset_address)?;
-    let pool_fees = account_storage.get_map_item(&fees_slot, asset_address)?;
-
-    let pool_balances = PoolBalances {
-        reserve_with_slippage: U256::from(pool_balances[1].as_int()),
-        reserve: U256::from(pool_balances[2].as_int()),
-        total_liabilities: U256::from(pool_balances[3].as_int()),
-    };
-    let pool_settings = PoolSettings {
-        beta: I256::from_str(&pool_curve[0].as_int().to_string())?,
-        c: I256::from_str(&pool_curve[1].as_int().to_string())?,
-        swap_fee: U256::from(pool_fees[0].as_int()),
-        backstop_fee: U256::from(pool_fees[1].as_int()),
-        protocol_fee: U256::from(pool_fees[2].as_int()),
-    };
-    Ok((pool_balances, pool_settings))
+    let (balances, settings, _) = extract_pool_state_from_account(account, faucet_id)?;
+    Ok((balances, settings))
 }
 
 // Used in tests and bin's.
