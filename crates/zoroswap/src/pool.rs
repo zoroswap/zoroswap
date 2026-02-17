@@ -636,12 +636,13 @@ mod tests {
             },
             balances: PoolBalances {
                 reserve: U256::from(5_000_000_000_000_000_000u64),
-                reserve_with_slippage: U256::from(9_000_000_000_000_000_000u64),
+                // equals reserve, to model a balanced pool where slippage has no effect
+                reserve_with_slippage: U256::from(5_000_000_000_000_000_000u64),
                 total_liabilities: U256::from(5_000_000_000_000_000_000u64),
             },
             pool_account_id: AccountId::from_hex("0x000000000000000000000000000000").unwrap(),
             faucet_account_id: AccountId::from_hex("0x000000000000000000000000000000").unwrap(),
-            lp_total_supply: parse_ether("1000").unwrap().to::<u64>(),
+            lp_total_supply: 1_000_000_000u64,
         };
         let quote_pool = base_pool;
         let result = get_curve_amount_out(
@@ -650,7 +651,7 @@ mod tests {
             U256::from(18),
             U256::from(18),
             U256::ZERO, // 0 input
-            U256::from(1_000_000_000_000_000_000u64),
+            U256::from(1_000_000_000_000u64), // 10^12 to match _PRICE_SCALING_FACTOR
         );
 
         assert!(result.is_ok());
