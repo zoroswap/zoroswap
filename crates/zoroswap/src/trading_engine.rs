@@ -3,8 +3,8 @@ use crate::{
     common::{instantiate_client, print_transaction_info},
     order::{Order, OrderType},
     pool::{
-        PoolBalances, PoolState, get_curve_amount_out, get_deposit_lp_amount_out,
-        get_withdraw_asset_amount_out,
+        PoolBalances, PoolState, fetch_lp_total_supply_from_chain, fetch_pool_state_from_chain,
+        get_curve_amount_out, get_deposit_lp_amount_out, get_withdraw_asset_amount_out,
     },
     websocket::{EventBroadcaster, OrderStatus, OrderUpdateDetails, OrderUpdateEvent},
 };
@@ -178,6 +178,27 @@ impl TradingEngine {
         }
     }
 
+    /// Refresh in-memory pool states from the on-chain account storage.
+    /// This ensures the trading engine's view of reserves, slippage, and liabilities
+    /// matches what the MASM contract will validate against.
+    async fn refresh_pool_states_from_chain(&self, client: &mut MidenClient) -> Result<()> {
+        client.sync_state().await?;
+        let pool_account_id = self.pool_account_id;
+        for pool_config in &self.state.config().liquidity_pools {
+            let faucet_id = pool_config.faucet_id;
+            let (new_balances, new_settings) =
+                fetch_pool_state_from_chain(client, pool_account_id, faucet_id).await?;
+            let lp_total_supply =
+                fetch_lp_total_supply_from_chain(client, pool_account_id, faucet_id).await?;
+            if let Some(mut pool) = self.state.liquidity_pools().get_mut(&faucet_id) {
+                pool.balances = new_balances;
+                pool.settings = new_settings;
+                pool.lp_total_supply = lp_total_supply;
+            }
+        }
+        Ok(())
+    }
+
     async fn run_matching_if_ready(&mut self, min_interval: Duration, client: &mut MidenClient) {
         // Debouncing: prevent excessive matching
         let last_match = { *self.last_match_time.lock().unwrap() };
@@ -196,6 +217,13 @@ impl TradingEngine {
                 "Skipping matching cycle: oracle price for {CANARY_TOKENS:?} is {}s old (max {}s)",
                 stale_age, MAX_PRICE_AGE_SECS
             );
+            return;
+        }
+
+        // Refresh pool states from chain before matching to prevent stale
+        // reserve_with_slippage values from causing MASM assertion failures.
+        if let Err(e) = self.refresh_pool_states_from_chain(client).await {
+            error!("Failed to refresh pool states from chain: {e:?}");
             return;
         }
 
@@ -286,6 +314,14 @@ impl TradingEngine {
                         }
                         Err(e) => {
                             error!("Failed to execute orders: {e:?}");
+                            // Refresh pool state from chain to recover from drift
+                            if let Err(sync_err) =
+                                self.refresh_pool_states_from_chain(client).await
+                            {
+                                error!(
+                                    "Failed to refresh pool states after execution failure: {sync_err:?}"
+                                );
+                            }
                         }
                     }
                 }
