@@ -16,10 +16,15 @@ use zoroswap::{
     fetch_vault_for_account_from_chain, instantiate_client, oracle_sse::PriceMetadata,
 };
 
+/// Common state returned by [`setup_test_environment`] for E2E tests.
 pub struct TestSetup {
+    /// Parsed application config (endpoints, pool account ID, oracle URL, etc.).
     pub config: Config,
+    /// Miden client connected to the node and ready to submit transactions.
     pub client: MidenClient,
+    /// A freshly created basic account that acts as the test user.
     pub account: Account,
+    /// The first two liquidity pools from the config, used as swap pair.
     pub pools: Vec<LiquidityPoolConfig>,
 }
 
