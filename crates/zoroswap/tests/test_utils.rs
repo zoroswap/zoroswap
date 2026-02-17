@@ -24,6 +24,7 @@ pub struct TestSetup {
     pub pools: Vec<LiquidityPoolConfig>,
 }
 
+/// Load config, create a Miden client, sync state, and create a fresh basic account.
 pub async fn setup_test_environment(store_path: &str) -> Result<TestSetup> {
     dotenv::dotenv().ok();
 
@@ -71,6 +72,8 @@ pub async fn setup_test_environment(store_path: &str) -> Result<TestSetup> {
     })
 }
 
+/// Mint tokens from a pool's faucet and consume them into the user's wallet.
+/// Pass `amount = 0` to use the default (0.05 of the pool's token).
 pub async fn fund_user_wallet(
     client: &mut MidenClient,
     account: &Account,
@@ -125,6 +128,7 @@ pub async fn fund_user_wallet(
     Ok(())
 }
 
+/// POST a serialized note to `{server_url}/{endpoint}/submit`.
 pub async fn send_to_server(server_url: &str, note: String, endpoint: &str) -> Result<()> {
     let url = Url::from_str(format!("{server_url}/{endpoint}/submit").as_str())?;
     let client = reqwest::Client::new();
@@ -139,6 +143,7 @@ pub async fn send_to_server(server_url: &str, note: String, endpoint: &str) -> R
     Ok(())
 }
 
+/// Look up a single price by oracle ID from fetched price metadata.
 pub fn extract_oracle_price(
     prices: &[PriceMetadata],
     oracle_id: &str,
@@ -156,6 +161,7 @@ pub fn extract_oracle_price(
         .price)
 }
 
+/// Build the 12-element input vector expected by the ZOROSWAP note script.
 pub fn build_zoroswap_inputs(
     requested_asset_word: Word,
     deadline: u64,
@@ -179,6 +185,7 @@ pub fn build_zoroswap_inputs(
     ]
 }
 
+/// Fetch current pool states and assert they differ from the provided old values.
 pub async fn assert_pool_states_changed(
     client: &mut MidenClient,
     pool_account_id: AccountId,
