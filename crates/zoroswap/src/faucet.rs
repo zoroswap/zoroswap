@@ -56,6 +56,18 @@ impl GuardedFaucet {
                 mint_instruction.faucet_id.to_hex()
             );
             if can_mint {
+                // Sync BEFORE minting to ensure we have latest faucet state
+                if let Err(e) =
+                    Self::sync_state(&mut client, &state_sync, mint_instruction.faucet_id).await
+                {
+                    error!(
+                        faucet = %mint_instruction.faucet_id.to_hex(),
+                        error = ?e,
+                        "Failed to sync before mint"
+                    );
+                    continue;
+                }
+
                 // Import the recipient account first
                 if let Err(e) = client
                     .import_account_by_id(mint_instruction.account_id)
