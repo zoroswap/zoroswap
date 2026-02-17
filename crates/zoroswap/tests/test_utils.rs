@@ -19,7 +19,6 @@ use zoroswap::{
 pub struct TestSetup {
     pub config: Config,
     pub client: MidenClient,
-    pub keystore: FilesystemKeyStore,
     pub account: Account,
     pub pools: Vec<LiquidityPoolConfig>,
 }
@@ -42,7 +41,7 @@ pub async fn setup_test_environment(store_path: &str) -> Result<TestSetup> {
 
     let mut client = instantiate_client(config.clone(), store_path).await?;
     let endpoint = config.miden_endpoint.clone();
-    let keystore = FilesystemKeyStore::new(config.keystore_path.into())?;
+    let keystore = FilesystemKeyStore::new(config.keystore_path.clone().into())?;
     let sync_summary = client.sync_state().await?;
     println!("\nLatest block: {}", sync_summary.block_num);
 
@@ -66,7 +65,6 @@ pub async fn setup_test_environment(store_path: &str) -> Result<TestSetup> {
     Ok(TestSetup {
         config,
         client,
-        keystore,
         account,
         pools,
     })
