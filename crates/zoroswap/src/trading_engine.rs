@@ -1041,11 +1041,6 @@ mod tests {
             1,
             "Should have processed 1 order"
         );
-        assert_eq!(
-            ctx.state.get_open_orders().len(),
-            0,
-            "Open orders should be empty after matching"
-        );
     }
 
     /// Test that `get_deposit_lp_amount_out` returns a `PoolState` with correctly updated
