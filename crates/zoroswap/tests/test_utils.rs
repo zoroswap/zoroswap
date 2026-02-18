@@ -76,7 +76,7 @@ pub async fn setup_test_environment(store_path: &str) -> Result<TestSetup> {
 }
 
 /// Mint tokens from a pool's faucet and consume them into the user's wallet.
-/// Pass `amount = 0` to use the default (0.05 of the pool's token).
+/// Pass `None` to use the default (0.05 of the pool's token).
 pub async fn fund_user_wallet(
     client: &mut MidenClient,
     account: &Account,
