@@ -37,9 +37,10 @@ async fn e2e_private_deposit_withdraw_test() -> Result<()> {
     )
     .await?;
 
-    let amount_in = 4;
     println!("\n\t[STEP 2] Create DEPOSIT note\n");
-    let amount_in: u64 = amount_in * 10u64.pow(pool.decimals as u32 - 2);
+    // 0.04 tokens: 4 hundredths × 10^decimals (the base unit) / 100
+    let one_hundredth = 10u64.pow(pool.decimals as u32) / 100;
+    let amount_in: u64 = 4 * one_hundredth;
     let max_slippage = 0.005; // 0.5 %
     let min_lp_amount_out = ((amount_in as f64) * (1.0 - max_slippage)) as u64;
     println!("\n\t min amount out: {min_lp_amount_out}");
@@ -91,6 +92,8 @@ async fn e2e_private_deposit_withdraw_test() -> Result<()> {
     )
     .await?;
 
+    // Successful deposits don't produce P2ID notes back to the user. LP shares
+    // are recorded in the pool's storage map. Just wait for the pool to process.
     tokio::time::sleep(Duration::from_secs(30)).await;
     setup.client.sync_state().await?;
 
@@ -109,8 +112,8 @@ async fn e2e_private_deposit_withdraw_test() -> Result<()> {
     );
 
     println!("\n\t[STEP 3] Create WITHDRAW note\n");
-    let amount_to_withdraw = 2;
-    let amount_to_withdraw: u64 = amount_to_withdraw * 10u64.pow(pool.decimals as u32 - 2);
+    // 0.02 tokens
+    let amount_to_withdraw: u64 = 2 * one_hundredth;
     let max_slippage = 0.005; // 0.5 %
     let min_asset_amount_out = (amount_to_withdraw as f64) * (1.0 - max_slippage);
     let min_asset_amount_out = min_asset_amount_out as u64;
@@ -166,7 +169,40 @@ async fn e2e_private_deposit_withdraw_test() -> Result<()> {
     )
     .await?;
 
-    tokio::time::sleep(Duration::from_secs(25)).await;
+    let consumable_notes =
+        zoro_miden_client::wait_for_consumable_notes(&mut setup.client, account.id()).await?;
+    println!(
+        "Received {} consumable withdraw receipt notes.",
+        consumable_notes.len()
+    );
+    let consume_req = TransactionRequestBuilder::new()
+        .build_consume_notes(consumable_notes)
+        .unwrap();
+
+    let balance_before_withdraw =
+        get_local_balance(&mut setup.client, account.id(), pool.faucet_id).await?;
+    println!("User balance before withdraw (local): {balance_before_withdraw}");
+
+    setup
+        .client
+        .submit_new_transaction(account.id(), consume_req)
+        .await?;
+
+    let balance_after_withdraw =
+        get_local_balance(&mut setup.client, account.id(), pool.faucet_id).await?;
+    println!("User balance after withdraw (local): {balance_after_withdraw}");
+
+    // We can't assert_eq because the exact payout depends on the pool's
+    // curve/fee calculation, which may return more than the minimum.
+    // We only know the payout is >= min_asset_amount_out (the slippage floor).
+    let expected_min_balance = balance_before_withdraw + min_asset_amount_out;
+    assert!(
+        balance_after_withdraw >= expected_min_balance,
+        "User should have received at least min_asset_amount_out ({min_asset_amount_out}) \
+         from withdraw (balance: {balance_after_withdraw}, expected >= {expected_min_balance})"
+    );
+
+    setup.client.sync_state().await?;
 
     let total_lp_supply_after_withdraw: u64 = fetch_lp_total_supply_from_chain(
         &mut setup.client,
