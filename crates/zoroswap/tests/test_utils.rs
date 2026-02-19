@@ -127,6 +127,22 @@ pub async fn fund_user_wallet(
     Ok(())
 }
 
+/// Read a single fungible asset balance from the local store for an account.
+pub async fn get_local_balance(
+    client: &mut MidenClient,
+    account_id: AccountId,
+    faucet_id: AccountId,
+) -> Result<u64> {
+    let record = client
+        .get_account(account_id)
+        .await?
+        .ok_or(anyhow!("Account {account_id} not found in local store"))?;
+    match record.account_data() {
+        miden_client::store::AccountRecordData::Full(a) => Ok(a.vault().get_balance(faucet_id)?),
+        _ => Err(anyhow!("Expected full account data for {account_id}")),
+    }
+}
+
 /// POST a serialized note to `{server_url}/{endpoint}/submit`.
 pub async fn send_to_server(server_url: &str, note: String, endpoint: &str) -> Result<()> {
     let url = Url::from_str(format!("{server_url}/{endpoint}/submit").as_str())?;
