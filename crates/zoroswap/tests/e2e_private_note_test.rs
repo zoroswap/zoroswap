@@ -119,7 +119,7 @@ async fn e2e_private_deposit_withdraw_test() -> Result<()> {
     let min_asset_amount_out = min_asset_amount_out as u64;
     let asset_out: FungibleAsset = FungibleAsset::new(pool.faucet_id, min_asset_amount_out)?;
     let p2id_tag = NoteTag::with_account_target(account.id());
-    let deadline = (Utc::now().timestamp_millis() as u64) - 120000;
+    let deadline = (Utc::now().timestamp_millis() as u64) + 120000;
     let asset_out_word: Word = asset_out.into();
     let inputs = vec![
         asset_out_word[0],
