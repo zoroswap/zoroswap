@@ -178,6 +178,8 @@ impl TradingEngine {
         }
     }
 
+    /// Guards against too-frequent calls and stale oracle prices, then
+    /// runs a matching cycle and executes any resulting orders on-chain.
     async fn run_matching_if_ready(&mut self, min_interval: Duration, client: &mut MidenClient) {
         // Debouncing: prevent excessive matching
         let last_match = { *self.last_match_time.lock().unwrap() };
@@ -233,14 +235,11 @@ impl TradingEngine {
                         }
                     }
 
-                    // TODO: Put this down on success after Poisoned note problem is resolved
-                    self.state.flush_open_orders();
-
                     // Execute swaps and broadcast success
                     match self.execute_orders(executions.clone(), client).await {
                         Ok(_) => {
                             for execution in &executions {
-                                let _ = self.state.pluck_note(&execution.details().order.id);
+                                self.state.remove_order(&execution.details().order.id);
                             }
 
                             for (faucet_id, pool_state) in matching_cycle.new_pool_states {
@@ -296,6 +295,8 @@ impl TradingEngine {
         }
     }
 
+    /// Pure matching: snapshots open orders and computes executions
+    /// without mutating state or touching the chain.
     pub(crate) fn run_matching_cycle(&self) -> Result<MatchingCycle> {
         let pools = self.state.liquidity_pools().clone();
         let mut orders = self.state.get_open_orders();
@@ -1126,6 +1127,115 @@ mod tests {
         assert!(
             pool_after_second.lp_total_supply > pool_after_first.lp_total_supply,
             "second deposit must increase lp_total_supply beyond first deposit"
+        );
+    }
+
+    /// `run_matching_cycle` must never remove open orders.
+    ///
+    /// Removal only happens in `run_matching_if_ready` after `execute_orders`
+    /// succeeds, so that failed transactions can be retried.
+    #[tokio::test]
+    async fn test_open_orders_preserved_after_matching() {
+        let ctx = TestContext::new().await;
+
+        let note = ctx.create_swap_note(100_000_000_000, 1);
+        ctx.state
+            .add_order(note, OrderType::Swap)
+            .expect("Should add order");
+        assert_eq!(ctx.state.get_open_orders().len(), 1);
+
+        let fresh_time = Utc::now().timestamp() as u64;
+        ctx.set_oracle_prices(fresh_time, 100_000_000);
+
+        let engine = ctx.create_engine();
+        let cycle = engine
+            .run_matching_cycle()
+            .expect("Matching should succeed");
+        assert!(
+            !cycle.executions.is_empty(),
+            "Should have produced executions"
+        );
+
+        assert_eq!(
+            ctx.state.get_open_orders().len(),
+            1,
+            "Orders must remain in open_orders after matching alone"
+        );
+    }
+
+    /// Orders arriving between `run_matching_cycle` and `execute_orders`
+    /// completing must not be lost: only executed orders may be removed.
+    /// The surviving order must be picked up by the next matching cycle.
+    #[tokio::test]
+    async fn test_concurrent_orders_survive_execution() {
+        let ctx = TestContext::new().await;
+
+        let fresh_time = Utc::now().timestamp() as u64;
+        ctx.set_oracle_prices(fresh_time, 100_000_000);
+
+        // Cycle 1: match and "execute" order1.
+        let note1 = ctx.create_swap_note(100_000_000_000, 1);
+        ctx.state
+            .add_order(note1, OrderType::Swap)
+            .expect("Should add order");
+
+        let engine = ctx.create_engine();
+        let cycle1 = engine
+            .run_matching_cycle()
+            .expect("Matching should succeed");
+        assert_eq!(cycle1.executions.len(), 1);
+
+        // Order2 arrives while execute_orders is in-flight.
+        let note2 = ctx.create_swap_note(50_000_000_000, 1);
+        ctx.state
+            .add_order(note2, OrderType::Swap)
+            .expect("Should add second order");
+
+        // Simulate cycle 1 success.
+        for execution in &cycle1.executions {
+            ctx.state.remove_order(&execution.details().order.id);
+        }
+        for entry in cycle1.new_pool_states.iter() {
+            ctx.state
+                .update_pool_state(entry.key(), entry.value().clone());
+        }
+
+        // After cycle 1: only order2 remains, order1's note is gone.
+        assert_eq!(ctx.state.get_open_orders().len(), 1);
+        assert!(ctx
+            .state
+            .get_note(&cycle1.executions[0].details().order.id)
+            .is_err());
+
+        // Cycle 2: the surviving order must be picked up and matched.
+        let cycle2 = engine
+            .run_matching_cycle()
+            .expect("Second matching should succeed");
+        assert_eq!(
+            cycle2.executions.len(),
+            1,
+            "Concurrent order must be picked up by next cycle"
+        );
+
+        // Simulate cycle 2 success.
+        for execution in &cycle2.executions {
+            ctx.state.remove_order(&execution.details().order.id);
+        }
+        for entry in cycle2.new_pool_states.iter() {
+            ctx.state
+                .update_pool_state(entry.key(), entry.value().clone());
+        }
+
+        // After both cycles complete: no orders or notes remain.
+        assert_eq!(ctx.state.get_open_orders().len(), 0);
+        assert_eq!(ctx.state.get_closed_orders().len(), 0);
+
+        // Pool states reflect the cumulative effect of both swaps.
+        let pool_a = ctx.state.liquidity_pools().get(&ctx.faucet_a_id).unwrap();
+        let pool_b = ctx.state.liquidity_pools().get(&ctx.faucet_b_id).unwrap();
+        assert!(
+            pool_a.balances.reserve > pool_b.balances.reserve,
+            "Pool A received tokens from both swaps, so its reserve must exceed pool B's"
         );
     }
 }

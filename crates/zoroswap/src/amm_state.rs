@@ -94,10 +94,16 @@ impl AmmState {
         self.closed_orders.iter().map(|i| *i.value()).collect()
     }
 
-    pub fn flush_open_orders(&self) -> Vec<Order> {
-        let orders = self.get_open_orders();
-        self.open_orders.clear();
-        orders
+    /// Removes a single executed order and its backing note from state.
+    pub fn remove_order(&self, id: &Uuid) -> Option<(Order, Note)> {
+        let order = self.open_orders.remove(id).map(|(_, o)| o);
+
+        // The note must be removed here together with the order: it was
+        // consumed by execute_orders, so keeping it would cause
+        // a "note already consumed" error on the next matching cycle.
+        let note = self.notes.remove(id).map(|(_, n)| n);
+
+        order.zip(note)
     }
 
     pub fn update_oracle_prices(&self, updates: Vec<PriceMetadata>) {
@@ -149,11 +155,6 @@ impl AmmState {
             .ok_or(anyhow!("No note found for id {id} in state."))
     }
 
-    pub fn pluck_note(&self, id: &Uuid) -> Result<(Uuid, Note)> {
-        self.notes
-            .remove(id)
-            .ok_or(anyhow!("No note found for id {id} in state."))
-    }
 
     /// Restores orders into `open_orders`.
     pub fn add_orders(&self, orders: Vec<Order>) {
