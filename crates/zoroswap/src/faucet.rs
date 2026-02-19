@@ -45,32 +45,14 @@ impl GuardedFaucet {
             instantiate_faucet_client(self.config.clone(), self.config.store_path).await?;
 
         while let Some(mint_instruction) = self.rx.recv().await {
+            Self::sync_state(&mut client, &state_sync, mint_instruction.faucet_id).await?;
             let last_mint = self
                 .recipients
                 .get(&(mint_instruction.account_id, mint_instruction.faucet_id))
                 .unwrap_or(&0);
             let can_mint = (Utc::now().timestamp() as u64) - last_mint > 1;
-            trace!(
-                "Faucet request for {} from faucet {}",
-                mint_instruction.account_id.to_hex(),
-                mint_instruction.faucet_id.to_hex()
-            );
             if can_mint {
-                // Import the recipient account first
-                if let Err(e) = client
-                    .import_account_by_id(mint_instruction.account_id)
-                    .await
-                {
-                    warn!("Note: account import returned: {e:?}");
-                }
                 let amount = 10000000;
-
-                debug!(
-                    "Minting {amount} for {} from faucet {}",
-                    mint_instruction.account_id.to_hex(),
-                    mint_instruction.faucet_id.to_hex()
-                );
-
                 match Self::mint_asset(
                     &mut client,
                     mint_instruction.faucet_id,
@@ -80,7 +62,6 @@ impl GuardedFaucet {
                 .await
                 {
                     Ok(tx_id) => {
-                        // Update timestamp after successful mint to enforce rate limiting
                         info!(
                             amount = amount,
                             faucet = %mint_instruction.faucet_id.to_hex(),
@@ -88,6 +69,7 @@ impl GuardedFaucet {
                             tx_id = ?tx_id,
                             "Minted tokens"
                         );
+                        // Update timestamp after successful mint to enforce rate limiting
                         self.recipients.insert(
                             (mint_instruction.account_id, mint_instruction.faucet_id),
                             Utc::now().timestamp() as u64,
@@ -102,8 +84,6 @@ impl GuardedFaucet {
                         );
                     }
                 }
-
-                // sync commitments
                 Self::sync_state(&mut client, &state_sync, mint_instruction.faucet_id).await?;
             } else {
                 debug!(
@@ -129,10 +109,23 @@ impl GuardedFaucet {
             NoteType::Public,
             client.rng(),
         )?;
-        let tx_id = client
-            .submit_new_transaction(faucet_id, transaction_request)
+
+        let tx_result = client
+            .execute_transaction(faucet_id, transaction_request)
             .await?;
-        Ok(format!("{:?}", tx_id))
+
+        // TODO: add remote proving
+        let proven_transaction = client.prove_transaction(&tx_result).await?;
+
+        let submission_height = client
+            .submit_proven_transaction(proven_transaction, &tx_result)
+            .await?;
+
+        client
+            .apply_transaction(&tx_result, submission_height)
+            .await?;
+
+        Ok(format!("{:?}", tx_result.id()))
     }
 
     /// Syncs only the faucet account's commitments instead of calling `client.sync_state()`.
