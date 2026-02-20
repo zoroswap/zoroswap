@@ -600,6 +600,11 @@ mod tests {
             },
             pool_account_id: AccountId::from_hex("0x000000000000000000000000000000").unwrap(),
             faucet_account_id: AccountId::from_hex("0x000000000000000000000000000000").unwrap(),
+            // TODO: once Miden supports u128 migrate lp_total_supply from u64 to u128.
+            // Then use parse_ether("1000") for both curves (currently overflows u64).
+            #[cfg(feature = "zoro-curve-local")]
+            lp_total_supply: parse_ether("1000").unwrap().to::<u64>(),
+            #[cfg(not(feature = "zoro-curve-local"))]
             lp_total_supply: 1_000_000_000u64,
         };
         let quote_pool = base_pool;
@@ -615,12 +620,26 @@ mod tests {
         assert!(result.is_ok());
         let amount_out = result.unwrap().0;
         println!("final amount_out: {}", amount_out);
-        let amount_in = parse_ether("10").unwrap(); // 10e18
-        let total_fee = U256::from(600); // backstop (300) + protocol (300)
-        let lp_fee = U256::from(200); // swap fee
-        let expected_amount_out = amount_in
-            - amount_in * total_fee / FEE_PRECISION // backstop + protocol fee
-            - amount_in * lp_fee / FEE_PRECISION; // swap (LP) fee
+
+        // With our proprietary ZoroCurve the expected output includes slippage curve effects,
+        // with the DummyCurve (no slippage) we can compute it from fees alone.
+        //
+        // NOTE: The zoro-curve-local expected value was computed with lp_total_supply =
+        // parse_ether("1000") (10^21) which currently overflows u64. This test will
+        // fail if run with `--features zoro-curve-local` until lp_total_supply is migrated
+        // to u128.
+        #[cfg(feature = "zoro-curve-local")]
+        let expected_amount_out = U256::from(9994944708456040182u64);
+        #[cfg(not(feature = "zoro-curve-local"))]
+        let expected_amount_out = {
+            let amount_in = parse_ether("10").unwrap();
+            let total_fee = U256::from(600); // backstop (300) + protocol (300)
+            let lp_fee = U256::from(200); // swap fee
+            amount_in
+                - amount_in * total_fee / FEE_PRECISION
+                - amount_in * lp_fee / FEE_PRECISION
+        };
+
         assert_eq!(amount_out, expected_amount_out);
     }
 
@@ -636,7 +655,6 @@ mod tests {
             },
             balances: PoolBalances {
                 reserve: U256::from(5_000_000_000_000_000_000u64),
-                // equals reserve, to model a balanced pool where slippage has no effect
                 reserve_with_slippage: U256::from(5_000_000_000_000_000_000u64),
                 total_liabilities: U256::from(5_000_000_000_000_000_000u64),
             },
