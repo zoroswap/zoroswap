@@ -114,7 +114,7 @@ async fn e2e_public_note() -> Result<()> {
     // Create `NoteDetails` for the expected P2ID note that will be created when
     // the ZOROSWAP note is consumed
     let p2id_assets = NoteAssets::new(vec![asset_out.into()])?;
-    let p2id_note_details = NoteDetails::new(p2id_assets, expected_p2id_recipient);
+    let p2id_note_details = NoteDetails::new(p2id_assets, expected_p2id_recipient.clone());
     let p2id_tag = NoteTag::with_account_target(account.id());
 
     let note_req = TransactionRequestBuilder::new()
@@ -142,6 +142,11 @@ async fn e2e_public_note() -> Result<()> {
     println!(
         "Received {} consumable notes (p2id) on client.",
         consumable_notes.len()
+    );
+
+    assert!(
+        consumable_notes.iter().any(|note| note.recipient().digest() == expected_p2id_recipient.digest()),
+        "None of the received notes matched the expected P2ID recipient"
     );
 
     println!(
