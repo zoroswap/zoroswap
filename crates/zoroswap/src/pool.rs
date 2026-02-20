@@ -617,7 +617,6 @@ mod tests {
         assert!(result.is_ok());
         let amount_out = result.unwrap().0;
         println!("final amount_out: {}", amount_out);
-
         let expected_amount_out = U256::from(9994944708456040182u64);
         assert_eq!(amount_out, expected_amount_out);
     }
