@@ -655,11 +655,20 @@ mod tests {
             },
             balances: PoolBalances {
                 reserve: U256::from(5_000_000_000_000_000_000u64),
+
+                #[cfg(feature = "zoro-curve-local")]
+                reserve_with_slippage: U256::from(9_000_000_000_000_000_000u64),
+                #[cfg(not(feature = "zoro-curve-local"))]
                 reserve_with_slippage: U256::from(5_000_000_000_000_000_000u64),
+
                 total_liabilities: U256::from(5_000_000_000_000_000_000u64),
             },
             pool_account_id: AccountId::from_hex("0x000000000000000000000000000000").unwrap(),
             faucet_account_id: AccountId::from_hex("0x000000000000000000000000000000").unwrap(),
+
+            #[cfg(feature = "zoro-curve-local")]
+            lp_total_supply: parse_ether("1000").unwrap().to::<u64>(),
+            #[cfg(not(feature = "zoro-curve-local"))]
             lp_total_supply: 1_000_000_000u64,
         };
         let quote_pool = base_pool;
@@ -669,7 +678,11 @@ mod tests {
             U256::from(18),
             U256::from(18),
             U256::ZERO, // 0 input
-            U256::from(1_000_000_000_000u64), // 10^12 to match PRICE_SCALING_FACTOR
+
+            #[cfg(feature = "zoro-curve-local")]
+            U256::from(1_000_000_000_000_000_000u64),
+            #[cfg(not(feature = "zoro-curve-local"))]
+            U256::from(1_000_000_000_000u64),
         );
 
         assert!(result.is_ok());
