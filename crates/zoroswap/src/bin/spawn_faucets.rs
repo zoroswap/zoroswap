@@ -15,7 +15,7 @@ use miden_client::{
 use miden_standards::account::{auth::AuthFalcon512Rpo, faucets::BasicFungibleFaucet};
 use rand::RngCore;
 use serde::Deserialize;
-use zoro_miden_client::instantiate_simple_client;
+use zoro_miden::client::instantiate_simple_client;
 
 #[derive(Deserialize, Debug)]
 struct FaucetConfig {
@@ -67,9 +67,8 @@ async fn main() -> Result<()> {
     let sync_summary = client.sync_state().await?;
     println!("Latest block: {}", sync_summary.block_num);
 
-    let keystore: FilesystemKeyStore =
-        FilesystemKeyStore::new(args.keystore_path.into())
-            .unwrap_or_else(|err| panic!("Failed to create keystore: {err:?}"));
+    let keystore: FilesystemKeyStore = FilesystemKeyStore::new(args.keystore_path.into())
+        .unwrap_or_else(|err| panic!("Failed to create keystore: {err:?}"));
 
     println!("\nDeploying a new fungible faucet.");
 

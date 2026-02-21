@@ -1,4 +1,4 @@
-use crate::{common::instantiate_faucet_client, config::Config};
+use crate::{common::instantiate_manual_sync_client, config::Config};
 use anyhow::Result;
 use chrono::Utc;
 use miden_client::{
@@ -12,7 +12,7 @@ use miden_client::{
 use std::collections::{BTreeSet, HashMap};
 use tokio::sync::mpsc::{Receiver, Sender};
 use tracing::{debug, error, info, trace, warn};
-use zoro_miden_client::MidenClient;
+use zoro_miden::client::MidenClient;
 
 pub struct FaucetMintInstruction {
     pub account_id: AccountId,
@@ -40,9 +40,8 @@ impl GuardedFaucet {
     }
 
     pub async fn start(&mut self) -> Result<()> {
-        // Create our own client for faucet operations (with retry for DB contention)
         let (mut client, state_sync) =
-            instantiate_faucet_client(self.config.clone(), self.config.store_path).await?;
+            instantiate_manual_sync_client(self.config.clone(), self.config.store_path).await?;
 
         while let Some(mint_instruction) = self.rx.recv().await {
             let last_mint = self

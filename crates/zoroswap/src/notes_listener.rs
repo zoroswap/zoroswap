@@ -13,6 +13,7 @@ use miden_client::{
 };
 use std::{collections::HashSet, sync::Arc, time::Duration};
 use tracing::{debug, error, warn};
+use zoro_miden::client::MidenClient;
 
 pub struct NotesListener {
     state: Arc<AmmState>,
@@ -149,7 +150,7 @@ impl NotesListener {
 
     async fn get_notes_filtered(
         &self,
-        client: &mut zoro_miden_client::MidenClient,
+        client: &mut MidenClient,
         filter: NoteFilter,
         tag: Option<NoteTag>,
     ) -> Result<Vec<(Note, OrderType)>, anyhow::Error> {

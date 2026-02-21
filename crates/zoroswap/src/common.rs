@@ -18,9 +18,9 @@ use rusqlite::Connection;
 use std::sync::Arc;
 use std::{fs, path::PathBuf};
 use tracing::{debug, info, warn};
+use zoro_miden::client::{MidenClient, create_library};
 
 use crate::{Config, order::OrderType};
-use zoro_miden_client::{MidenClient, create_library};
 
 // --------------------------------------------------------------------------
 // Zoro-Specific Helper Functions
@@ -117,7 +117,7 @@ pub async fn instantiate_client(
     Ok(client)
 }
 
-pub async fn instantiate_faucet_client(
+pub async fn instantiate_manual_sync_client(
     config: Config,
     store_path: &str,
 ) -> Result<(MidenClient, StateSync)> {

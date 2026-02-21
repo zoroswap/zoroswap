@@ -26,7 +26,7 @@ use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
 use trading_engine::TradingEngine;
 use websocket::{ConnectionManager, EventBroadcaster};
-use zoro_miden_client::delete_client_store;
+use zoro_miden::client::delete_client_store;
 
 #[derive(Parser, Debug)]
 #[command(name = "zoro-server")]

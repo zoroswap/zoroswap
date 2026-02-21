@@ -14,7 +14,7 @@ use miden_client::{account::AccountId, note::Note};
 use std::sync::Arc;
 use tracing::{error, info, warn};
 use uuid::Uuid;
-use zoro_miden_client::MidenClient;
+use zoro_miden::client::MidenClient;
 
 pub struct AmmState {
     open_orders: DashMap<Uuid, Order>,
@@ -110,7 +110,10 @@ impl AmmState {
                     );
                 }
                 Err(e) => {
-                    error!("Failed to map oracle id '{}' to faucet id: {e:?}", price_update.id)
+                    error!(
+                        "Failed to map oracle id '{}' to faucet id: {e:?}",
+                        price_update.id
+                    )
                 }
             }
         }

@@ -21,7 +21,7 @@ pub use order::*;
 pub use pool::*;
 pub use server::*;
 pub use trading_engine::*;
-pub use zoro_primitives::*;
+pub use zoro_curve_base::*;
 
 #[cfg(feature = "zoro-curve-local")]
 pub use zoro_curve_local::*;

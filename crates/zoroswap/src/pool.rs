@@ -13,12 +13,12 @@ use serde::Serialize;
 use std::{collections::HashMap, fs, path::Path, str::FromStr};
 use tracing::{debug, info};
 
+#[cfg(not(feature = "zoro-curve-local"))]
+use zoro_curve_base::dummy_curve::DummyCurve as ConfiguredCurve;
+use zoro_curve_base::traits::Curve;
 #[cfg(feature = "zoro-curve-local")]
 use zoro_curve_local::ZoroCurve as ConfiguredCurve;
-use zoro_miden_client::{MidenClient, create_library};
-#[cfg(not(feature = "zoro-curve-local"))]
-use zoro_primitives::dummy_curve::DummyCurve as ConfiguredCurve;
-use zoro_primitives::traits::Curve;
+use zoro_miden::client::{MidenClient, create_library};
 
 fn extract_full_account(data: &AccountRecordData) -> Result<&Account> {
     match data {

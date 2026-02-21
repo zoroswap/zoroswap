@@ -12,8 +12,7 @@ use miden_client::{
 use test_utils::*;
 use zoroswap::{
     create_expected_p2id_recipient, create_zoroswap_note, fetch_pool_state_from_chain,
-    fetch_vault_for_account_from_chain, get_oracle_prices, print_note_info,
-    print_transaction_info,
+    fetch_vault_for_account_from_chain, get_oracle_prices, print_note_info, print_transaction_info,
 };
 
 #[tokio::test]
@@ -47,8 +46,7 @@ async fn e2e_public_note() -> Result<()> {
     )
     .await?;
     let vault =
-        fetch_vault_for_account_from_chain(&mut setup.client, setup.config.pool_account_id)
-            .await?;
+        fetch_vault_for_account_from_chain(&mut setup.client, setup.config.pool_account_id).await?;
     println!("balances for liq pool 0: {balances_pool_0:?}");
     println!("balances for liq pool 1: {balances_pool_1:?}");
     println!("pool vault on-chain: {vault:?}");
@@ -138,7 +136,7 @@ async fn e2e_public_note() -> Result<()> {
     println!("\n\t[STEP 4] Wait for notes back\n");
     println!("Waiting for consumable note for {account:?}");
     let consumable_notes =
-        zoro_miden_client::wait_for_consumable_notes(&mut setup.client, account.id()).await?;
+        zoro_miden::wait_for_consumable_notes(&mut setup.client, account.id()).await?;
     println!(
         "Received {} consumable notes (p2id) on client.",
         consumable_notes.len()

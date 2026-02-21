@@ -28,7 +28,7 @@ use std::{
 };
 use tokio::sync::broadcast::error::RecvError;
 use tracing::{debug, error, info, warn};
-use zoro_miden_client::{MidenClient, create_p2id_note};
+use zoro_miden::{client::MidenClient, note::create_p2id_note};
 
 #[derive(Debug, Clone)]
 pub(crate) struct ExecutionDetails {

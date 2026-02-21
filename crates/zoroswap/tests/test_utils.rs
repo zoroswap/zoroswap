@@ -1,5 +1,13 @@
 use anyhow::{Context, Result, anyhow};
-use miden_client::store::TransactionFilter;
+use miden_assembly::Assembler;
+use miden_client::account::component::BasicWallet;
+use miden_client::account::{
+    AccountBuilder, AccountComponent, AccountStorageMode, AccountType, StorageMap, StorageSlot,
+    StorageSlotName,
+};
+use miden_client::auth::{AuthFalcon512Rpo, AuthSecretKey};
+use miden_client::store::{AccountRecordData, TransactionFilter};
+use miden_client::transaction::TransactionKernel;
 use miden_client::{
     Felt, Word,
     account::{Account, AccountId},
@@ -8,71 +16,264 @@ use miden_client::{
     note::{NoteTag, NoteType},
     transaction::{OutputNote, TransactionRequestBuilder},
 };
+use rand::RngCore;
+use std::path::Path;
 use std::{collections::HashMap, str::FromStr};
 use url::Url;
-use zoro_miden_client::{MidenClient, create_basic_account, wait_for_note};
+use zoro_miden::{MidenClient, create_basic_account, instantiate_simple_client, wait_for_note};
 use zoroswap::{
     Config, PoolBalances, config::LiquidityPoolConfig, fetch_pool_state_from_chain,
     fetch_vault_for_account_from_chain, instantiate_client, oracle_sse::PriceMetadata,
 };
 
-/// Common state returned by [`setup_test_environment`] for E2E tests.
-pub struct TestSetup {
-    /// Parsed application config (endpoints, pool account ID, oracle URL, etc.).
+pub struct MidenAccount {
+    id: AccountId,
+}
+
+impl MidenAccount {
+    pub fn id(&self) -> &AccountId {
+        &self.id
+    }
+
+    pub async fn full(&self, client: &mut MidenClient) -> Result<Account> {
+        let acc = client.get_account(*self.id()).await?.ok_or(anyhow!(
+            "Account {} not found in local store",
+            self.id().to_hex()
+        ))?;
+        let acc = match acc.account_data() {
+            AccountRecordData::Full(a) => Ok(a),
+            _ => Err(anyhow!(
+                "Expected full account data for {}",
+                self.id().to_hex()
+            )),
+        }?;
+        Ok(acc.clone())
+    }
+}
+
+pub struct UserAccount {
+    account: MidenAccount,
+}
+
+impl UserAccount {
+    pub async fn new(client: &mut MidenClient, keystore: FilesystemKeyStore) -> Result<Self> {
+        let (account, _) = create_basic_account(client, keystore.clone()).await?;
+        Ok(Self {
+            account: MidenAccount { id: account.id() },
+        })
+    }
+    pub async fn get_balance(
+        &self,
+        client: &mut MidenClient,
+        faucet_id: &AccountId,
+    ) -> Result<u64> {
+        let acc = self.account.full(client).await?;
+        let balance = acc.vault().get_balance(*faucet_id)?;
+        Ok(balance)
+    }
+}
+
+pub struct Faucet {
+    account: MidenAccount,
+    client: MidenClient,
+}
+
+pub struct DeployedPool {
+    account: MidenAccount,
+}
+
+impl DeployedPool {
+    pub async fn new(store_path: &str) -> Result<Self> {
+        let config = Config::from_config_file(
+            "../../config.toml",
+            "../../masm",
+            "../../keystore",
+            store_path,
+        )?;
+
+        let keystore: FilesystemKeyStore = FilesystemKeyStore::new(config.keystore_path.into())?;
+        let mut client =
+            instantiate_simple_client(&config.keystore_path, &config.miden_endpoint).await?;
+        let sync_summary = client.sync_state().await?;
+        let pool_reader_path = format!("{}/accounts/zoropool.masm", config.masm_path);
+        let pool_reader_path = Path::new(&pool_reader_path);
+        let pool_code = std::fs::read_to_string(pool_reader_path)
+            .unwrap_or_else(|err| panic!("unable to read from {pool_reader_path:?}: {err}"));
+
+        let assembler: Assembler = TransactionKernel::assembler();
+
+        let mut assets_mapping = StorageMap::new();
+        let mut curves_mapping = StorageMap::new();
+        let mut fees_mapping = StorageMap::new();
+
+        for (i, pool) in config.liquidity_pools.iter().enumerate() {
+            let fees: Word = [
+                Felt::new(200), // swap_fee
+                Felt::new(300), // backstop_fee
+                Felt::new(0),   // protocol_fee
+                Felt::new(0),   // 0
+            ]
+            .into();
+            let curve: Word = [
+                Felt::new(10000000000000000),        // beta
+                Felt::new(16000000000000000000_u64), // c
+                Felt::new(0),
+                Felt::new(0),
+            ]
+            .into();
+            let asset_index = [
+                Felt::new(i as u64),
+                Felt::new(0),
+                Felt::new(0),
+                Felt::new(0),
+            ];
+            let asset_id = [
+                Felt::new(0),
+                Felt::new(0),
+                pool.faucet_id.suffix(),
+                pool.faucet_id.prefix().as_felt(),
+            ];
+            assets_mapping
+                .insert(asset_index.into(), asset_id.into())
+                .unwrap_or_else(|err| panic!("Failed to insert asset into mapping: {err:?}"));
+            fees_mapping
+                .insert(asset_id.into(), fees)
+                .unwrap_or_else(|err| panic!("Failed to insert fees into mapping: {err:?}"));
+            curves_mapping
+                .insert(asset_id.into(), curve)
+                .unwrap_or_else(|err| panic!("Failed to insert curve into mapping: {err:?}"));
+            let n = |name: &str| StorageSlotName::new(name).expect("valid slot name");
+
+            let fees_mapping = StorageSlot::with_map(n("zoroswap::fees"), fees_mapping);
+            let pool_states_mapping = StorageSlot::with_empty_map(n("zoroswap::pool_state"));
+            let user_deposits_mapping = StorageSlot::with_empty_map(n("zoroswap::user_deposits"));
+
+            // Compile the account code into a Library, then create AccountComponent
+            let pool_library =
+                zoro_miden::create_library(assembler.clone(), "zoroswap::zoropool", &pool_code)
+                    .map_err(|e| anyhow!("Failed to create pool library: {e}"))?;
+            let pool_component = AccountComponent::new(
+                pool_library,
+                vec![
+                    StorageSlot::with_empty_value(n("zoroswap::slot0")),
+                    StorageSlot::with_empty_value(n("zoroswap::slot1")),
+                    StorageSlot::with_map(n("zoroswap::assets"), assets_mapping),
+                    pool_states_mapping,
+                    user_deposits_mapping,
+                    StorageSlot::with_map(n("zoroswap::pool_curve"), curves_mapping),
+                    fees_mapping,
+                    StorageSlot::with_empty_value(n("zoroswap::pool_balances")),
+                    StorageSlot::with_empty_value(n("zoroswap::lp_supply")),
+                    StorageSlot::with_empty_value(n("zoroswap::pool_fees")),
+                    StorageSlot::with_empty_value(n("zoroswap::slot10")),
+                    StorageSlot::with_empty_value(n("zoroswap::slot11")),
+                    StorageSlot::with_empty_value(n("zoroswap::slot12")),
+                ],
+            )?
+            .with_supports_all_types();
+
+            // Init seed for the pool contract
+            let mut init_seed = [0_u8; 32];
+            client.rng().fill_bytes(&mut init_seed);
+
+            let key_pair = AuthSecretKey::new_falcon512_rpo_with_rng(client.rng());
+
+            // Build the new `Account` with the component
+            let pool_contract = AccountBuilder::new(init_seed)
+                .account_type(AccountType::RegularAccountUpdatableCode)
+                .storage_mode(AccountStorageMode::Public)
+                .with_component(pool_component.clone())
+                .with_auth_component(AuthFalcon512Rpo::new(key_pair.public_key().to_commitment()))
+                .with_component(BasicWallet) // is this actually needed? probably not
+                .build()?;
+
+            println!(
+                "pool contract commitment hash: {:?}",
+                pool_contract.commitment().to_hex()
+            );
+            println!(
+                "contract id: {:?}",
+                pool_contract
+                    .id()
+                    .to_bech32(config.miden_endpoint.to_network_id())
+            );
+
+            keystore.add_key(&key_pair)?;
+            client.add_account(&pool_contract.clone(), false).await?;
+            client.sync_state().await?;
+        }
+
+        Ok(Self {
+            account: pool_contract.id(),
+        })
+    }
+
+    pub async fn get_lp_balance(
+        &self,
+        client: &mut MidenClient,
+        account_id: &AccountId,
+        faucet_id: &AccountId,
+    ) -> Result<u64> {
+        let asset_address: Word = [
+            account_id.suffix(),
+            account_id.prefix().as_felt(),
+            faucet_id.suffix(),
+            faucet_id.prefix().as_felt(),
+        ]
+        .into();
+        let lp_supply_slot = StorageSlotName::new("zoroswap::user_deposits")?;
+        let lp_balance = self
+            .account
+            .full(client)
+            .await?
+            .storage()
+            .get_map_item(&lp_supply_slot, asset_address)?;
+        Ok(lp_balance[0].as_int())
+    }
+}
+
+/// Common state for E2E tests.
+pub struct E2ETestSetup {
     pub config: Config,
-    /// Miden client connected to the node and ready to submit transactions.
     pub client: MidenClient,
-    /// A freshly created basic account that acts as the test user.
-    pub account: Account,
-    /// The first two liquidity pools from the config, used as swap pair.
     pub pools: Vec<LiquidityPoolConfig>,
 }
 
-/// Load config, create a Miden client, sync state, and create a fresh basic account.
-pub async fn setup_test_environment(store_path: &str) -> Result<TestSetup> {
-    dotenv::dotenv().ok();
+impl E2ETestSetup {
+    pub async fn new(store_path: &str) -> Result<Self> {
+        dotenv::dotenv().ok();
 
-    let config = Config::from_config_file(
-        "../../config.toml",
-        "../../masm",
-        "../../keystore",
-        store_path,
-    )?;
+        let config = Config::from_config_file(
+            "../../config.toml",
+            "../../masm",
+            "../../keystore",
+            store_path,
+        )?;
 
-    assert!(
-        config.liquidity_pools.len() > 1,
-        "Less than 2 liquidity pools configured"
-    );
+        assert!(
+            config.liquidity_pools.len() > 1,
+            "Less than 2 liquidity pools configured"
+        );
 
-    let mut client = instantiate_client(config.clone(), store_path).await?;
-    let endpoint = config.miden_endpoint.clone();
-    let keystore = FilesystemKeyStore::new(config.keystore_path.clone().into())?;
-    let sync_summary = client.sync_state().await?;
-    println!("\nLatest block: {}", sync_summary.block_num);
+        let mut client = instantiate_client(config.clone(), store_path).await?;
+        let endpoint = config.miden_endpoint.clone();
+        let keystore = FilesystemKeyStore::new(config.keystore_path.into())?;
+        let sync_summary = client.sync_state().await?;
+        println!("\nLatest block: {}", sync_summary.block_num);
 
-    let (account, _) = create_basic_account(&mut client, keystore.clone()).await?;
-    println!(
-        "Created Account ⇒ ID: {:?}",
-        account.id().to_bech32(endpoint.to_network_id())
-    );
-    client.sync_state().await?;
-
-    let pool0 = *config
-        .liquidity_pools
-        .first()
-        .expect("No liquidity pools found in config.");
-    let pool1 = *config
-        .liquidity_pools
-        .last()
-        .expect("No liquidity pools found in config.");
-    let pools = vec![pool0, pool1];
-
-    Ok(TestSetup {
-        config,
-        client,
-        account,
-        pools,
-    })
+        let (account, _) = create_basic_account(&mut client, keystore.clone()).await?;
+        println!(
+            "Created Account ⇒ ID: {:?}",
+            account.id().to_bech32(endpoint.to_network_id())
+        );
+        client.sync_state().await?;
+        let pools = config.liquidity_pools.clone();
+        Ok(E2ETestSetup {
+            config,
+            client,
+            pools,
+        })
+    }
 }
 
 /// Mint tokens from a pool's faucet and consume them into the user's wallet.

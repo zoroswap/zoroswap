@@ -14,8 +14,8 @@ use test_utils::*;
 use zoroswap::{
     create_deposit_note, create_withdraw_note, create_zoroswap_note,
     fetch_lp_total_supply_from_chain, fetch_pool_state_from_chain,
-    fetch_vault_for_account_from_chain, get_oracle_prices, print_note_info,
-    print_transaction_info, serialize_note,
+    fetch_vault_for_account_from_chain, get_oracle_prices, print_note_info, print_transaction_info,
+    serialize_note,
 };
 
 #[tokio::test]
@@ -213,8 +213,7 @@ async fn e2e_private_note() -> Result<()> {
     )
     .await?;
     let vault =
-        fetch_vault_for_account_from_chain(&mut setup.client, setup.config.pool_account_id)
-            .await?;
+        fetch_vault_for_account_from_chain(&mut setup.client, setup.config.pool_account_id).await?;
     println!("balances for liq pool 0: {balances_pool_0:?}");
     println!("balances for liq pool 1: {balances_pool_1:?}");
     println!("pool vault on-chain: {vault:?}");
@@ -299,7 +298,7 @@ async fn e2e_private_note() -> Result<()> {
     // ---------------------------------------------------------------------------------
     println!("\n\t[STEP 5] Wait for notes back\n");
     let consumable_notes =
-        zoro_miden_client::wait_for_consumable_notes(&mut setup.client, account.id()).await?;
+        zoro_miden::wait_for_consumable_notes(&mut setup.client, account.id()).await?;
     println!("Received {} consumable notes.", consumable_notes.len());
     let consume_req = TransactionRequestBuilder::new()
         .build_consume_notes(consumable_notes)
