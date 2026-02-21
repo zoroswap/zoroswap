@@ -356,7 +356,7 @@ impl TradingEngine {
                         order_executions.push(OrderExecution::Deposit(ExecutionDetails {
                             note,
                             order,
-                            amount_out: order.asset_in.amount(),
+                            amount_out,
                             in_pool_balances: new_pool_state.balances,
                             out_pool_balances: quote_pool_state.balances,
                         }));
@@ -912,6 +912,22 @@ mod tests {
             }
         }
 
+        /// Assemble a `Note` from raw inputs, a single asset, and a serial number.
+        fn build_mock_note(
+            &self,
+            inputs: Vec<Felt>,
+            asset: FungibleAsset,
+            serial_num: Word,
+        ) -> Note {
+            let note_inputs = NoteInputs::new(inputs).unwrap();
+            let note_tag = NoteTag::with_account_target(self.pool_account_id);
+            let metadata = NoteMetadata::new(self.user_account_id, NoteType::Public, note_tag);
+            let assets = NoteAssets::new(vec![asset.into()]).unwrap();
+            let recipient = NoteRecipient::new(serial_num, NoteScript::mock(), note_inputs);
+            Note::new(assets, metadata, recipient)
+        }
+
+        /// Build a swap note from faucet_a to faucet_b.
         fn create_swap_note(&self, amount_in: u64, min_amount_out: u64) -> Note {
             let asset_in = FungibleAsset::new(self.faucet_a_id, amount_in).unwrap();
             let deadline = Utc::now() + chrono::Duration::minutes(5);
@@ -926,13 +942,34 @@ mod tests {
             inputs[10] = user_felts[1];
             inputs[11] = user_felts[0];
 
-            let note_inputs = NoteInputs::new(inputs).unwrap();
-            let note_tag = NoteTag::with_account_target(self.pool_account_id);
-            let metadata = NoteMetadata::new(self.user_account_id, NoteType::Public, note_tag);
-            let assets = NoteAssets::new(vec![asset_in.into()]).unwrap();
             let serial_num: Word = [Felt::new(1), Felt::new(2), Felt::new(3), Felt::new(4)].into();
-            let recipient = NoteRecipient::new(serial_num, NoteScript::mock(), note_inputs);
-            Note::new(assets, metadata, recipient)
+            self.build_mock_note(inputs, asset_in, serial_num)
+        }
+
+        /// Build a deposit note for faucet_a with given amount and minimum LP output.
+        fn create_deposit_note(&self, amount: u64, min_lp_out: u64) -> Note {
+            let asset_in = FungibleAsset::new(self.faucet_a_id, amount).unwrap();
+            let deadline = Utc::now() + chrono::Duration::minutes(5);
+
+            // Deposit note inputs layout (see `Order::from_deposit_note`):
+            // [0] = min_lp_out, [1] = deadline, [2] = p2id_tag,
+            // [6] = creator_suffix, [7] = creator_prefix
+            let mut inputs: Vec<Felt> = vec![Felt::ZERO; 8];
+            inputs[0] = Felt::new(min_lp_out);
+            inputs[1] = Felt::new(deadline.timestamp_millis() as u64);
+            inputs[2] = Felt::new(0); // p2id_tag
+            let user_felts: [Felt; 2] = self.user_account_id.into();
+            inputs[6] = user_felts[1]; // suffix
+            inputs[7] = user_felts[0]; // prefix
+
+            let serial_num: Word =
+                [Felt::new(5), Felt::new(6), Felt::new(7), Felt::new(8)].into();
+            self.build_mock_note(inputs, asset_in, serial_num)
+        }
+
+        /// Copy the current pool state for a faucet (`PoolState` is `Copy`).
+        fn pool_state_snapshot(&self, faucet_id: &AccountId) -> PoolState {
+            *self.state.liquidity_pools().get(faucet_id).unwrap()
         }
 
         fn set_oracle_prices(&self, timestamp: u64, price: u64) {
@@ -942,6 +979,11 @@ mod tests {
             self.state
                 .oracle_prices()
                 .insert(self.faucet_b_id, PriceData::new(timestamp, price));
+        }
+
+        fn set_fresh_oracle_prices(&self) {
+            let now = Utc::now().timestamp() as u64;
+            self.set_oracle_prices(now, 100_000_000);
         }
 
         fn create_engine(&self) -> TradingEngine {
@@ -1020,8 +1062,7 @@ mod tests {
         );
 
         // Set FRESH oracle prices
-        let fresh_time = Utc::now().timestamp() as u64;
-        ctx.set_oracle_prices(fresh_time, 100_000_000);
+        ctx.set_fresh_oracle_prices();
 
         assert!(
             ctx.state
@@ -1127,5 +1168,53 @@ mod tests {
             pool_after_second.lp_total_supply > pool_after_first.lp_total_supply,
             "second deposit must increase lp_total_supply beyond first deposit"
         );
+    }
+
+    /// Deposit `amount_out` must equal the LP formula result.
+    #[tokio::test]
+    async fn test_deposit_amount_out_uses_calculated_lp_amount() {
+        // Given
+        let ctx = TestContext::new().await;
+        let liabilities = 1_000_000_00000000u64;
+        let lp_supply = 500_000_00000000u64;
+        let deposit_amount = 100_00000000u64;
+
+        // Dedicated scope is needed, so that the `get_mut` lock is dropped before
+        // we run `run_matching_cycle`.
+        {
+            let mut pool = ctx.state.liquidity_pools().get_mut(&ctx.faucet_a_id).unwrap();
+            pool.balances = PoolBalances {
+                reserve: U256::from(liabilities),
+                reserve_with_slippage: U256::from(liabilities),
+                total_liabilities: U256::from(liabilities),
+            };
+            pool.lp_total_supply = lp_supply;
+        }
+        let original_pool = ctx.pool_state_snapshot(&ctx.faucet_a_id);
+
+        ctx.set_fresh_oracle_prices();
+
+        // When
+        let note = ctx.create_deposit_note(deposit_amount, 1);
+        ctx.state.add_order(note, OrderType::Deposit).unwrap();
+        let cycle = ctx.create_engine().run_matching_cycle().unwrap();
+
+        // Then
+        let details = cycle
+            .executions
+            .iter()
+            .find(|e| matches!(e, OrderExecution::Deposit(_)))
+            .unwrap()
+            .details();
+
+        let (expected_lp, _) = get_deposit_lp_amount_out(
+            &original_pool,
+            U256::from(deposit_amount),
+            U256::from(lp_supply),
+            U256::from(8u64),
+        );
+        let expected_lp = expected_lp.to::<u64>();
+
+        assert_eq!(details.amount_out, expected_lp);
     }
 }
