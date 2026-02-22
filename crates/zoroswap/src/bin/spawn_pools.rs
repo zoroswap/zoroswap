@@ -10,7 +10,6 @@ use miden_client::{
     crypto::FeltRng,
     keystore::FilesystemKeyStore,
     note::{Note, NoteTag, NoteType},
-    store::NoteFilter,
     transaction::{OutputNote, TransactionRequestBuilder},
 };
 use miden_protocol::{
@@ -23,7 +22,7 @@ use rand::RngCore;
 use std::{fs, path::Path, time::Duration};
 use zoro_miden::{
     account::create_basic_account,
-    client::{MidenClient, create_library, instantiate_simple_client},
+    client::{MidenClient, create_library},
 };
 use zoroswap::{
     Config, create_deposit_note, fetch_lp_total_supply_from_chain, fetch_pool_state_from_chain,
@@ -69,10 +68,15 @@ async fn main() -> Result<()> {
     )?;
     let endpoint = config.miden_endpoint;
     let keystore: FilesystemKeyStore = FilesystemKeyStore::new(config.keystore_path.into())?;
-    let mut client = instantiate_simple_client(&args.keystore_path, &endpoint).await?;
+    let mut miden_client = MidenClient::new(
+        endpoint.clone(),
+        &args.keystore_path,
+        &args.store_path,
+        None,
+    )
+    .await?;
 
-    let sync_summary = client.sync_state().await?;
-    println!("\nLatest block: {}", sync_summary.block_num);
+    miden_client.sync_state().await?;
     println!("\n[STEP 1] Create two_pools_account");
 
     // Load the MASM file for the counter contract
@@ -156,9 +160,9 @@ async fn main() -> Result<()> {
 
     // Init seed for the pool contract
     let mut init_seed = [0_u8; 32];
-    client.rng().fill_bytes(&mut init_seed);
+    miden_client.client_mut().rng().fill_bytes(&mut init_seed);
 
-    let key_pair = AuthSecretKey::new_falcon512_rpo_with_rng(client.rng());
+    let key_pair = AuthSecretKey::new_falcon512_rpo_with_rng(miden_client.client_mut().rng());
 
     // Build the new `Account` with the component
     let pool_contract = AccountBuilder::new(init_seed)
@@ -179,40 +183,47 @@ async fn main() -> Result<()> {
     );
 
     keystore.add_key(&key_pair)?;
-    client.add_account(&pool_contract.clone(), false).await?;
-    client.sync_state().await?;
+    miden_client
+        .client_mut()
+        .add_account(&pool_contract.clone(), false)
+        .await?;
+    miden_client.sync_state().await?;
     tokio::time::sleep(Duration::from_secs(2)).await;
 
     println!("\n[STEP 2] Mint tokens from our faucet to two_pools_account");
 
-    let (lp_account, _) = create_basic_account(&mut client, keystore.clone()).await?;
+    let (lp_account, _) = create_basic_account(&mut miden_client, keystore.clone()).await?;
 
     let amount = 1000000;
     for pool in config.liquidity_pools.iter() {
         println!("liq pool: {:?}", pool.name);
         println!("Importing the faucet account to client");
-        client.import_account_by_id(pool.faucet_id).await?;
+        miden_client.import_account(&pool.faucet_id).await?;
         let amount_raw: u64 = amount * 10u64.pow(pool.decimals as u32);
         let fungible_asset = FungibleAsset::new(pool.faucet_id, amount_raw)?;
         let transaction_request = TransactionRequestBuilder::new().build_mint_fungible_asset(
             fungible_asset,
             lp_account.id(),
             NoteType::Public,
-            client.rng(),
+            miden_client.client_mut().rng(),
         )?;
         println!("tx request built");
-        let _tx_id = client
+        let _tx_id = miden_client
+            .client_mut()
             .submit_new_transaction(pool.faucet_id, transaction_request)
             .await?;
         println!("Minted note of {} tokens for liq pool.", amount_raw);
-        client.sync_state().await?;
+        miden_client.sync_state().await?;
     }
 
     loop {
         // Resync to get the latest data
-        client.sync_state().await?;
+        miden_client.sync_state().await?;
 
-        let consumable_notes = client.get_consumable_notes(Some(lp_account.id())).await?;
+        let consumable_notes = miden_client
+            .client()
+            .get_consumable_notes(Some(lp_account.id()))
+            .await?;
         let notes: Vec<Note> = consumable_notes
             .iter()
             .filter_map(|(rec, _)| {
@@ -229,7 +240,8 @@ async fn main() -> Result<()> {
             println!("Found consumable notes for lp account. Consuming them now...");
             let transaction_request =
                 TransactionRequestBuilder::new().build_consume_notes(notes)?;
-            let _tx_id = client
+            let _tx_id = miden_client
+                .client_mut()
                 .submit_new_transaction(lp_account.id(), transaction_request)
                 .await?;
 
@@ -245,12 +257,13 @@ async fn main() -> Result<()> {
     }
 
     // Re-sync so minted notes become visible
-    client.sync_state().await?;
+    miden_client.sync_state().await?;
 
     let pool_contract_tag = NoteTag::with_account_target(pool_contract.id());
 
     // Retrieve updated contract data to see the state
-    let account = client
+    let account = miden_client
+        .client()
         .get_account(pool_contract.id())
         .await?
         .ok_or(anyhow!("Account {:?} not found.", pool_contract.id()))?;
@@ -286,7 +299,7 @@ async fn main() -> Result<()> {
             lp_account.id().suffix(),
             lp_account.id().prefix().into(),
         ];
-        let deposit_serial_num = client.rng().draw_word();
+        let deposit_serial_num = miden_client.client_mut().rng().draw_word();
         println!(
             "Made an deposit note for {amount_in} {} expecting  at least {min_lp_amount_out} lp amount out.",
             pool.symbol
@@ -306,11 +319,12 @@ async fn main() -> Result<()> {
             .unwrap();
 
         println!("tx request built");
-        let _tx_id = client
+        let _tx_id = miden_client
+            .client_mut()
             .submit_new_transaction(lp_account.id(), note_req)
             .await?;
         println!("Minted note of {} tokens for liq pool.", amount_in);
-        client.sync_state().await?;
+        miden_client.sync_state().await?;
     }
 
     // Consume DEPOSIT notes by POOL CONTRACT
@@ -319,7 +333,10 @@ async fn main() -> Result<()> {
         ////////    !!!!!!!!!!!!!!!!!!!!!!!!!
 
         // Resync to get the latest data
-        match fetch_new_notes_by_tag(&mut client, &pool_contract_tag).await {
+        match miden_client
+            .fetch_new_notes_by_tag(&pool_contract_tag)
+            .await
+        {
             Ok(notes) => {
                 let valid_notes: Vec<&Note> = notes
                     .iter()
@@ -351,7 +368,8 @@ async fn main() -> Result<()> {
                         .map_err(|e| {
                             anyhow::anyhow!("Failed to build batch transaction request: {}", e)
                         })?;
-                    let _tx_id = client
+                    let _tx_id = miden_client
+                        .client_mut()
                         .submit_new_transaction(pool_contract.id(), consume_req)
                         .await?;
 
@@ -374,10 +392,12 @@ async fn main() -> Result<()> {
     println!("\n[STEP 3] Set initial states of the two_pools_account");
     for pool in config.liquidity_pools.iter() {
         let (balances_pool, settings_pool) =
-            fetch_pool_state_from_chain(&mut client, pool_contract.id(), pool.faucet_id).await?;
-        let vault = fetch_vault_for_account_from_chain(&mut client, pool_contract.id()).await?;
+            fetch_pool_state_from_chain(&mut miden_client, pool_contract.id(), pool.faucet_id)
+                .await?;
+        let vault =
+            fetch_vault_for_account_from_chain(&mut miden_client, pool_contract.id()).await?;
         let total_supply =
-            fetch_lp_total_supply_from_chain(&mut client, pool_contract.id(), pool.faucet_id)
+            fetch_lp_total_supply_from_chain(&mut miden_client, pool_contract.id(), pool.faucet_id)
                 .await?;
         println!(
             "Liquidity {} ({})",
@@ -395,26 +415,4 @@ async fn main() -> Result<()> {
     );
 
     Ok(())
-}
-
-async fn fetch_new_notes_by_tag(
-    client: &mut MidenClient,
-    pool_id_tag: &NoteTag,
-) -> Result<Vec<Note>> {
-    client.sync_state().await?;
-    let all_notes = client.get_output_notes(NoteFilter::Committed).await?;
-    let notes: Vec<Note> = all_notes
-        .iter()
-        .filter_map(|n| {
-            if n.metadata().tag().eq(pool_id_tag)
-                && let Some(recipient) = n.recipient()
-            {
-                let note = Note::new(n.assets().clone(), n.metadata().clone(), recipient.clone());
-                Some(note)
-            } else {
-                None
-            }
-        })
-        .collect();
-    Ok(notes)
 }

@@ -20,12 +20,12 @@ use crate::client::MidenClient;
 /// # Returns
 /// The created faucet `Account`
 pub async fn create_basic_faucet(
-    client: &mut MidenClient,
+    miden_client: &mut MidenClient,
     keystore: FilesystemKeyStore,
 ) -> Result<Account, ClientError> {
     let mut init_seed = [0u8; 32];
-    client.rng().fill_bytes(&mut init_seed);
-    let key_pair = AuthSecretKey::new_falcon512_rpo_with_rng(client.rng());
+    miden_client.client_mut().rng().fill_bytes(&mut init_seed);
+    let key_pair = AuthSecretKey::new_falcon512_rpo_with_rng(miden_client.client_mut().rng());
     let symbol = TokenSymbol::new("MID")
         .unwrap_or_else(|err| panic!("Failed to create token symbol: {err:?}"));
     let decimals = 8;
@@ -36,7 +36,10 @@ pub async fn create_basic_faucet(
         .with_auth_component(AuthFalcon512Rpo::new(key_pair.public_key().to_commitment()))
         .with_component(BasicFungibleFaucet::new(symbol, decimals, max_supply).unwrap());
     let account = builder.build().unwrap();
-    client.add_account(&account, false).await?;
+    miden_client
+        .client_mut()
+        .add_account(&account, false)
+        .await?;
     keystore.add_key(&key_pair).unwrap();
     Ok(account)
 }

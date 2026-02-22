@@ -7379,12 +7379,19 @@ name = "zoro_curve"
 version = "0.2.0"
 dependencies = [
  "alloy",
- "zoro_primitives",
+ "zoro_curve_base",
 ]
 
 [[package]]
-name = "zoro_miden_client"
-version = "0.4.1"
+name = "zoro_curve_base"
+version = "0.5.0"
+dependencies = [
+ "alloy",
+]
+
+[[package]]
+name = "zoro_miden"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "miden-assembly",
@@ -7398,15 +7405,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "zoro_primitives"
-version = "0.4.1"
-dependencies = [
- "alloy",
-]
-
-[[package]]
 name = "zoroswap"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -7439,6 +7439,6 @@ dependencies = [
  "url",
  "uuid",
  "zoro_curve",
- "zoro_miden_client",
- "zoro_primitives",
+ "zoro_curve_base",
+ "zoro_miden",
 ]

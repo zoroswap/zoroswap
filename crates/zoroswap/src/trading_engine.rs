@@ -1,6 +1,6 @@
 use crate::{
     amm_state::AmmState,
-    common::{instantiate_client, print_transaction_info},
+    common::print_transaction_info,
     order::{Order, OrderType},
     pool::{
         PoolBalances, PoolState, get_curve_amount_out, get_deposit_lp_amount_out,
@@ -26,7 +26,6 @@ use std::{
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
-use tokio::sync::broadcast::error::RecvError;
 use tracing::{debug, error, info, warn};
 use zoro_miden::{client::MidenClient, note::create_p2id_note};
 
@@ -102,84 +101,32 @@ impl TradingEngine {
         }
     }
 
-    pub async fn start(&mut self) {
+    pub async fn start(&mut self) -> Result<()> {
         let min_match_interval = Duration::from_millis(100); // Debounce
         let max_match_interval = Duration::from_millis(1000); // Max wait (event-driven)
-
-        // Create client with retry for DB contention
-        let mut client = None;
-        for attempt in 1..=5 {
-            match instantiate_client(self.state.config(), &self.store_path).await {
-                Ok(c) => {
-                    client = Some(c);
-                    break;
-                }
-                Err(e) => {
-                    if attempt < 5 {
-                        warn!(
-                            "Trading engine client creation attempt {}/5 failed: {e}, retrying...",
-                            attempt
-                        );
-                        tokio::time::sleep(Duration::from_millis(500 * attempt as u64)).await;
-                    } else {
-                        panic!(
-                            "Failed to instantiate client in trading engine after 5 attempts: {e}"
-                        );
-                    }
-                }
-            }
-        }
-        let mut client = client.unwrap();
-
+        let config = self.state.config();
+        let mut client = MidenClient::new(
+            config.miden_endpoint,
+            config.keystore_path,
+            config.store_path,
+            None,
+        )
+        .await?;
         info!(
             "Starting event-driven trading engine (min: {:?}, max: {:?})",
             min_match_interval, max_match_interval
         );
 
         // Subscribe to events that should trigger matching
-        let mut order_rx = self.broadcaster.subscribe_order_updates();
-        let mut price_rx = self.broadcaster.subscribe_oracle_prices();
-
         let mut interval = tokio::time::interval(max_match_interval);
-
         loop {
-            tokio::select! {
-                _ = interval.tick() => {
-                    // Periodic matching (every 1s max)
-                    self.run_matching_if_ready(min_match_interval, &mut client).await;
-                }
-                result = order_rx.recv() => {
-                    match result {
-                        Ok(order_event) => {
-                            if order_event.status == OrderStatus::Pending {
-                                info!("New order received, triggering match cycle");
-                                self.run_matching_if_ready(min_match_interval, &mut client).await;
-                            }
-                        }
-                        Err(RecvError::Lagged(skipped)) => {
-                            warn!("Trading engine lagged, skipped {} order updates", skipped);
-                        }
-                        Err(_) => break,
-                    }
-                }
-                result = price_rx.recv() => {
-                    match result {
-                        Ok(_price_event) => {
-                            // Price update: trigger match
-                            self.run_matching_if_ready(min_match_interval, &mut client).await;
-                        }
-                        Err(RecvError::Lagged(skipped)) => {
-                            warn!("Trading engine lagged, skipped {} price updates", skipped);
-                        }
-                        Err(_) => break,
-                    }
-                }
-            }
+            interval.tick().await;
+            self.run_matching_if_ready(min_match_interval, &mut client)
+                .await;
         }
     }
 
     async fn run_matching_if_ready(&mut self, min_interval: Duration, client: &mut MidenClient) {
-        // Debouncing: prevent excessive matching
         let last_match = { *self.last_match_time.lock().unwrap() };
         if last_match.elapsed() < min_interval {
             return; // Skip this match cycle
@@ -530,9 +477,9 @@ impl TradingEngine {
     async fn execute_orders(
         &mut self,
         executions: Vec<OrderExecution>,
-        client: &mut MidenClient,
+        miden_client: &mut MidenClient,
     ) -> Result<()> {
-        client.sync_state().await?;
+        miden_client.sync_state().await?;
         let pool_account_id = self.state.config().pool_account_id;
         let network_id = self.state.config().network_id;
         let mut input_notes = Vec::new();
@@ -622,7 +569,8 @@ impl TradingEngine {
             .build()
             .map_err(|e| anyhow::anyhow!("Failed to build batch transaction request: {}", e))?;
 
-        let tx_id = client
+        let tx_id = miden_client
+            .client_mut()
             .submit_new_transaction(pool_account_id, consume_req)
             .await
             .map_err(|e| {
@@ -638,7 +586,7 @@ impl TradingEngine {
         // Submitted the transaction (exactly like the test)
         info!("Submitted TX: {:?}", tx_id);
 
-        client.sync_state().await?;
+        miden_client.sync_state().await?;
 
         print_transaction_info(&tx_id);
 

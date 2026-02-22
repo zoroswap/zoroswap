@@ -110,15 +110,19 @@ impl PoolState {
 }
 
 pub async fn fetch_lp_total_supply_from_chain(
-    client: &mut MidenClient,
+    miden_client: &mut MidenClient,
     pool_account_id: AccountId,
     faucet_id: AccountId,
 ) -> Result<u64> {
-    client.sync_state().await?;
-    let record = client.get_account(pool_account_id).await?.ok_or(anyhow!(
-        "No account found on chain for account_id {}",
-        pool_account_id
-    ))?;
+    miden_client.sync_state().await?;
+    let record = miden_client
+        .client()
+        .get_account(pool_account_id)
+        .await?
+        .ok_or(anyhow!(
+            "No account found on chain for account_id {}",
+            pool_account_id
+        ))?;
     let account = extract_full_account(record.account_data())?;
     let account_storage = account.storage();
     let asset_address: Word = [
@@ -134,15 +138,19 @@ pub async fn fetch_lp_total_supply_from_chain(
 }
 
 pub async fn fetch_pool_state_from_chain(
-    client: &mut MidenClient,
+    miden_client: &mut MidenClient,
     pool_account_id: AccountId,
     faucet_id: AccountId,
 ) -> Result<(PoolBalances, PoolSettings)> {
-    client.sync_state().await?;
-    let record = client.get_account(pool_account_id).await?.ok_or(anyhow!(
-        "No account found on chain for account_id {}",
-        pool_account_id
-    ))?;
+    miden_client.sync_state().await?;
+    let record = miden_client
+        .client()
+        .get_account(pool_account_id)
+        .await?
+        .ok_or(anyhow!(
+            "No account found on chain for account_id {}",
+            pool_account_id
+        ))?;
     let account = extract_full_account(record.account_data())?;
     let account_storage = account.storage();
     let asset_address: Word = [
@@ -178,14 +186,18 @@ pub async fn fetch_pool_state_from_chain(
 // Used in tests and bin's.
 #[allow(dead_code)]
 pub async fn fetch_vault_for_account_from_chain(
-    client: &mut MidenClient,
+    miden_client: &mut MidenClient,
     account_id: AccountId,
 ) -> Result<HashMap<AccountId, u64>> {
-    client.sync_state().await?;
-    let record = client.get_account(account_id).await?.ok_or(anyhow!(
-        "No account found on chain for account_id {}",
-        account_id
-    ))?;
+    miden_client.sync_state().await?;
+    let record = miden_client
+        .client()
+        .get_account(account_id)
+        .await?
+        .ok_or(anyhow!(
+            "No account found on chain for account_id {}",
+            account_id
+        ))?;
     let account = extract_full_account(record.account_data())?;
     let mut assets: HashMap<AccountId, u64> = HashMap::new();
     let account_storage = account.vault();

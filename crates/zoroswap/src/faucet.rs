@@ -1,17 +1,10 @@
-use crate::{common::instantiate_manual_sync_client, config::Config};
+use crate::config::Config;
 use anyhow::Result;
 use chrono::Utc;
-use miden_client::{
-    account::AccountId,
-    asset::FungibleAsset,
-    note::NoteType,
-    store::{NoteFilter, TransactionFilter},
-    sync::StateSync,
-    transaction::TransactionRequestBuilder,
-};
-use std::collections::{BTreeSet, HashMap};
+use miden_client::account::AccountId;
+use std::collections::HashMap;
 use tokio::sync::mpsc::{Receiver, Sender};
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, info};
 use zoro_miden::client::MidenClient;
 
 pub struct FaucetMintInstruction {
@@ -40,8 +33,18 @@ impl GuardedFaucet {
     }
 
     pub async fn start(&mut self) -> Result<()> {
-        let (mut client, state_sync) =
-            instantiate_manual_sync_client(self.config.clone(), self.config.store_path).await?;
+        let mut clients: HashMap<AccountId, MidenClient> =
+            HashMap::with_capacity(self.config.liquidity_pools.len());
+        for liq_pool in self.config.liquidity_pools.iter() {
+            let client = MidenClient::new(
+                self.config.miden_endpoint.clone(),
+                self.config.keystore_path,
+                self.config.keystore_path,
+                Some(liq_pool.faucet_id),
+            )
+            .await?;
+            clients.insert(liq_pool.faucet_id, client);
+        }
 
         while let Some(mint_instruction) = self.rx.recv().await {
             let last_mint = self
@@ -49,61 +52,50 @@ impl GuardedFaucet {
                 .get(&(mint_instruction.account_id, mint_instruction.faucet_id))
                 .unwrap_or(&0);
             let can_mint = (Utc::now().timestamp() as u64) - last_mint > 1;
-            trace!(
+            debug!(
                 "Faucet request for {} from faucet {}",
                 mint_instruction.account_id.to_hex(),
                 mint_instruction.faucet_id.to_hex()
             );
             if can_mint {
-                // Import the recipient account first
-                if let Err(e) = client
-                    .import_account_by_id(mint_instruction.account_id)
-                    .await
-                {
-                    warn!("Note: account import returned: {e:?}");
-                }
                 let amount = 10000000;
-
-                debug!(
-                    "Minting {amount} for {} from faucet {}",
-                    mint_instruction.account_id.to_hex(),
-                    mint_instruction.faucet_id.to_hex()
-                );
-
-                match Self::mint_asset(
-                    &mut client,
-                    mint_instruction.faucet_id,
-                    mint_instruction.account_id,
-                    amount,
-                )
-                .await
-                {
-                    Ok(tx_id) => {
-                        // Update timestamp after successful mint to enforce rate limiting
-                        info!(
-                            amount = amount,
-                            faucet = %mint_instruction.faucet_id.to_hex(),
-                            recipient = %mint_instruction.account_id.to_hex(),
-                            tx_id = ?tx_id,
-                            "Minted tokens"
-                        );
-                        self.recipients.insert(
-                            (mint_instruction.account_id, mint_instruction.faucet_id),
-                            Utc::now().timestamp() as u64,
-                        );
-                    }
-                    Err(e) => {
-                        error!(
-                            faucet = %mint_instruction.faucet_id.to_hex(),
-                            recipient = %mint_instruction.account_id.to_hex(),
-                            error = ?e,
-                            "Failed to mint asset"
-                        );
+                let miden_client = clients
+                    .iter_mut()
+                    .find(|(faucet_id, _)| (*faucet_id).eq(&mint_instruction.faucet_id));
+                if let Some((_, miden_client)) = miden_client {
+                    match miden_client
+                        .mint_asset(
+                            mint_instruction.faucet_id,
+                            mint_instruction.account_id,
+                            amount,
+                        )
+                        .await
+                    {
+                        Ok(tx_id) => {
+                            info!(
+                                amount = amount,
+                                faucet = %mint_instruction.faucet_id.to_hex(),
+                                recipient = %mint_instruction.account_id.to_hex(),
+                                tx_id = ?tx_id,
+                                "Minted tokens"
+                            );
+                            // Update timestamp after successful mint to enforce rate limiting
+                            self.recipients.insert(
+                                (mint_instruction.account_id, mint_instruction.faucet_id),
+                                Utc::now().timestamp() as u64,
+                            );
+                            miden_client.sync_state().await;
+                        }
+                        Err(e) => {
+                            error!(
+                                faucet = %mint_instruction.faucet_id.to_hex(),
+                                recipient = %mint_instruction.account_id.to_hex(),
+                                error = ?e,
+                                "Failed to mint asset"
+                            );
+                        }
                     }
                 }
-
-                // sync commitments
-                Self::sync_state(&mut client, &state_sync, mint_instruction.faucet_id).await?;
             } else {
                 debug!(
                     "Rate limited: {} from faucet {}",
@@ -112,66 +104,6 @@ impl GuardedFaucet {
                 );
             }
         }
-        Ok(())
-    }
-
-    async fn mint_asset(
-        client: &mut MidenClient,
-        faucet_id: AccountId,
-        recipient_id: AccountId,
-        amount: u64,
-    ) -> Result<String> {
-        let fungible_asset = FungibleAsset::new(faucet_id, amount)?;
-        let transaction_request = TransactionRequestBuilder::new().build_mint_fungible_asset(
-            fungible_asset,
-            recipient_id,
-            NoteType::Public,
-            client.rng(),
-        )?;
-        let tx_id = client
-            .submit_new_transaction(faucet_id, transaction_request)
-            .await?;
-        Ok(format!("{:?}", tx_id))
-    }
-
-    /// Syncs only the faucet account's commitments instead of calling `client.sync_state()`.
-    /// A full sync is too slow for fat faucet accounts (can take 30+ minutes).
-    /// This is analogous to how the official Miden faucet handles syncing:
-    /// https://github.com/0xMiden/miden-faucet/blob/main/crates/faucet/src/lib.rs
-    async fn sync_state(
-        client: &mut MidenClient,
-        state_sync: &StateSync,
-        faucet_id: AccountId,
-    ) -> Result<()> {
-        let accounts = client
-            .get_account_header_by_id(faucet_id)
-            .await?
-            .map(|(header, _)| vec![header])
-            .unwrap_or_default();
-        let note_tags = BTreeSet::new();
-        let input_notes = vec![];
-        let expected_output_notes = client.get_output_notes(NoteFilter::Expected).await?;
-        let uncommitted_transactions = client
-            .get_transactions(TransactionFilter::Uncommitted)
-            .await?;
-
-        // Build current partial MMR
-        let current_partial_mmr = client.get_current_partial_mmr().await?;
-
-        // Get the sync update from the network
-        let state_sync_update = state_sync
-            .sync_state(
-                current_partial_mmr,
-                accounts,
-                note_tags,
-                input_notes,
-                expected_output_notes,
-                uncommitted_transactions,
-            )
-            .await?;
-
-        // Apply received and computed updates to the store
-        client.apply_state_sync(state_sync_update).await?;
         Ok(())
     }
 }

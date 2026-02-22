@@ -1,6 +1,6 @@
 use crate::{
     amm_state::AmmState,
-    common::{get_script_root_for_order_type, instantiate_client},
+    common::get_script_root_for_order_type,
     order::OrderType,
     websocket::{EventBroadcaster, OrderStatus, OrderUpdateDetails, OrderUpdateEvent},
 };
@@ -12,7 +12,7 @@ use miden_client::{
     store::NoteFilter,
 };
 use std::{collections::HashSet, sync::Arc, time::Duration};
-use tracing::{debug, error, warn};
+use tracing::{debug, error};
 use zoro_miden::client::MidenClient;
 
 pub struct NotesListener {
@@ -32,7 +32,7 @@ impl NotesListener {
         }
     }
 
-    pub async fn start(&mut self) {
+    pub async fn start(&mut self) -> Result<()> {
         let pool_id = self.state.config().pool_account_id;
         let tag = NoteTag::with_account_target(pool_id);
         debug!(
@@ -41,29 +41,15 @@ impl NotesListener {
             pool_id.to_hex()
         );
 
-        // Create our own client for notes listening (with retry for DB contention)
-        let mut client = None;
-        for attempt in 1..=5 {
-            match instantiate_client(self.state.config(), self.state.config().store_path).await {
-                Ok(c) => {
-                    client = Some(c);
-                    break;
-                }
-                Err(e) => {
-                    if attempt < 5 {
-                        warn!(
-                            "Notes listener client creation attempt {}/5 failed: {e}, retrying...",
-                            attempt
-                        );
-                        tokio::time::sleep(Duration::from_millis(500 * attempt as u64)).await;
-                    } else {
-                        error!("Failed to create notes listener client after 5 attempts: {e}");
-                        return;
-                    }
-                }
-            }
-        }
-        let mut client = client.unwrap();
+        let config = self.state.config();
+        let mut miden_client = MidenClient::new(
+            config.miden_endpoint,
+            config.keystore_path,
+            config.store_path,
+            None,
+        )
+        .await?;
+        miden_client.add_note_tag(NoteTag::with_account_target(config.pool_account_id));
 
         let mut failed_notes: HashSet<NoteId> = HashSet::new();
         let mut processed_notes: HashSet<NoteId> = HashSet::new();
@@ -71,7 +57,7 @@ impl NotesListener {
 
         loop {
             // Sync state
-            if let Err(e) = client.sync_state().await {
+            if let Err(e) = miden_client.sync_state().await {
                 error!(
                     error = ?e,
                     "Error on sync in notes listener"
@@ -80,7 +66,7 @@ impl NotesListener {
 
             // Fetch notes and filter by tag
             match self
-                .get_notes_filtered(&mut client, NoteFilter::Committed, Some(tag))
+                .get_notes_filtered(&mut miden_client, NoteFilter::Committed, Some(tag))
                 .await
             {
                 Ok(notes) => {
@@ -150,11 +136,11 @@ impl NotesListener {
 
     async fn get_notes_filtered(
         &self,
-        client: &mut MidenClient,
+        miden_client: &mut MidenClient,
         filter: NoteFilter,
         tag: Option<NoteTag>,
-    ) -> Result<Vec<(Note, OrderType)>, anyhow::Error> {
-        let all_notes = client.get_input_notes(filter).await?;
+    ) -> Result<Vec<(Note, OrderType)>> {
+        let all_notes = miden_client.client().get_input_notes(filter).await?;
         let notes: Vec<(Note, OrderType)> = all_notes
             .iter()
             .filter_map(|n| {

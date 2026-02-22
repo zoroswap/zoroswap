@@ -1,10 +1,6 @@
 [workspace]
-members = [
-	"crates/zoroswap",
-	"crates/zoro_primitives",
-	"crates/zoro_miden_client"
-]
 resolver = "2"
+members = ["crates/zoro_curve_base", "crates/zoro_miden", "crates/zoroswap"]
 
 [workspace.dependencies]
 alloy = { version = "1.0.23", features = ["full"] }

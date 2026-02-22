@@ -15,7 +15,7 @@ use miden_client::{
 use miden_standards::account::{auth::AuthFalcon512Rpo, faucets::BasicFungibleFaucet};
 use rand::RngCore;
 use serde::Deserialize;
-use zoro_miden::client::instantiate_simple_client;
+use zoro_miden::client::MidenClient;
 
 #[derive(Deserialize, Debug)]
 struct FaucetConfig {
@@ -62,18 +62,22 @@ async fn main() -> Result<()> {
         _ => Endpoint::localhost(),
     };
 
-    let mut client = instantiate_simple_client(&args.keystore_path, &miden_endpoint).await?;
+    let mut miden_client = MidenClient::new(
+        miden_endpoint.clone(),
+        &args.keystore_path,
+        "store.sqlite3",
+        None,
+    )
+    .await?;
 
-    let sync_summary = client.sync_state().await?;
-    println!("Latest block: {}", sync_summary.block_num);
-
+    miden_client.sync_state().await?;
     let keystore: FilesystemKeyStore = FilesystemKeyStore::new(args.keystore_path.into())
         .unwrap_or_else(|err| panic!("Failed to create keystore: {err:?}"));
 
     println!("\nDeploying a new fungible faucet.");
 
     // Generate key pair
-    let key_pair = AuthSecretKey::new_falcon512_rpo_with_rng(client.rng());
+    let key_pair = AuthSecretKey::new_falcon512_rpo_with_rng(miden_client.client_mut().rng());
     for faucet in faucets {
         // Faucet parameters
         let symbol = TokenSymbol::new(&faucet.symbol)
@@ -83,7 +87,7 @@ async fn main() -> Result<()> {
 
         // Faucet seed
         let mut init_seed = [0u8; 32];
-        client.rng().fill_bytes(&mut init_seed);
+        miden_client.client_mut().rng().fill_bytes(&mut init_seed);
 
         // Build the account
         let builder = AccountBuilder::new(init_seed)
@@ -100,7 +104,10 @@ async fn main() -> Result<()> {
             .unwrap_or_else(|err| panic!("Failed to build faucet account: {err:?}"));
 
         // Add the faucet to the client
-        client.add_account(&faucet_account, true).await?;
+        miden_client
+            .client_mut()
+            .add_account(&faucet_account, true)
+            .await?;
 
         // Add the key pair to the keystore
         keystore
@@ -118,14 +125,15 @@ async fn main() -> Result<()> {
         // Deploy faucet to node by submitting a transaction
         println!("Deploying faucet {}.", faucet.symbol);
         let transaction_request = TransactionRequestBuilder::new().build()?;
-        let _tx_id = client
+        let _tx_id = miden_client
+            .client_mut()
             .submit_new_transaction(faucet_account.id(), transaction_request)
             .await?;
 
         println!("Faucet {} successfully deployed.", faucet.symbol);
 
         // Sync state from chain to client
-        client.sync_state().await?;
+        miden_client.sync_state().await?;
     }
 
     println!("All faucets deployed successfully.");
