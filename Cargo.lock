@@ -7393,6 +7393,7 @@ dependencies = [
 name = "zoro_miden"
 version = "0.5.0"
 dependencies = [
+ "alloy",
  "anyhow",
  "miden-assembly",
  "miden-client",
@@ -7400,8 +7401,11 @@ dependencies = [
  "miden-protocol",
  "miden-standards",
  "rand 0.9.2",
+ "serde",
  "tokio",
  "tracing",
+ "zoro_curve",
+ "zoro_curve_base",
 ]
 
 [[package]]

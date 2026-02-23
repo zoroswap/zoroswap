@@ -1,33 +1,19 @@
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use chrono::Utc;
 use clap::Parser;
 use dotenv::dotenv;
 use miden_client::{
     Felt, Word,
-    account::{AccountBuilder, AccountStorageMode, AccountType, StorageMap, StorageSlot},
+    account::AccountId,
     asset::FungibleAsset,
-    auth::AuthSecretKey,
     crypto::FeltRng,
     keystore::FilesystemKeyStore,
     note::{Note, NoteTag, NoteType},
     transaction::{OutputNote, TransactionRequestBuilder},
 };
-use miden_protocol::{
-    account::{AccountComponent, StorageSlotName},
-    assembly::Assembler,
-    transaction::TransactionKernel,
-};
-use miden_standards::account::{auth::AuthFalcon512Rpo, wallets::BasicWallet};
-use rand::RngCore;
-use std::{fs, path::Path, time::Duration};
-use zoro_miden::{
-    account::create_basic_account,
-    client::{MidenClient, create_library},
-};
-use zoroswap::{
-    Config, create_deposit_note, fetch_lp_total_supply_from_chain, fetch_pool_state_from_chain,
-    fetch_vault_for_account_from_chain,
-};
+use std::time::Duration;
+use zoro_miden::{account::MidenAccount, client::MidenClient, note::TrustedNote, pool::ZoroPool};
+use zoroswap::Config;
 
 #[derive(Parser, Debug)]
 #[command(name = "spawn_pools")]
@@ -77,217 +63,43 @@ async fn main() -> Result<()> {
     .await?;
 
     miden_client.sync_state().await?;
-    println!("\n[STEP 1] Create two_pools_account");
+    println!("\n[STEP 1] Create zoro_pool account");
 
-    // Load the MASM file for the counter contract
-    let pool_reader_path = format!("{}/accounts/zoropool.masm", config.masm_path);
-    let pool_reader_path = Path::new(&pool_reader_path);
-    let pool_code = fs::read_to_string(pool_reader_path)
-        .unwrap_or_else(|err| panic!("unable to read from {pool_reader_path:?}: {err}"));
+    let mut zoro_pool = ZoroPool::new_deployment(
+        config.masm_path,
+        config.liquidity_pools.clone(),
+        &mut miden_client,
+        endpoint.clone(),
+        keystore.clone(),
+    )
+    .await?;
 
-    let assembler: Assembler = TransactionKernel::assembler();
-
-    let mut assets_mapping = StorageMap::new();
-    let mut curves_mapping = StorageMap::new();
-    let mut fees_mapping = StorageMap::new();
-
-    for (i, pool) in config.liquidity_pools.iter().enumerate() {
-        let fees: Word = [
-            Felt::new(200), // swap_fee
-            Felt::new(300), // backstop_fee
-            Felt::new(0),   // protocol_fee
-            Felt::new(0),   // 0
-        ]
-        .into();
-        let curve: Word = [
-            Felt::new(10000000000000000),        // beta
-            Felt::new(16000000000000000000_u64), // c
-            Felt::new(0),
-            Felt::new(0),
-        ]
-        .into();
-        let asset_index = [
-            Felt::new(i as u64),
-            Felt::new(0),
-            Felt::new(0),
-            Felt::new(0),
-        ];
-        let asset_id = [
-            Felt::new(0),
-            Felt::new(0),
-            pool.faucet_id.suffix(),
-            pool.faucet_id.prefix().as_felt(),
-        ];
-        assets_mapping
-            .insert(asset_index.into(), asset_id.into())
-            .unwrap_or_else(|err| panic!("Failed to insert asset into mapping: {err:?}"));
-        fees_mapping
-            .insert(asset_id.into(), fees)
-            .unwrap_or_else(|err| panic!("Failed to insert fees into mapping: {err:?}"));
-        curves_mapping
-            .insert(asset_id.into(), curve)
-            .unwrap_or_else(|err| panic!("Failed to insert curve into mapping: {err:?}"));
-    }
-
-    let n = |name: &str| StorageSlotName::new(name).expect("valid slot name");
-
-    let fees_mapping = StorageSlot::with_map(n("zoroswap::fees"), fees_mapping);
-    let pool_states_mapping = StorageSlot::with_empty_map(n("zoroswap::pool_state"));
-    let user_deposits_mapping = StorageSlot::with_empty_map(n("zoroswap::user_deposits"));
-
-    // Compile the account code into a Library, then create AccountComponent
-    let pool_library = create_library(assembler.clone(), "zoroswap::zoropool", &pool_code)
-        .map_err(|e| anyhow!("Failed to create pool library: {e}"))?;
-    let pool_component = AccountComponent::new(
-        pool_library,
-        vec![
-            StorageSlot::with_empty_value(n("zoroswap::slot0")),
-            StorageSlot::with_empty_value(n("zoroswap::slot1")),
-            StorageSlot::with_map(n("zoroswap::assets"), assets_mapping),
-            pool_states_mapping,
-            user_deposits_mapping,
-            StorageSlot::with_map(n("zoroswap::pool_curve"), curves_mapping),
-            fees_mapping,
-            StorageSlot::with_empty_value(n("zoroswap::pool_balances")),
-            StorageSlot::with_empty_value(n("zoroswap::lp_supply")),
-            StorageSlot::with_empty_value(n("zoroswap::pool_fees")),
-            StorageSlot::with_empty_value(n("zoroswap::slot10")),
-            StorageSlot::with_empty_value(n("zoroswap::slot11")),
-            StorageSlot::with_empty_value(n("zoroswap::slot12")),
-        ],
-    )?
-    .with_supports_all_types();
-
-    // Init seed for the pool contract
-    let mut init_seed = [0_u8; 32];
-    miden_client.client_mut().rng().fill_bytes(&mut init_seed);
-
-    let key_pair = AuthSecretKey::new_falcon512_rpo_with_rng(miden_client.client_mut().rng());
-
-    // Build the new `Account` with the component
-    let pool_contract = AccountBuilder::new(init_seed)
-        .account_type(AccountType::RegularAccountUpdatableCode)
-        .storage_mode(AccountStorageMode::Public)
-        .with_component(pool_component.clone())
-        .with_auth_component(AuthFalcon512Rpo::new(key_pair.public_key().to_commitment()))
-        .with_component(BasicWallet)
-        .build()?;
-
-    println!(
-        "pool contract commitment hash: {:?}",
-        pool_contract.commitment().to_hex()
-    );
-    println!(
-        "contract id: {:?}",
-        pool_contract.id().to_bech32(endpoint.to_network_id())
-    );
-
-    keystore.add_key(&key_pair)?;
-    miden_client
-        .client_mut()
-        .add_account(&pool_contract.clone(), false)
-        .await?;
-    miden_client.sync_state().await?;
-    tokio::time::sleep(Duration::from_secs(2)).await;
-
-    println!("\n[STEP 2] Mint tokens from our faucet to two_pools_account");
-
-    let (lp_account, _) = create_basic_account(&mut miden_client, keystore.clone()).await?;
-
-    let amount = 1000000;
+    println!("\n[STEP 2] Mint tokens from our faucet to zoro_pool account");
+    let amount = 100000000;
     for pool in config.liquidity_pools.iter() {
         println!("liq pool: {:?}", pool.name);
         println!("Importing the faucet account to client");
         miden_client.import_account(&pool.faucet_id).await?;
-        let amount_raw: u64 = amount * 10u64.pow(pool.decimals as u32);
-        let fungible_asset = FungibleAsset::new(pool.faucet_id, amount_raw)?;
-        let transaction_request = TransactionRequestBuilder::new().build_mint_fungible_asset(
-            fungible_asset,
-            lp_account.id(),
-            NoteType::Public,
-            miden_client.client_mut().rng(),
-        )?;
-        println!("tx request built");
-        let _tx_id = miden_client
-            .client_mut()
-            .submit_new_transaction(pool.faucet_id, transaction_request)
+        miden_client
+            .mint_asset(pool.faucet_id, config.pool_account_id, amount)
             .await?;
-        println!("Minted note of {} tokens for liq pool.", amount_raw);
+        println!("Minted note of {} tokens for liq pool.", amount);
         miden_client.sync_state().await?;
     }
+    miden_client
+        .consume_notes(zoro_pool.miden_account().id(), config.liquidity_pools.len())
+        .await?;
 
-    loop {
-        // Resync to get the latest data
-        miden_client.sync_state().await?;
-
-        let consumable_notes = miden_client
-            .client()
-            .get_consumable_notes(Some(lp_account.id()))
-            .await?;
-        let notes: Vec<Note> = consumable_notes
-            .iter()
-            .filter_map(|(rec, _)| {
-                let metadata = rec.metadata()?;
-                Some(Note::new(
-                    rec.details().assets().clone(),
-                    metadata.clone(),
-                    rec.details().recipient().clone(),
-                ))
-            })
-            .collect();
-
-        if notes.len() == config.liquidity_pools.len() {
-            println!("Found consumable notes for lp account. Consuming them now...");
-            let transaction_request =
-                TransactionRequestBuilder::new().build_consume_notes(notes)?;
-            let _tx_id = miden_client
-                .client_mut()
-                .submit_new_transaction(lp_account.id(), transaction_request)
-                .await?;
-
-            println!("All of liq pool's P2ID notes consumed successfully.");
-            break;
-        } else {
-            println!(
-                "Currently, liq pool has {} consumable P2ID notes. Waiting...",
-                notes.len()
-            );
-            tokio::time::sleep(Duration::from_secs(3)).await;
-        }
-    }
-
-    // Re-sync so minted notes become visible
-    miden_client.sync_state().await?;
-
-    let pool_contract_tag = NoteTag::with_account_target(pool_contract.id());
-
-    // Retrieve updated contract data to see the state
-    let account = miden_client
-        .client()
-        .get_account(pool_contract.id())
-        .await?
-        .ok_or(anyhow!("Account {:?} not found.", pool_contract.id()))?;
-    println!("pool contract storage: {:?}", {
-        use miden_client::store::AccountRecordData;
-        match account.account_data() {
-            AccountRecordData::Full(acc) => format!("{:?}", acc.storage()),
-            AccountRecordData::Partial(_) => "partial account".to_string(),
-        }
-    });
     println!("\n[STEP 3] Make DEPOSIT notes for each liq pool");
-
+    let lp_account = MidenAccount::deploy_new(&mut miden_client, keystore.clone()).await?;
     for pool in config.liquidity_pools.iter() {
         println!("liq pool: {:?}", pool.name);
-        // println!("Importing the lp account to client");
-        //client.import_account_by_id(lp_account.id()).await?;
         let amount_in: u64 = amount * 10u64.pow(pool.decimals as u32);
         let max_slippage = 0.005; // 0.5 %
         let min_lp_amount_out = (amount_in as f64) * (1.0 - max_slippage);
         let min_lp_amount_out = min_lp_amount_out as u64;
         let asset_in = FungibleAsset::new(pool.faucet_id, amount_in)?;
-        //let asset_out: FungibleAsset = FungibleAsset::new(pool1.faucet_id, min_amount_out)?;
-        // let requested_asset_word: Word = asset_out.into();
-        let p2id_tag = NoteTag::with_account_target(lp_account.id());
+        let p2id_tag = NoteTag::with_account_target(*lp_account.id());
         let deadline = (Utc::now().timestamp_millis() as u64) + 120000;
         let inputs = vec![
             Felt::new(0),
@@ -304,24 +116,24 @@ async fn main() -> Result<()> {
             "Made an deposit note for {amount_in} {} expecting  at least {min_lp_amount_out} lp amount out.",
             pool.symbol
         );
-        let deposit_note = create_deposit_note(
+        let deposit_note = TrustedNote::new_deposit(
             inputs,
             vec![asset_in.into()],
-            lp_account.id(),
+            *lp_account.id(),
             deposit_serial_num,
-            pool_contract_tag,
+            NoteTag::with_account_target(*zoro_pool.miden_account().id()),
             NoteType::Public,
         )?;
 
         let note_req = TransactionRequestBuilder::new()
-            .own_output_notes(vec![OutputNote::Full(deposit_note.clone())])
+            .own_output_notes(vec![OutputNote::Full(deposit_note.note().clone())])
             .build()
             .unwrap();
 
         println!("tx request built");
         let _tx_id = miden_client
             .client_mut()
-            .submit_new_transaction(lp_account.id(), note_req)
+            .submit_new_transaction(*lp_account.id(), note_req)
             .await?;
         println!("Minted note of {} tokens for liq pool.", amount_in);
         miden_client.sync_state().await?;
@@ -334,7 +146,7 @@ async fn main() -> Result<()> {
 
         // Resync to get the latest data
         match miden_client
-            .fetch_new_notes_by_tag(&pool_contract_tag)
+            .fetch_new_notes_by_tag(&zoro_pool.miden_account().tag())
             .await
         {
             Ok(notes) => {
@@ -370,7 +182,7 @@ async fn main() -> Result<()> {
                         })?;
                     let _tx_id = miden_client
                         .client_mut()
-                        .submit_new_transaction(pool_contract.id(), consume_req)
+                        .submit_new_transaction(*zoro_pool.miden_account().id(), consume_req)
                         .await?;
 
                     println!("All of liq pool's DEPOSIT notes consumed successfully.");
@@ -389,29 +201,19 @@ async fn main() -> Result<()> {
         };
     }
 
-    println!("\n[STEP 3] Set initial states of the two_pools_account");
-    for pool in config.liquidity_pools.iter() {
-        let (balances_pool, settings_pool) =
-            fetch_pool_state_from_chain(&mut miden_client, pool_contract.id(), pool.faucet_id)
-                .await?;
-        let vault =
-            fetch_vault_for_account_from_chain(&mut miden_client, pool_contract.id()).await?;
-        let total_supply =
-            fetch_lp_total_supply_from_chain(&mut miden_client, pool_contract.id(), pool.faucet_id)
-                .await?;
-        println!(
-            "Liquidity {} ({})",
-            pool.name,
-            pool.faucet_id.to_bech32(config.network_id.clone())
-        );
-        println!("Balances {:?}", balances_pool,);
-        println!("Settings {:?}", settings_pool);
-        println!("pool vault: {vault:?}");
-        println!("pool lp total supply: {total_supply}");
-    }
+    zoro_pool
+        .miden_account_mut()
+        .refetch_account()
+        .await
+        .expect("Failed refreshing miden account");
+    zoro_pool.print_pool_states();
+
     println!(
         "\n------\n New pool created: {:?}\n-----\n",
-        pool_contract.id().to_bech32(endpoint.to_network_id())
+        zoro_pool
+            .miden_account()
+            .id()
+            .to_bech32(endpoint.to_network_id())
     );
 
     Ok(())

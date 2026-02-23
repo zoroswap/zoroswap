@@ -15,7 +15,7 @@ use miden_client::{
     rpc::{Endpoint, GrpcClient},
     store::{NoteFilter, TransactionFilter},
     sync::StateSync,
-    transaction::TransactionRequestBuilder,
+    transaction::{TransactionId, TransactionRequestBuilder},
 };
 use miden_client_sqlite_store::{ClientBuilderSqliteExt, SqliteStore};
 use tokio::time::sleep;
@@ -142,21 +142,36 @@ impl MidenClient {
         Ok(())
     }
 
-    pub async fn wait_for_notes(&mut self, account: &Account, expected: usize) -> Result<()> {
+    pub async fn wait_for_notes(
+        &mut self,
+        account_id: &AccountId,
+        expected: usize,
+    ) -> Result<Vec<Note>> {
         loop {
             self.sync_state().await?;
-            let notes = self.client.get_consumable_notes(Some(account.id())).await?;
+            let consumable_notes = self.client.get_consumable_notes(Some(*account_id)).await?;
+            let notes: Vec<Note> = consumable_notes
+                .iter()
+                .filter_map(|(rec, _)| {
+                    let metadata = rec.metadata()?;
+                    Some(Note::new(
+                        rec.details().assets().clone(),
+                        metadata.clone(),
+                        rec.details().recipient().clone(),
+                    ))
+                })
+                .collect();
+
             if notes.len() >= expected {
-                break;
+                return Ok(notes);
             }
             debug!(
                 "{} consumable notes found for account {}. Waiting...",
                 notes.len(),
-                account.id().to_hex()
+                account_id.to_hex()
             );
-            sleep(Duration::from_secs(3)).await;
+            sleep(Duration::from_secs(1)).await;
         }
-        Ok(())
     }
 
     pub async fn fetch_new_notes_by_tag(&mut self, pool_id_tag: &NoteTag) -> Result<Vec<Note>> {
@@ -182,13 +197,13 @@ impl MidenClient {
     pub async fn mint_asset(
         &mut self,
         faucet_id: AccountId,
-        recipient_id: AccountId,
+        account_id: AccountId,
         amount: u64,
     ) -> Result<String> {
         let fungible_asset = FungibleAsset::new(faucet_id, amount)?;
         let transaction_request = TransactionRequestBuilder::new().build_mint_fungible_asset(
             fungible_asset,
-            recipient_id,
+            account_id,
             NoteType::Public,
             self.client.rng(),
         )?;
@@ -197,6 +212,29 @@ impl MidenClient {
             .submit_new_transaction(faucet_id, transaction_request)
             .await?;
         Ok(format!("{:?}", tx_id))
+    }
+
+    pub async fn consume_notes(
+        &mut self,
+        account_id: &AccountId,
+        n_notes: usize,
+    ) -> Result<String> {
+        let notes = self.wait_for_notes(account_id, n_notes).await?;
+        let transaction_request = TransactionRequestBuilder::new().build_consume_notes(notes)?;
+        let tx_id = self
+            .client_mut()
+            .submit_new_transaction(*account_id, transaction_request)
+            .await?;
+        self.sync_state().await?;
+        Self::print_transaction_info(&tx_id);
+        Ok(format!("{:?}", tx_id))
+    }
+
+    pub fn print_transaction_info(tx: &TransactionId) {
+        info!(
+            "View transaction on MidenScan: https://testnet.midenscan.com/tx/{}",
+            tx.to_hex()
+        );
     }
 }
 

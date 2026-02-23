@@ -20,6 +20,8 @@ use rand::RngCore;
 use std::path::Path;
 use std::{collections::HashMap, str::FromStr};
 use url::Url;
+use zoro_miden::client::MidenClient;
+use zoro_miden::pool::ZoroPool;
 use zoro_miden::{MidenClient, create_basic_account, instantiate_simple_client, wait_for_note};
 use zoroswap::{
     Config, PoolBalances, config::LiquidityPoolConfig, fetch_pool_state_from_chain,
@@ -236,7 +238,8 @@ impl DeployedPool {
 pub struct E2ETestSetup {
     pub config: Config,
     pub client: MidenClient,
-    pub pools: Vec<LiquidityPoolConfig>,
+    pub keystore: FilesystemKeyStore,
+    pub zoro_pool: ZoroPool,
 }
 
 impl E2ETestSetup {
@@ -255,92 +258,24 @@ impl E2ETestSetup {
             "Less than 2 liquidity pools configured"
         );
 
-        let mut client = instantiate_client(config.clone(), store_path).await?;
-        let endpoint = config.miden_endpoint.clone();
+        let mut client = MidenClient::new(
+            config.miden_endpoint.clone(),
+            config.keystore_path,
+            config.store_path,
+            None,
+        )
+        .await?;
         let keystore = FilesystemKeyStore::new(config.keystore_path.into())?;
-        let sync_summary = client.sync_state().await?;
-        println!("\nLatest block: {}", sync_summary.block_num);
-
-        let (account, _) = create_basic_account(&mut client, keystore.clone()).await?;
-        println!(
-            "Created Account ⇒ ID: {:?}",
-            account.id().to_bech32(endpoint.to_network_id())
-        );
         client.sync_state().await?;
         let pools = config.liquidity_pools.clone();
+        let zoro_pool =
+            ZoroPool::new_from_existing_pool(&config.pool_account_id, config.liquidity_pools);
         Ok(E2ETestSetup {
             config,
             client,
-            pools,
+            keystore,
+            zoro_pool,
         })
-    }
-}
-
-/// Mint tokens from a pool's faucet and consume them into the user's wallet.
-/// Pass `None` to use the default (0.05 of the pool's token).
-pub async fn fund_user_wallet(
-    client: &mut MidenClient,
-    account: &Account,
-    pool: &LiquidityPoolConfig,
-    amount: Option<u64>,
-) -> Result<()> {
-    let amount = amount.unwrap_or_else(|| 5 * 10u64.pow(pool.decimals as u32 - 2)); // default: 0.05
-    let fungible_asset = FungibleAsset::new(pool.faucet_id, amount)?;
-    client.import_account_by_id(pool.faucet_id).await?;
-    let transaction_request = TransactionRequestBuilder::new().build_mint_fungible_asset(
-        fungible_asset,
-        account.id(),
-        NoteType::Public,
-        client.rng(),
-    )?;
-    let tx_id = client
-        .submit_new_transaction(pool.faucet_id, transaction_request)
-        .await?;
-    println!("Minted {amount} {} for the user.", pool.symbol);
-    client.sync_state().await?;
-
-    let transaction = client
-        .get_transactions(TransactionFilter::Ids(vec![tx_id]))
-        .await?
-        .pop()
-        .with_context(|| format!("failed to find transaction {tx_id:?} after submission"))
-        .unwrap();
-    let minted_note = match transaction.details.output_notes.get_note(0) {
-        OutputNote::Full(n) => n.clone(),
-        _ => panic!("Expected OutputNote::Full, got something else"),
-    };
-
-    wait_for_note(client, account, &minted_note).await?;
-
-    let consume_req = TransactionRequestBuilder::new()
-        .input_notes([(minted_note, None)])
-        .build()
-        .unwrap();
-
-    let _tx_id = client
-        .submit_new_transaction(account.id(), consume_req)
-        .await?;
-    client.sync_state().await?;
-    let new_balance_user = fetch_vault_for_account_from_chain(client, account.id()).await?;
-    println!("New account vault: {:?}", new_balance_user);
-    println!("User successfully consumed swap into its wallet");
-
-    Ok(())
-}
-
-/// Read a single fungible asset balance from the local store for an account.
-pub async fn get_local_balance(
-    client: &mut MidenClient,
-    account_id: AccountId,
-    faucet_id: AccountId,
-) -> Result<u64> {
-    let record = client
-        .get_account(account_id)
-        .await?
-        .ok_or(anyhow!("Account {account_id} not found in local store"))?;
-    match record.account_data() {
-        miden_client::store::AccountRecordData::Full(a) => Ok(a.vault().get_balance(faucet_id)?),
-        _ => Err(anyhow!("Expected full account data for {account_id}")),
     }
 }
 

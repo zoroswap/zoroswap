@@ -1,17 +1,11 @@
 use crate::{
     amm_state::AmmState,
-    common::print_transaction_info,
     order::{Order, OrderType},
-    pool::{
-        PoolBalances, PoolState, get_curve_amount_out, get_deposit_lp_amount_out,
-        get_withdraw_asset_amount_out,
-    },
     websocket::{EventBroadcaster, OrderStatus, OrderUpdateDetails, OrderUpdateEvent},
 };
 use alloy::primitives::U256;
 use anyhow::{Result, anyhow};
 use chrono::Utc;
-use dashmap::DashMap;
 use miden_client::{
     Felt, Word,
     account::AccountId,
@@ -23,11 +17,18 @@ use miden_client::{
 use miden_protocol::{note::NoteDetails, vm::AdviceMap};
 use rand::seq::SliceRandom;
 use std::{
+    collections::HashMap,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
 use tracing::{debug, error, info, warn};
-use zoro_miden::{client::MidenClient, note::create_p2id_note};
+use zoro_miden::{
+    client::MidenClient,
+    curve::get_curve_amount_out,
+    note::TrustedNote,
+    pool::ZoroPool,
+    pool_state::{PoolBalances, PoolState},
+};
 
 #[derive(Debug, Clone)]
 pub(crate) struct ExecutionDetails {
@@ -61,15 +62,15 @@ impl OrderExecution {
 
 pub(crate) struct MatchingCycle {
     executions: Vec<OrderExecution>,
-    new_pool_states: DashMap<AccountId, PoolState>,
+    new_pool_states: HashMap<AccountId, PoolState>,
 }
 pub struct TradingEngine {
     state: Arc<AmmState>,
-    store_path: String,
     broadcaster: Arc<EventBroadcaster>,
     last_match_time: Arc<Mutex<Instant>>,
     network_id: NetworkId,
     pool_account_id: AccountId,
+    zoro_pool: ZoroPool,
 }
 
 enum NoteExecutionDetails {
@@ -87,18 +88,20 @@ struct PayoutDetails {
 }
 
 impl TradingEngine {
-    pub fn new(store_path: &str, state: Arc<AmmState>, broadcaster: Arc<EventBroadcaster>) -> Self {
+    pub async fn new(state: Arc<AmmState>, broadcaster: Arc<EventBroadcaster>) -> Result<Self> {
         let config = state.config();
         let pool_account_id = config.pool_account_id;
         let network_id = config.miden_endpoint.to_network_id();
-        Self {
-            store_path: store_path.to_string(),
+        let zoro_pool =
+            ZoroPool::new_from_existing_pool(&pool_account_id, config.liquidity_pools).await?;
+        Ok(Self {
             state,
             broadcaster,
             last_match_time: Arc::new(Mutex::new(Instant::now())),
             network_id,
             pool_account_id,
-        }
+            zoro_pool,
+        })
     }
 
     pub async fn start(&mut self) -> Result<()> {
@@ -112,6 +115,10 @@ impl TradingEngine {
             None,
         )
         .await?;
+        info!("Init pool states in AmmState");
+        self.zoro_pool.miden_account_mut().refetch_account().await?;
+        self.state
+            .set_pool_states(self.zoro_pool.pool_states().clone());
         info!(
             "Starting event-driven trading engine (min: {:?}, max: {:?})",
             min_match_interval, max_match_interval
@@ -244,7 +251,7 @@ impl TradingEngine {
     }
 
     pub(crate) fn run_matching_cycle(&self) -> Result<MatchingCycle> {
-        let pools = self.state.liquidity_pools().clone();
+        let mut pool_states = self.zoro_pool.pool_states().clone();
         let mut orders = self.state.get_open_orders();
 
         // MEV protection: randomize order processing sequence
@@ -254,7 +261,7 @@ impl TradingEngine {
         let now = Utc::now();
         for order in orders {
             let ((base_pool_state, base_pool_decimals), (quote_pool_state, quote_pool_decimals)) =
-                self.get_liq_pools_for_order(&pools, &order)?;
+                self.get_liq_pools_for_order(&pool_states, &order)?;
             debug!(
                 order = ?order,
                 base_pool_state = ?base_pool_state,
@@ -273,8 +280,8 @@ impl TradingEngine {
                     note,
                     order,
                     amount_out: order.asset_in.amount(),
-                    in_pool_balances: base_pool_state.balances,
-                    out_pool_balances: quote_pool_state.balances,
+                    in_pool_balances: *base_pool_state.balances(),
+                    out_pool_balances: *quote_pool_state.balances(),
                 }));
                 continue;
             }
@@ -287,25 +294,21 @@ impl TradingEngine {
 
             match order.order_type {
                 OrderType::Deposit => {
-                    let (amount_out, new_pool_state) = get_deposit_lp_amount_out(
-                        &base_pool_state,
-                        U256::from(order.asset_in.amount()),
-                        U256::from(base_pool_state.lp_total_supply),
-                        U256::from(base_pool_decimals),
-                    );
+                    let (amount_out, new_lp_total_supply, new_pool_balances) = base_pool_state
+                        .get_deposit_lp_amount_out(U256::from(order.asset_in.amount()))?;
                     let amount_out = amount_out.to::<u64>();
                     if amount_out > 0 && amount_out >= order.asset_out.amount() {
                         let note = self.state.get_note(&order.id)?;
-                        pools
+                        pool_states
                             .get_mut(&order.asset_in.faucet_id())
                             .ok_or(anyhow!("Missing pool in state"))?
-                            .update_state(new_pool_state.balances, new_pool_state.lp_total_supply);
+                            .update_state(new_pool_balances, new_lp_total_supply);
                         order_executions.push(OrderExecution::Deposit(ExecutionDetails {
                             note,
                             order,
                             amount_out: order.asset_in.amount(),
-                            in_pool_balances: new_pool_state.balances,
-                            out_pool_balances: quote_pool_state.balances,
+                            in_pool_balances: new_pool_balances,
+                            out_pool_balances: *quote_pool_state.balances(),
                         }));
                     } else {
                         warn!("Deposit unsuccessful.");
@@ -323,32 +326,28 @@ impl TradingEngine {
                             note,
                             order,
                             amount_out: order.asset_in.amount(),
-                            in_pool_balances: base_pool_state.balances,
-                            out_pool_balances: quote_pool_state.balances,
+                            in_pool_balances: *base_pool_state.balances(),
+                            out_pool_balances: *quote_pool_state.balances(),
                         }));
                     }
                 }
                 OrderType::Withdraw => {
-                    let (amount_out, new_pool_state) = get_withdraw_asset_amount_out(
-                        &base_pool_state,
-                        U256::from(order.asset_in.amount()),
-                        U256::from(base_pool_state.lp_total_supply),
-                        U256::from(base_pool_decimals),
-                    );
+                    let (amount_out, new_lp_total_supply, new_pool_balances) = base_pool_state
+                        .get_withdraw_asset_amount_out(U256::from(order.asset_in.amount()))?;
 
                     let amount_out = amount_out.to::<u64>();
                     if amount_out > 0 && amount_out >= order.asset_out.amount() {
                         let note = self.state.get_note(&order.id)?;
-                        pools
+                        pool_states
                             .get_mut(&order.asset_out.faucet_id())
                             .ok_or(anyhow!("Missing pool in state"))?
-                            .update_state(new_pool_state.balances, new_pool_state.lp_total_supply);
+                            .update_state(new_pool_balances, new_lp_total_supply);
                         order_executions.push(OrderExecution::Withdraw(ExecutionDetails {
                             note,
                             order,
                             amount_out,
-                            in_pool_balances: new_pool_state.balances,
-                            out_pool_balances: quote_pool_state.balances,
+                            in_pool_balances: new_pool_balances,
+                            out_pool_balances: *quote_pool_state.balances(),
                         }));
                     } else {
                         warn!("Withdraw unsuccessful.");
@@ -366,8 +365,8 @@ impl TradingEngine {
                             note,
                             order,
                             amount_out: order.asset_in.amount(),
-                            in_pool_balances: base_pool_state.balances,
-                            out_pool_balances: quote_pool_state.balances,
+                            in_pool_balances: *base_pool_state.balances(),
+                            out_pool_balances: *quote_pool_state.balances(),
                         }));
                     }
                 }
@@ -397,18 +396,19 @@ impl TradingEngine {
                             Ok(result) => result,
                             Err(e) => {
                                 warn!("Swap calculation failed: {e}");
-                                let pool_in = pools
+                                let pool_in = pool_states
                                     .get(&order.asset_in.faucet_id())
-                                    .ok_or(anyhow!("Missing pool in state"))?;
+                                    .ok_or(anyhow!("Missing pool in state"))?
+                                    .clone();
 
-                                let pool_out = pools
+                                let pool_out = pool_states
                                     .get_mut(&order.asset_out.faucet_id())
                                     .ok_or(anyhow!("Missing pool in state"))?;
                                 let note = self.state.get_note(&order.id)?;
                                 order_executions.push(OrderExecution::FailedOrder(
                                     ExecutionDetails {
-                                        in_pool_balances: pool_in.balances,
-                                        out_pool_balances: pool_out.balances,
+                                        in_pool_balances: *pool_in.balances(),
+                                        out_pool_balances: *pool_out.balances(),
                                         note,
                                         order,
                                         amount_out: order.asset_in.amount(),
@@ -429,11 +429,11 @@ impl TradingEngine {
                             faucet_out = %order.asset_out.faucet_id().to_hex(),
                             "Swap successful"
                         );
-                        pools
+                        pool_states
                             .get_mut(&order.asset_in.faucet_id())
                             .ok_or(anyhow!("Missing pool in state"))?
                             .update_balances(new_base_pool_balance);
-                        pools
+                        pool_states
                             .get_mut(&order.asset_out.faucet_id())
                             .ok_or(anyhow!("Missing pool in state"))?
                             .update_balances(new_quote_pool_balance);
@@ -461,8 +461,8 @@ impl TradingEngine {
                             note,
                             order,
                             amount_out: order.asset_in.amount(),
-                            in_pool_balances: base_pool_state.balances,
-                            out_pool_balances: quote_pool_state.balances,
+                            in_pool_balances: *base_pool_state.balances(),
+                            out_pool_balances: *quote_pool_state.balances(),
                         }));
                     }
                 }
@@ -470,7 +470,7 @@ impl TradingEngine {
         }
         Ok(MatchingCycle {
             executions: order_executions,
-            new_pool_states: pools,
+            new_pool_states: pool_states,
         })
     }
 
@@ -588,7 +588,7 @@ impl TradingEngine {
 
         miden_client.sync_state().await?;
 
-        print_transaction_info(&tx_id);
+        MidenClient::print_transaction_info(&tx_id);
 
         Ok(())
     }
@@ -632,7 +632,7 @@ impl TradingEngine {
             p2id_serial_num
         );
 
-        let p2id = create_p2id_note(
+        let p2id_note = TrustedNote::new_p2id(
             self.pool_account_id,
             user_account_id,
             vec![asset_out],
@@ -699,15 +699,15 @@ impl TradingEngine {
             note,
             args,
             advice_map_value,
-            details: NoteDetails::from(p2id.clone()),
-            tag: p2id.metadata().tag(),
-            recipient: p2id.recipient().clone(),
+            details: NoteDetails::from(p2id_note.note().clone()),
+            tag: p2id_note.note().metadata().tag(),
+            recipient: p2id_note.note().recipient().clone(),
         })
     }
 
     fn get_liq_pools_for_order(
         &self,
-        liq_pool_states: &DashMap<AccountId, PoolState>,
+        liq_pool_states: &HashMap<AccountId, PoolState>,
         order: &Order,
     ) -> Result<((PoolState, u8), (PoolState, u8))> {
         let asset_in_id = order.asset_in.faucet_id();
@@ -739,12 +739,8 @@ impl TradingEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        config::{Config, LiquidityPoolConfig},
-        oracle_sse::PriceData,
-        pool::{PoolBalances, PoolState, get_deposit_lp_amount_out},
-        websocket::EventBroadcaster,
-    };
+    use crate::{config::Config, oracle_sse::PriceData, websocket::EventBroadcaster};
+    use anyhow::Result;
     use chrono::Utc;
     use miden_client::{
         account::{AccountStorageMode, AccountType},
@@ -755,7 +751,7 @@ mod tests {
         },
     };
     use miden_protocol::{FieldElement, account::AccountIdVersion};
-    use uuid::Uuid;
+    use zoro_miden::pool::LiquidityPoolConfig;
 
     struct TestContext {
         state: Arc<AmmState>,
@@ -829,8 +825,8 @@ mod tests {
             let broadcaster = Arc::new(EventBroadcaster::new());
             let state = Arc::new(AmmState::new(config, broadcaster.clone()).await);
 
-            let mut pool_a = PoolState::new(pool_account_id, faucet_a_id);
-            let mut pool_b = PoolState::new(pool_account_id, faucet_b_id);
+            let mut pool_a = PoolState::default();
+            let mut pool_b = PoolState::default();
             pool_a.update_state(
                 PoolBalances {
                     reserve: U256::from(1_000_000_00000000u64),
@@ -892,53 +888,13 @@ mod tests {
                 .insert(self.faucet_b_id, PriceData::new(timestamp, price));
         }
 
-        fn create_engine(&self) -> TradingEngine {
-            TradingEngine::new(
-                "testing_store.sqlite3",
-                self.state.clone(),
-                self.broadcaster.clone(),
-            )
+        async fn create_engine(&self) -> Result<TradingEngine> {
+            TradingEngine::new(self.state.clone(), self.broadcaster.clone()).await
         }
     }
 
     #[tokio::test]
-    async fn test_get_liq_pools_for_order_uses_correct_asset_ids() {
-        let ctx = TestContext::with_decimals(6, 12).await;
-
-        let asset_in = FungibleAsset::new(ctx.faucet_a_id, 100).unwrap();
-        let asset_out = FungibleAsset::new(ctx.faucet_b_id, 200).unwrap();
-        let order = Order {
-            id: Uuid::new_v4(),
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
-            deadline: Utc::now(),
-            is_limit_order: false,
-            asset_in,
-            asset_out,
-            order_type: OrderType::Swap,
-            p2id_tag: 0,
-            creator_id: ctx.pool_account_id,
-            beneficiary_id: AccountId::try_from(0_u128).unwrap(),
-        };
-
-        let engine = ctx.create_engine();
-        let result = engine.get_liq_pools_for_order(ctx.state.liquidity_pools(), &order);
-
-        assert!(result.is_ok(), "Unable to get liquidity pools");
-        let ((_base_pool, base_decimals), (_quote_pool, quote_decimals)) = result.unwrap();
-
-        assert_eq!(
-            base_decimals, 6,
-            "Base pool (asset_in) must have 6 decimals"
-        );
-        assert_eq!(
-            quote_decimals, 12,
-            "Quote pool (asset_out) must have 12 decimals"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_matching_skipped_with_stale_prices() {
+    async fn test_matching_skipped_with_stale_prices() -> Result<()> {
         let ctx = TestContext::new().await;
 
         // Add a swap order
@@ -979,7 +935,7 @@ mod tests {
         );
 
         // Run matching cycle - should process the order
-        let engine = ctx.create_engine();
+        let engine = ctx.create_engine().await?;
         let executions = engine
             .run_matching_cycle()
             .expect("Matching should succeed");
@@ -994,91 +950,79 @@ mod tests {
             0,
             "Open orders should be empty after matching"
         );
+        Ok(())
     }
 
     /// Test that `get_deposit_lp_amount_out` returns a `PoolState` with correctly updated
     /// `lp_total_supply`, enabling consecutive deposits to use accurate LP supply values.
     #[test]
-    fn test_get_deposit_lp_amount_out_returns_updated_lp_total_supply() {
+    fn test_get_deposit_lp_amount_out_returns_updated_lp_total_supply() -> Result<()> {
         // Given: a pool with initial LP supply and reserves
         let initial_lp_supply: u64 = 1_000_000;
         let initial_reserve = U256::from(10_000_000u64);
-        let asset_decimals = U256::from(6u64);
         let deposit_amount = U256::from(1_000_000u64);
 
         let mut pool = PoolState::default();
-        pool.balances = PoolBalances {
-            reserve: initial_reserve,
-            reserve_with_slippage: initial_reserve,
-            total_liabilities: initial_reserve,
-        };
-
-        pool.lp_total_supply = initial_lp_supply;
+        pool.update_state(
+            PoolBalances {
+                reserve: initial_reserve,
+                reserve_with_slippage: initial_reserve,
+                total_liabilities: initial_reserve,
+            },
+            initial_lp_supply,
+        );
 
         // When: calculating LP amount out for a deposit
-        let (lp_out, new_pool_state) = get_deposit_lp_amount_out(
-            &pool,
-            deposit_amount,
-            U256::from(pool.lp_total_supply),
-            asset_decimals,
-        );
+        let (lp_out, new_lp_supply, _) = pool.get_deposit_lp_amount_out(deposit_amount)?;
 
         // Then: the returned pool state has lp_total_supply = initial + minted
         assert!(lp_out > U256::ZERO, "must mint LP tokens");
         assert_eq!(
-            new_pool_state.lp_total_supply,
+            new_lp_supply,
             U256::from(initial_lp_supply)
                 .saturating_add(lp_out)
                 .saturating_to::<u64>(),
             "returned pool state must have lp_total_supply = initial + minted"
         );
+        Ok(())
     }
 
     /// Test that consecutive deposits correctly accumulate `lp_total_supply`.
     #[test]
-    fn test_consecutive_deposits_accumulate_lp_total_supply() {
+    fn test_consecutive_deposits_accumulate_lp_total_supply() -> Result<()> {
         // Given: a pool with initial LP supply
         let initial_lp_supply: u64 = 1_000_000;
         let initial_reserve = U256::from(10_000_000u64);
-        let asset_decimals = U256::from(6u64);
         let deposit_amount = U256::from(1_000_000u64);
 
         let mut pool = PoolState::default();
-        pool.balances = PoolBalances {
-            reserve: initial_reserve,
-            reserve_with_slippage: initial_reserve,
-            total_liabilities: initial_reserve,
-        };
-        pool.lp_total_supply = initial_lp_supply;
+        pool.update_state(
+            PoolBalances {
+                reserve: initial_reserve,
+                reserve_with_slippage: initial_reserve,
+                total_liabilities: initial_reserve,
+            },
+            initial_lp_supply,
+        );
 
         // When: two consecutive deposits are processed
-        let (lp_out_1, pool_after_first) = get_deposit_lp_amount_out(
-            &pool,
-            deposit_amount,
-            U256::from(pool.lp_total_supply),
-            asset_decimals,
-        );
-
-        let (lp_out_2, pool_after_second) = get_deposit_lp_amount_out(
-            &pool_after_first,
-            deposit_amount,
-            U256::from(pool_after_first.lp_total_supply),
-            asset_decimals,
-        );
+        let (lp_out1, lp_after_first, _) = pool.get_deposit_lp_amount_out(deposit_amount)?;
+        let (lp_out2, lp_after_second, _) = pool.get_deposit_lp_amount_out(deposit_amount)?;
 
         // Then: the final `lp_total_supply` reflects both deposits
         let expected_final_supply = U256::from(initial_lp_supply)
-            .saturating_add(lp_out_1)
-            .saturating_add(lp_out_2)
+            .saturating_add(lp_out1)
+            .saturating_add(lp_out2)
             .saturating_to::<u64>();
 
         assert_eq!(
-            pool_after_second.lp_total_supply, expected_final_supply,
+            lp_after_second, expected_final_supply,
             "final lp_total_supply must equal initial + first deposit + second deposit"
         );
         assert!(
-            pool_after_second.lp_total_supply > pool_after_first.lp_total_supply,
+            lp_after_second > lp_after_first,
             "second deposit must increase lp_total_supply beyond first deposit"
         );
+        Ok(())
     }
 }

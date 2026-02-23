@@ -6,6 +6,7 @@ use miden_client::asset::FungibleAsset;
 use miden_client::note::Note;
 use tracing::{debug, info};
 use uuid::Uuid;
+use zoro_miden::note::NoteKind;
 
 pub type AssetSymbol = &'static str;
 pub type OracleId = &'static str;
@@ -24,6 +25,17 @@ pub enum OrderType {
     Deposit,
     Withdraw,
     Swap,
+}
+
+impl OrderType {
+    pub fn from_note_kind(value: NoteKind) -> Result<Self> {
+        match value {
+            NoteKind::Deposit => Ok(OrderType::Deposit),
+            NoteKind::Withdraw => Ok(OrderType::Withdraw),
+            NoteKind::Swap => Ok(OrderType::Swap),
+            _ => Err(anyhow!("Invalid note type to create order: {value:?}")),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug)]

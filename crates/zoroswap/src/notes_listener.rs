@@ -1,35 +1,26 @@
 use crate::{
     amm_state::AmmState,
-    common::get_script_root_for_order_type,
     order::OrderType,
     websocket::{EventBroadcaster, OrderStatus, OrderUpdateDetails, OrderUpdateEvent},
 };
 use anyhow::Result;
 use chrono::Utc;
 use miden_client::{
-    Word,
     note::{Note, NoteId, NoteTag},
     store::NoteFilter,
 };
 use std::{collections::HashSet, sync::Arc, time::Duration};
 use tracing::{debug, error};
-use zoro_miden::client::MidenClient;
+use zoro_miden::{client::MidenClient, note::TrustedNote};
 
 pub struct NotesListener {
     state: Arc<AmmState>,
     broadcaster: Arc<EventBroadcaster>,
-    note_roots: NoteRoots,
 }
 
 impl NotesListener {
     pub fn new(state: Arc<AmmState>, broadcaster: Arc<EventBroadcaster>) -> Self {
-        let note_roots = NoteRoots::generate_from_notes()
-            .unwrap_or_else(|e| panic!("Error creating script roots from: {e}"));
-        Self {
-            state,
-            broadcaster,
-            note_roots,
-        }
+        Self { state, broadcaster }
     }
 
     pub async fn start(&mut self) -> Result<()> {
@@ -49,7 +40,9 @@ impl NotesListener {
             None,
         )
         .await?;
-        miden_client.add_note_tag(NoteTag::with_account_target(config.pool_account_id));
+        miden_client
+            .add_note_tag(NoteTag::with_account_target(config.pool_account_id))
+            .await?;
 
         let mut failed_notes: HashSet<NoteId> = HashSet::new();
         let mut processed_notes: HashSet<NoteId> = HashSet::new();
@@ -66,7 +59,7 @@ impl NotesListener {
 
             // Fetch notes and filter by tag
             match self
-                .get_notes_filtered(&mut miden_client, NoteFilter::Committed, Some(tag))
+                .get_notes_filtered(&mut miden_client, NoteFilter::Committed, tag)
                 .await
             {
                 Ok(notes) => {
@@ -138,31 +131,18 @@ impl NotesListener {
         &self,
         miden_client: &mut MidenClient,
         filter: NoteFilter,
-        tag: Option<NoteTag>,
+        tag: NoteTag,
     ) -> Result<Vec<(Note, OrderType)>> {
         let all_notes = miden_client.client().get_input_notes(filter).await?;
         let notes: Vec<(Note, OrderType)> = all_notes
             .iter()
             .filter_map(|n| {
                 if let Some(metadata) = n.metadata()
-                    && let Some(order_type) =
-                        self.note_roots.get_order_type(&n.details().script().root())
+                    && metadata.tag().eq(&tag)
+                    && let Ok(trusted_note) = TrustedNote::from_input_note(n)
+                    && let Ok(order_type) = OrderType::from_note_kind(*trusted_note.note_kind())
                 {
-                    // If tag filter provided, check it matches
-                    if let Some(ref required_tag) = tag
-                        && !metadata.tag().eq(required_tag)
-                    {
-                        return None;
-                    }
-
-                    Some((
-                        Note::new(
-                            n.assets().clone(),
-                            metadata.clone(),
-                            n.details().recipient().clone(),
-                        ),
-                        order_type,
-                    ))
+                    Some((trusted_note.note().clone(), order_type))
                 } else {
                     None
                 }
@@ -170,33 +150,5 @@ impl NotesListener {
             .collect();
 
         Ok(notes)
-    }
-}
-
-struct NoteRoots {
-    deposit: Word,
-    withdraw: Word,
-    swap: Word,
-}
-
-impl NoteRoots {
-    pub fn generate_from_notes() -> Result<Self> {
-        Ok(Self {
-            deposit: get_script_root_for_order_type(OrderType::Deposit),
-            withdraw: get_script_root_for_order_type(OrderType::Withdraw),
-            swap: get_script_root_for_order_type(OrderType::Swap),
-        })
-    }
-
-    pub fn get_order_type(&self, root: &Word) -> Option<OrderType> {
-        if root.eq(&self.deposit) {
-            Some(OrderType::Deposit)
-        } else if root.eq(&self.withdraw) {
-            Some(OrderType::Withdraw)
-        } else if root.eq(&self.swap) {
-            Some(OrderType::Swap)
-        } else {
-            None
-        }
     }
 }

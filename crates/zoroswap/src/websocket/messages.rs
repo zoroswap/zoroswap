@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-
-use crate::pool::PoolBalances;
+use zoro_miden::pool_state::PoolBalances;
 
 /// Messages sent from client to server
 #[derive(Debug, Deserialize, Clone)]

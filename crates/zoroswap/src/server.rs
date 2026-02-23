@@ -99,7 +99,7 @@ async fn pool_info(State(state): State<AppState>) -> impl IntoResponse {
     let pools: Vec<RawLiquidityPoolConfig> = config
         .liquidity_pools
         .iter()
-        .map(|p| p.to_raw_config(network_id.clone()))
+        .map(|p| RawLiquidityPoolConfig::from_pool_config(p, network_id.clone()))
         .collect();
     let response = serde_json::json!({
         "pool_account_id": pool_account_id,
@@ -134,11 +134,14 @@ async fn pool_balances(State(state): State<AppState>) -> impl IntoResponse {
     let pools = state.amm_state.liquidity_pools();
     let pool_states: Vec<PoolBalancesResponse> = pools
         .iter()
-        .map(|s| PoolBalancesResponse {
-            faucet_id: s.faucet_account_id.to_bech32(network_id.clone()),
-            reserve: s.balances.reserve.to_string(),
-            reserve_with_slippage: s.balances.reserve_with_slippage.to_string(),
-            total_liabilities: s.balances.total_liabilities.to_string(),
+        .map(|s| {
+            let balances = s.value().balances();
+            PoolBalancesResponse {
+                faucet_id: s.key().to_bech32(network_id.clone()),
+                reserve: balances.reserve.to_string(),
+                reserve_with_slippage: balances.reserve_with_slippage.to_string(),
+                total_liabilities: balances.total_liabilities.to_string(),
+            }
         })
         .collect();
     let response = serde_json::json!({
@@ -158,11 +161,14 @@ async fn pool_settings(State(state): State<AppState>) -> impl IntoResponse {
     let pools = state.amm_state.liquidity_pools();
     let pool_states: Vec<PoolSettingsResponse> = pools
         .iter()
-        .map(|s| PoolSettingsResponse {
-            faucet_id: s.faucet_account_id.to_bech32(network_id.clone()),
-            swap_fee: s.settings.swap_fee.to_string(),
-            backstop_fee: s.settings.backstop_fee.to_string(),
-            protocol_fee: s.settings.protocol_fee.to_string(),
+        .map(|s| {
+            let settings = s.value().settings();
+            PoolSettingsResponse {
+                faucet_id: s.key().to_bech32(network_id.clone()),
+                swap_fee: settings.swap_fee.to_string(),
+                backstop_fee: settings.backstop_fee.to_string(),
+                protocol_fee: settings.protocol_fee.to_string(),
+            }
         })
         .collect();
     let response = serde_json::json!({
@@ -200,7 +206,9 @@ async fn mint_faucet(
         Ok(()) => Json(serde_json::json!({ "success": true })),
         Err(e) => {
             error!("Error processing mint: {e:?}");
-            Json(serde_json::json!({ "success": false, "message": format!("Error minting: {e:?}") }))
+            Json(
+                serde_json::json!({ "success": false, "message": format!("Error minting: {e:?}") }),
+            )
         }
     };
     Ok(resp)

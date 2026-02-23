@@ -1,25 +1,24 @@
 mod amm_state;
-mod common;
 mod config;
 mod faucet;
 mod note_serialization;
 mod notes_listener;
 mod oracle_sse;
 mod order;
-mod pool;
 mod server;
+mod sqlite;
 mod trading_engine;
 mod websocket;
 
 use amm_state::AmmState;
 use clap::Parser;
-use common::enable_wal_mode;
 use config::Config;
 use dotenv::dotenv;
 use faucet::{FaucetMintInstruction, GuardedFaucet};
 use notes_listener::NotesListener;
 use oracle_sse::OracleSSEClient;
 use server::{AppState, create_router};
+use sqlite::enable_wal_mode;
 use std::{sync::Arc, thread};
 use tokio::{runtime::Builder, sync::mpsc::Sender};
 use tracing::{error, info, warn};
@@ -106,17 +105,10 @@ fn main() {
         let amm_state = Arc::new(AmmState::new(config, event_broadcaster.clone()).await);
 
         info!("[INIT] Initializing liquidity pool states");
-        amm_state
-            .init_liquidity_pool_states(&mut init_client)
-            .await
-            .map_err(|e| e.to_string())?;
-
         // Initialize components with broadcaster
-        let trading_engine = TradingEngine::new(
-            &args.store_path,
-            amm_state.clone(),
-            event_broadcaster.clone(),
-        );
+        let trading_engine = TradingEngine::new(amm_state.clone(), event_broadcaster.clone())
+            .await
+            .unwrap();
         let oracle_client = OracleSSEClient::new(amm_state.clone(), event_broadcaster.clone());
 
         info!("[INIT] Initializing oracle prices");

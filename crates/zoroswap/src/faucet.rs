@@ -59,10 +59,14 @@ impl GuardedFaucet {
             );
             if can_mint {
                 let amount = 10000000;
-                let miden_client = clients
-                    .iter_mut()
-                    .find(|(faucet_id, _)| (*faucet_id).eq(&mint_instruction.faucet_id));
-                if let Some((_, miden_client)) = miden_client {
+                let miden_client = clients.iter_mut().find_map(|(faucet_id, client)| {
+                    if (*faucet_id).eq(&mint_instruction.faucet_id) {
+                        Some(client)
+                    } else {
+                        None
+                    }
+                });
+                if let Some(miden_client) = miden_client {
                     match miden_client
                         .mint_asset(
                             mint_instruction.faucet_id,
@@ -84,7 +88,7 @@ impl GuardedFaucet {
                                 (mint_instruction.account_id, mint_instruction.faucet_id),
                                 Utc::now().timestamp() as u64,
                             );
-                            miden_client.sync_state().await;
+                            let _ = miden_client.sync_state().await;
                         }
                         Err(e) => {
                             error!(

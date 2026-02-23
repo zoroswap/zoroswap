@@ -3,18 +3,17 @@ use crate::{
     oracle_sse::{PriceData, PriceMetadata},
     order::Order,
     order::OrderType,
-    pool::PoolState,
-    websocket::{EventBroadcaster, PoolStateEvent},
+    websocket::EventBroadcaster,
 };
 use alloy::primitives::U256;
 use anyhow::{Result, anyhow};
 use chrono::Utc;
 use dashmap::DashMap;
 use miden_client::{account::AccountId, note::Note};
-use std::sync::Arc;
-use tracing::{error, info, warn};
+use std::{collections::HashMap, sync::Arc};
+use tracing::{error, info};
 use uuid::Uuid;
-use zoro_miden::client::MidenClient;
+use zoro_miden::pool_state::PoolState;
 
 pub struct AmmState {
     open_orders: DashMap<Uuid, Order>,
@@ -39,23 +38,6 @@ impl AmmState {
             oracle_prices: DashMap::new(),
             broadcaster,
         }
-    }
-
-    pub async fn init_liquidity_pool_states(&self, client: &mut MidenClient) -> Result<()> {
-        info!("Starting initiation of liq pool states.");
-        for liq_pool_config in &self.config.liquidity_pools {
-            let mut new_liq_pool_state =
-                PoolState::new(self.config.pool_account_id, liq_pool_config.faucet_id);
-            {
-                new_liq_pool_state
-                    .sync_from_chain(client, liq_pool_config.faucet_id)
-                    .await?;
-            }
-            self.liquidity_pools
-                .insert(liq_pool_config.faucet_id, new_liq_pool_state);
-        }
-        info!("Successfully initiated / synced pool states from the chain.");
-        Ok(())
     }
 
     pub fn add_order(&self, note: Note, order_type: OrderType) -> Result<(String, Uuid, Order)> {
@@ -119,17 +101,14 @@ impl AmmState {
         }
     }
 
+    pub fn set_pool_states(&self, new_pool_state: HashMap<AccountId, PoolState>) {
+        for (faucet_id, new_pool_state) in new_pool_state.iter() {
+            self.liquidity_pools.insert(*faucet_id, *new_pool_state);
+        }
+    }
+
     pub fn update_pool_state(&self, faucet_id: &AccountId, new_pool_state: PoolState) {
-        if let Some(mut liq_pool) = self.liquidity_pools.get_mut(faucet_id) {
-            liq_pool.update_state(new_pool_state.balances, new_pool_state.lp_total_supply);
-            if let Err(e) = self.broadcaster.broadcast_pool_state(PoolStateEvent {
-                faucet_id: faucet_id.to_bech32(self.config.network_id.clone()),
-                balances: new_pool_state.balances,
-                timestamp: Utc::now().timestamp_millis() as u64,
-            }) {
-                warn!("Error sending broadcast: {e}")
-            };
-        };
+        self.liquidity_pools.insert(*faucet_id, new_pool_state);
     }
 
     pub fn config(&self) -> Config {

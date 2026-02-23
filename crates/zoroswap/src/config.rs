@@ -5,6 +5,7 @@ use std::{
     env,
     fs::{self},
 };
+use zoro_miden::pool::LiquidityPoolConfig;
 
 #[derive(Deserialize, Serialize)]
 pub struct RawLiquidityPoolConfig {
@@ -15,23 +16,14 @@ pub struct RawLiquidityPoolConfig {
     oracle_id: String,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct LiquidityPoolConfig {
-    pub name: &'static str,
-    pub symbol: &'static str,
-    pub decimals: u8,
-    pub faucet_id: AccountId,
-    pub oracle_id: &'static str,
-}
-
-impl LiquidityPoolConfig {
-    pub fn to_raw_config(self, network_id: NetworkId) -> RawLiquidityPoolConfig {
+impl RawLiquidityPoolConfig {
+    pub fn from_pool_config(liq_pool_config: &LiquidityPoolConfig, network_id: NetworkId) -> Self {
         RawLiquidityPoolConfig {
-            name: self.name.into(),
-            symbol: self.symbol.into(),
-            decimals: self.decimals,
-            faucet_id: self.faucet_id.to_bech32(network_id),
-            oracle_id: self.oracle_id.into(),
+            name: liq_pool_config.name.into(),
+            symbol: liq_pool_config.symbol.into(),
+            decimals: liq_pool_config.decimals,
+            faucet_id: liq_pool_config.faucet_id.to_bech32(network_id),
+            oracle_id: liq_pool_config.oracle_id.into(),
         }
     }
 }

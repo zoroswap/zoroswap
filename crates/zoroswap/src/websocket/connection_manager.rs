@@ -104,7 +104,7 @@ impl ConnectionManager {
     pub fn subscribe(&self, conn_id: Uuid, channel: SubscriptionChannel) {
         self.subscriptions
             .entry(channel.clone())
-            .or_insert_with(HashSet::new)
+            .or_default()
             .insert(conn_id);
 
         debug!(
@@ -185,10 +185,10 @@ impl ConnectionManager {
         );
 
         for conn_id in subscribers.iter() {
-            if let Some(conn) = self.connections.get(conn_id) {
-                if let Err(e) = conn.tx.send(Message::Text(json.clone().into())) {
-                    warn!("Failed to broadcast to connection {}: {}", conn_id, e);
-                }
+            if let Some(conn) = self.connections.get(conn_id)
+                && let Err(e) = conn.tx.send(Message::Text(json.clone().into()))
+            {
+                warn!("Failed to broadcast to connection {}: {}", conn_id, e);
             }
         }
     }
