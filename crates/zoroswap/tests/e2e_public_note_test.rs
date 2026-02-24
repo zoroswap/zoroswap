@@ -12,10 +12,8 @@ use miden_client::{
 use test_utils::*;
 use zoro_miden::account::MidenAccount;
 use zoro_miden::client::MidenClient;
-use zoro_miden::note::{TrustedNote, create_expected_p2id_recipient};
-use zoroswap::{
-    fetch_pool_state_from_chain, fetch_vault_for_account_from_chain, get_oracle_prices,
-};
+use zoro_miden::note::TrustedNote;
+use zoroswap::get_oracle_prices;
 
 #[tokio::test]
 async fn e2e_public_note() -> Result<()> {
@@ -34,14 +32,17 @@ async fn e2e_public_note() -> Result<()> {
         config,
         client: mut miden_client,
         keystore,
-        zoro_pool,
+        mut zoro_pool,
     } = E2ETestSetup::new(store_path).await?;
-    let account = MidenAccount::deploy_new(&mut miden_client, keystore).await?;
+    let mut account = MidenAccount::deploy_new(&mut miden_client, keystore).await?;
 
-    let pool0 = pools[0];
-    let pool1 = pools[1];
+    let pool0 = config.liquidity_pools[0];
+    let pool1 = config.liquidity_pools[1];
 
-    zoro_pool.print_pool_state();
+    let initial_vault = zoro_pool.vault().await?;
+    let initial_pool0 = *zoro_pool.pool_states().get(&pool0.faucet_id).unwrap();
+    let initial_pool1 = *zoro_pool.pool_states().get(&pool1.faucet_id).unwrap();
+    zoro_pool.print_pool_states();
 
     // ---------------------------------------------------------------------------------
     println!("\n\t[STEP 1] Fund user wallet\n");
@@ -61,7 +62,7 @@ async fn e2e_public_note() -> Result<()> {
     );
 
     // ---------------------------------------------------------------------------------
-    println!("\n\t[STEP 3] Send zoroswap note\n");
+    println!("\n\t[STEP 3] Create & send zoroswap note\n");
     let amount_in = 3 * 10u64.pow(pool0.decimals as u32 - 2); // 0.03
     let max_slippage = 0.005; // 0.5 %
     let min_amount_out =
@@ -121,33 +122,31 @@ async fn e2e_public_note() -> Result<()> {
 
     // ---------------------------------------------------------------------------------
     println!("\n\t[STEP 4] Wait for notes back\n");
-    let tx = miden_client.consume_notes(account.id(), 1).await;
+    miden_client.consume_notes(account.id(), 1).await;
     let new_balance_user = account.get_balance(&pool1.faucet_id).await?;
-    println!("New balance for user: {:?}", new_balance_user);
-    println!("User successfully consumed swap into its wallet.");
+    println!(
+        "Swap ingested, new balance for user: {:?}",
+        new_balance_user
+    );
 
     // ---------------------------------------------------------------------------------
     println!("\n\t[STEP 5] Confirm pool states updated accordingly\n");
+
+    zoro_pool.update_pool_state_from_chain().await?;
+    let end_vault = zoro_pool.vault().await?;
+    let end_pool0 = *zoro_pool.pool_states().get(&pool0.faucet_id).unwrap();
+    let end_pool1 = *zoro_pool.pool_states().get(&pool1.faucet_id).unwrap();
+    zoro_pool.print_pool_states();
+
     assert!(
-        *old_balances_0 != new_balances_pool_0,
+        end_pool0.balances() != initial_pool0.balances(),
         "Balances for pool 0 havent changed"
     );
     assert!(
-        *old_balances_1 != new_balances_pool_1,
+        end_pool1.balances() != initial_pool1.balances(),
         "Balances for pool 1 havent changed"
     );
-    assert!(new_vault != *old_vault, "Vault hasn't changed");
-
-    assert_pool_states_changed(
-        &mut setup.client,
-        setup.config.pool_account_id,
-        pool0.faucet_id,
-        pool1.faucet_id,
-        &balances_pool_0,
-        &balances_pool_1,
-        &vault,
-    )
-    .await?;
+    assert!(end_vault != initial_vault, "Vault hasn't changed");
 
     Ok(())
 }

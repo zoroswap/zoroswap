@@ -15,12 +15,12 @@ use std::sync::Arc;
 use tokio::sync::mpsc::Sender;
 use tower_http::cors::CorsLayer;
 use tracing::{debug, error, info};
+use zoro_miden::note::TrustedNote;
 
 use crate::{
     amm_state::AmmState,
     config::RawLiquidityPoolConfig,
     faucet::FaucetMintInstruction,
-    note_serialization::deserialize_note,
     order::OrderType,
     websocket::{ConnectionManager, EventBroadcaster, websocket_handler},
 };
@@ -220,7 +220,7 @@ async fn submit_swap(
 ) -> Json<SubmitOrderResponse> {
     debug!("Received swap order submission request");
     // Deserialize the note from base64
-    let note = match deserialize_note(&payload.note_data) {
+    let note = match TrustedNote::from_base64(&payload.note_data) {
         Ok(note) => note,
         Err(e) => {
             error!("Failed to deserialize note: {}", e);
@@ -232,7 +232,10 @@ async fn submit_swap(
         }
     };
 
-    match state.amm_state.add_order(note, OrderType::Swap) {
+    match state
+        .amm_state
+        .add_order(note.note().clone(), OrderType::Swap)
+    {
         Ok((_, order_id, _)) => {
             info!("Successfully added swap order: {:?}", order_id);
             Json(SubmitOrderResponse {
@@ -260,7 +263,7 @@ async fn submit_deposit(
 ) -> Json<SubmitOrderResponse> {
     info!("Received deposit order submission request");
     // Deserialize the note from base64
-    let note = match deserialize_note(&payload.note_data) {
+    let note = match TrustedNote::from_base64(&payload.note_data) {
         Ok(note) => note,
         Err(e) => {
             error!("Failed to deserialize note: {}", e);
@@ -272,7 +275,10 @@ async fn submit_deposit(
         }
     };
 
-    match state.amm_state.add_order(note, OrderType::Deposit) {
+    match state
+        .amm_state
+        .add_order(note.note().clone(), OrderType::Deposit)
+    {
         Ok((_, order_id, _)) => {
             info!("Successfully added deposit order: {:?}", order_id);
             Json(SubmitOrderResponse {
@@ -301,7 +307,7 @@ async fn submit_withdraw(
 ) -> Json<SubmitOrderResponse> {
     info!("Received withdraw order submission request");
     // Deserialize the note from base64
-    let note = match deserialize_note(&payload.note_data) {
+    let note = match TrustedNote::from_base64(&payload.note_data) {
         Ok(note) => note,
         Err(e) => {
             error!("Failed to deserialize note: {}", e);
@@ -313,7 +319,10 @@ async fn submit_withdraw(
         }
     };
 
-    match state.amm_state.add_order(note, OrderType::Withdraw) {
+    match state
+        .amm_state
+        .add_order(note.note().clone(), OrderType::Withdraw)
+    {
         Ok((_, order_id, _)) => {
             info!("Successfully added withdraw order: {}", order_id);
             Json(SubmitOrderResponse {

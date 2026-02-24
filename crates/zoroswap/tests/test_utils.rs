@@ -267,9 +267,11 @@ impl E2ETestSetup {
         .await?;
         let keystore = FilesystemKeyStore::new(config.keystore_path.into())?;
         client.sync_state().await?;
-        let pools = config.liquidity_pools.clone();
-        let zoro_pool =
-            ZoroPool::new_from_existing_pool(&config.pool_account_id, config.liquidity_pools);
+        let zoro_pool = ZoroPool::new_from_existing_pool(
+            &config.pool_account_id,
+            config.liquidity_pools.clone(),
+        )
+        .await?;
         Ok(E2ETestSetup {
             config,
             client,
@@ -334,39 +336,4 @@ pub fn build_zoroswap_inputs(
         sender_id.suffix(),
         sender_id.prefix().into(),
     ]
-}
-
-/// Fetch current pool states and assert they differ from the provided old values.
-pub async fn assert_pool_states_changed(
-    client: &mut MidenClient,
-    pool_account_id: AccountId,
-    pool0_faucet_id: AccountId,
-    pool1_faucet_id: AccountId,
-    old_balances_0: &PoolBalances,
-    old_balances_1: &PoolBalances,
-    old_vault: &HashMap<AccountId, u64>,
-) -> Result<()> {
-    let (new_balances_pool_0, _) =
-        fetch_pool_state_from_chain(client, pool_account_id, pool0_faucet_id).await?;
-    let (new_balances_pool_1, _) =
-        fetch_pool_state_from_chain(client, pool_account_id, pool1_faucet_id).await?;
-    let new_vault = fetch_vault_for_account_from_chain(client, pool_account_id).await?;
-
-    println!("previous balances for liq pool 0: {old_balances_0:?}");
-    println!("previous balances for liq pool 1: {old_balances_1:?}");
-    println!("new balances for liq pool 0: {new_balances_pool_0:?}");
-    println!("new balances for liq pool 1: {new_balances_pool_1:?}");
-    println!("pool vault: {old_vault:?}");
-
-    assert!(
-        *old_balances_0 != new_balances_pool_0,
-        "Balances for pool 0 havent changed"
-    );
-    assert!(
-        *old_balances_1 != new_balances_pool_1,
-        "Balances for pool 1 havent changed"
-    );
-    assert!(new_vault != *old_vault, "Vault hasn't changed");
-
-    Ok(())
 }

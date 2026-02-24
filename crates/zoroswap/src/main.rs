@@ -1,7 +1,6 @@
 mod amm_state;
 mod config;
 mod faucet;
-mod note_serialization;
 mod notes_listener;
 mod oracle_sse;
 mod order;

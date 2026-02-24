@@ -8,6 +8,7 @@ use miden_client::{
         Account, AccountBuilder, AccountComponent, AccountId, AccountStorageMode, AccountType,
         StorageMap, StorageSlot, StorageSlotName, component::BasicWallet,
     },
+    asset::AssetVault,
     auth::{AuthFalcon512Rpo, AuthSecretKey},
     keystore::FilesystemKeyStore,
     rpc::Endpoint,
@@ -194,7 +195,7 @@ impl ZoroPool {
         })
     }
 
-    async fn update_pool_state_from_chain(&mut self) -> Result<()> {
+    pub async fn update_pool_state_from_chain(&mut self) -> Result<()> {
         let acc = self.miden_account.account().await?;
         for pool in self.liquidity_pools.iter() {
             let (settings, balances, lp_total_supply) =
@@ -248,6 +249,10 @@ impl ZoroPool {
         let lp_total_supply = total_supply_raw[0].as_int();
 
         Ok((settings, balances, lp_total_supply))
+    }
+
+    pub async fn vault(&mut self) -> Result<AssetVault> {
+        Ok(self.miden_account_mut().account().await?.vault().clone())
     }
 
     pub fn miden_account(&self) -> &MidenAccount {

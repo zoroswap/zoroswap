@@ -1,6 +1,7 @@
-use std::{fs::read_to_string, path::PathBuf, sync::OnceLock};
+use std::{fs::read_to_string, path::PathBuf, str::FromStr, sync::OnceLock};
 
 use anyhow::{Result, anyhow};
+use base64::{Engine as _, engine::general_purpose};
 use miden_client::{
     Felt, Word,
     account::AccountId,
@@ -13,7 +14,8 @@ use miden_client::{
     store::InputNoteRecord,
     transaction::TransactionKernel,
 };
-use tracing::{debug, info};
+use miden_protocol::utils::{Deserializable, Serializable};
+use tracing::info;
 
 use crate::client::create_library;
 
@@ -209,12 +211,30 @@ impl TrustedNote {
         Ok(Self { note, note_kind })
     }
 
+    pub fn from_base64(encoded: &str) -> Result<Self> {
+        // base64 -> bytes
+        let note_bytes = general_purpose::STANDARD
+            .decode(encoded)
+            .map_err(|e| anyhow!("Failed to decode base64: {}", e))?;
+        // bytes -> note
+        let note = Note::read_from_bytes(&note_bytes)
+            .map_err(|e| anyhow!("Failed to deserialize note: {}", e))?;
+        let trusted_note = Self::from_note(note)?;
+        Ok(trusted_note)
+    }
+
     pub fn note(&self) -> &Note {
         &self.note
     }
 
     pub fn note_kind(&self) -> &NoteKind {
         &self.note_kind
+    }
+
+    pub fn serialize_to_string(&self) -> Result<String> {
+        let note_bytes: Vec<u8> = self.note.to_bytes();
+        let encoded = general_purpose::STANDARD.encode(note_bytes);
+        Ok(encoded)
     }
 }
 

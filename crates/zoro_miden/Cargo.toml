@@ -7,6 +7,7 @@ license = "GPL-3.0-only"
 [dependencies]
 alloy = { workspace = true }
 anyhow = "1.0"
+base64 = "0.22"
 miden-assembly = "0.20"
 miden-client = { version = "0.13.1", features = ["testing", "tonic"] }
 miden-client-sqlite-store = { version = "0.13.1" }
