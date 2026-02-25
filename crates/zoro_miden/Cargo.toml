@@ -8,6 +8,7 @@ license = "GPL-3.0-only"
 alloy = { workspace = true }
 anyhow = "1.0"
 base64 = "0.22"
+chrono = { version = "0.4", features = ["serde"] }
 miden-assembly = "0.20"
 miden-client = { version = "0.13.1", features = ["testing", "tonic"] }
 miden-client-sqlite-store = { version = "0.13.1" }
@@ -19,6 +20,7 @@ rand = { version = "0.9" }
 serde = { version = "1", features = ["derive"] }
 tokio = { version = "1.46", features = ["fs", "macros", "rt-multi-thread"] }
 tracing = "0.1"
+uuid = { version = "1.0", features = ["serde", "v4"] }
 zoro_curve_base = { path = "../zoro_curve_base", default-features = false }
 zoro_curve_local = { package = "zoro_curve", path = "../../../zoro-curve", optional = true }
 

@@ -7396,6 +7396,7 @@ dependencies = [
  "alloy",
  "anyhow",
  "base64",
+ "chrono",
  "miden-assembly",
  "miden-client",
  "miden-client-sqlite-store",
@@ -7405,6 +7406,7 @@ dependencies = [
  "serde",
  "tokio",
  "tracing",
+ "uuid",
  "zoro_curve",
  "zoro_curve_base",
 ]

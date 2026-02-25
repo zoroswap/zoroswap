@@ -1,7 +1,6 @@
 use crate::{
     amm_state::AmmState,
-    order::OrderType,
-    websocket::{EventBroadcaster, OrderStatus, OrderUpdateDetails, OrderUpdateEvent},
+    websocket::{EventBroadcaster, OrderStatus, OrderUpdateEvent},
 };
 use anyhow::Result;
 use chrono::Utc;
@@ -63,17 +62,17 @@ impl NotesListener {
                 .await
             {
                 Ok(notes) => {
-                    let valid_notes: Vec<&(Note, OrderType)> = notes
+                    let valid_notes: Vec<&Note> = notes
                         .iter()
-                        .filter(|(n, _)| {
+                        .filter(|n| {
                             !failed_notes.contains(&n.id()) && !processed_notes.contains(&n.id())
                         })
                         .collect();
 
-                    for (note, order_type) in valid_notes.iter() {
+                    for note in valid_notes.iter() {
                         let note_miden_id = note.id();
-                        match self.state.add_order(note.clone(), *order_type) {
-                            Ok((note_id, order_id, order)) => {
+                        match self.state.add_order(note.clone().clone()) {
+                            Ok((note_id, order_id, _)) => {
                                 // Track this note as processed to avoid duplicates
                                 processed_notes.insert(note_miden_id);
                                 // Broadcast order received event
@@ -85,12 +84,6 @@ impl NotesListener {
                                     order_id,
                                     note_id,
                                     status: OrderStatus::Pending,
-                                    details: OrderUpdateDetails {
-                                        amount_in: order.asset_in.amount(),
-                                        amount_out: None,
-                                        asset_in_faucet: order.asset_in.faucet_id().to_hex(),
-                                        asset_out_faucet: order.asset_out.faucet_id().to_hex(),
-                                    },
                                     timestamp: Utc::now().timestamp_millis() as u64,
                                 };
                                 if let Err(e) = self.broadcaster.broadcast_order_update(event) {
@@ -132,23 +125,21 @@ impl NotesListener {
         miden_client: &mut MidenClient,
         filter: NoteFilter,
         tag: NoteTag,
-    ) -> Result<Vec<(Note, OrderType)>> {
+    ) -> Result<Vec<Note>> {
         let all_notes = miden_client.client().get_input_notes(filter).await?;
-        let notes: Vec<(Note, OrderType)> = all_notes
+        let notes: Vec<Note> = all_notes
             .iter()
             .filter_map(|n| {
                 if let Some(metadata) = n.metadata()
                     && metadata.tag().eq(&tag)
                     && let Ok(trusted_note) = TrustedNote::from_input_note(n)
-                    && let Ok(order_type) = OrderType::from_note_kind(*trusted_note.note_kind())
                 {
-                    Some((trusted_note.note().clone(), order_type))
+                    Some(trusted_note.note().clone())
                 } else {
                     None
                 }
             })
             .collect();
-
         Ok(notes)
     }
 }

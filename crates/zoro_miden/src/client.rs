@@ -21,9 +21,7 @@ use miden_client_sqlite_store::{ClientBuilderSqliteExt, SqliteStore};
 use tokio::time::sleep;
 use tracing::{debug, info, warn};
 
-// --------------------------------------------------------------------------
-// Type Aliases
-// --------------------------------------------------------------------------
+use crate::note::{NoteKind, TrustedNote};
 
 pub struct MidenClient {
     client: Client<FilesystemKeyStore>,
@@ -85,6 +83,7 @@ impl MidenClient {
     }
     pub async fn sync_state(&mut self) -> Result<()> {
         if let Some((account_id, state_sync)) = &self.partial_state_sync {
+            // Partial sync
             let accounts = self
                 .client
                 .get_account_header_by_id(*account_id)
@@ -117,6 +116,7 @@ impl MidenClient {
             // Apply received and computed updates to the store
             self.client.apply_state_sync(state_sync_update).await?;
         } else {
+            // Notmal sync
             self.client.sync_state().await?;
         }
         Ok(())
@@ -159,6 +159,52 @@ impl MidenClient {
                         metadata.clone(),
                         rec.details().recipient().clone(),
                     ))
+                })
+                .collect();
+
+            if notes.len() >= expected {
+                return Ok(notes);
+            }
+            debug!(
+                "{} consumable notes found for account {}. Waiting...",
+                notes.len(),
+                account_id.to_hex()
+            );
+            sleep(Duration::from_secs(1)).await;
+        }
+    }
+
+    pub async fn wait_for_trusted_notes(
+        &mut self,
+        account_id: &AccountId,
+        note_kind: Option<NoteKind>,
+        expected: usize,
+    ) -> Result<Vec<TrustedNote>> {
+        loop {
+            self.sync_state().await?;
+            let consumable_notes = self.client.get_consumable_notes(Some(*account_id)).await?;
+            let notes: Vec<TrustedNote> = consumable_notes
+                .iter()
+                .filter_map(|(rec, _)| {
+                    let metadata = rec.metadata()?;
+                    let note = Note::new(
+                        rec.details().assets().clone(),
+                        metadata.clone(),
+                        rec.details().recipient().clone(),
+                    );
+                    if let Ok(trusted_note) = TrustedNote::from_note(note) {
+                        if let Some(note_kind) = note_kind {
+                            if note_kind.eq(trusted_note.note_kind()) {
+                                Some(trusted_note)
+                            } else {
+                                None
+                            }
+                        } else {
+                            Some(trusted_note)
+                        }
+                    } else {
+                        None
+                    }
                 })
                 .collect();
 

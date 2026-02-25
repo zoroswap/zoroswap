@@ -251,7 +251,6 @@ impl ConnectionManager {
                                 note_id: event.note_id.clone(),
                                 status: event.status,
                                 timestamp: event.timestamp,
-                                details: event.details.clone(),
                             };
                             conn_mgr.broadcast_to_channel(
                                 &SubscriptionChannel::OrderUpdates { order_id: None },

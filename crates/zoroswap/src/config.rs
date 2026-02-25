@@ -144,17 +144,4 @@ impl Config {
                 "No faucet found connected to oracle id: {oracle_id}"
             ))
     }
-
-    pub fn get_asset_decimals_by_faucet_id(&self, faucet_id: &AccountId) -> Result<u8> {
-        self.liquidity_pools
-            .iter()
-            .find_map(|liq_pool| {
-                if liq_pool.faucet_id.eq(faucet_id) {
-                    Some(liq_pool.decimals)
-                } else {
-                    None
-                }
-            })
-            .ok_or(anyhow!("No faucet found for id: {faucet_id}"))
-    }
 }

@@ -5,3 +5,4 @@ pub mod faucet;
 pub mod note;
 pub mod pool;
 pub mod pool_state;
+pub mod price;

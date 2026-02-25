@@ -6,14 +6,13 @@ use axum::{
     response::IntoResponse,
 };
 use futures_util::{SinkExt, StreamExt};
-use std::sync::Arc;
 use tokio::sync::mpsc;
 use tracing::{debug, error, warn};
 use uuid::Uuid;
 
 use crate::server::AppState;
 
-use super::messages::{ClientMessage, ServerMessage, SubscriptionChannel};
+use super::messages::{ClientMessage, ServerMessage};
 
 /// WebSocket upgrade handler
 pub async fn websocket_handler(
@@ -38,7 +37,7 @@ async fn handle_websocket_connection(socket: WebSocket, state: AppState) {
     // Spawn sender task: forwards messages from channel to WebSocket
     let sender_task = tokio::spawn(async move {
         while let Some(msg) = rx.recv().await {
-            if let Err(_) = ws_sender.send(msg).await {
+            if ws_sender.send(msg).await.is_err() {
                 break;
             }
         }
@@ -118,13 +117,4 @@ async fn handle_client_message(msg: ClientMessage, conn_id: Uuid, state: &AppSta
             state.connection_manager.update_last_pong(conn_id);
         }
     }
-}
-
-/// Broadcast a server message to all subscribers of matching channels
-pub fn broadcast_message(
-    connection_manager: &Arc<super::connection_manager::ConnectionManager>,
-    channel: SubscriptionChannel,
-    message: ServerMessage,
-) {
-    connection_manager.broadcast_to_channel(&channel, message);
 }

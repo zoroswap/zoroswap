@@ -21,8 +21,7 @@ use crate::{
     amm_state::AmmState,
     config::RawLiquidityPoolConfig,
     faucet::FaucetMintInstruction,
-    order::OrderType,
-    websocket::{ConnectionManager, EventBroadcaster, websocket_handler},
+    websocket::{ConnectionManager, websocket_handler},
 };
 
 #[derive(Clone)]
@@ -30,7 +29,6 @@ pub struct AppState {
     pub amm_state: Arc<AmmState>,
     pub faucet_tx: Sender<FaucetMintInstruction>,
     pub connection_manager: Arc<ConnectionManager>,
-    pub event_broadcaster: Arc<EventBroadcaster>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -232,10 +230,7 @@ async fn submit_swap(
         }
     };
 
-    match state
-        .amm_state
-        .add_order(note.note().clone(), OrderType::Swap)
-    {
+    match state.amm_state.add_order(note.note().clone()) {
         Ok((_, order_id, _)) => {
             info!("Successfully added swap order: {:?}", order_id);
             Json(SubmitOrderResponse {
@@ -275,10 +270,7 @@ async fn submit_deposit(
         }
     };
 
-    match state
-        .amm_state
-        .add_order(note.note().clone(), OrderType::Deposit)
-    {
+    match state.amm_state.add_order(note.note().clone()) {
         Ok((_, order_id, _)) => {
             info!("Successfully added deposit order: {:?}", order_id);
             Json(SubmitOrderResponse {
@@ -319,10 +311,7 @@ async fn submit_withdraw(
         }
     };
 
-    match state
-        .amm_state
-        .add_order(note.note().clone(), OrderType::Withdraw)
-    {
+    match state.amm_state.add_order(note.note().clone()) {
         Ok((_, order_id, _)) => {
             info!("Successfully added withdraw order: {}", order_id);
             Json(SubmitOrderResponse {

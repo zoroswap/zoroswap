@@ -2,6 +2,7 @@ use std::str::FromStr;
 
 use alloy::primitives::{I256, U256};
 use anyhow::Result;
+use miden_client::{Felt, Word};
 use serde::Serialize;
 use tracing::info;
 #[cfg(not(feature = "zoro-curve-local"))]
@@ -118,9 +119,15 @@ impl PoolState {
     pub fn settings(&self) -> &PoolSettings {
         &self.settings
     }
+    pub fn metadata(&self) -> &PoolMetadata {
+        &self.metadata
+    }
     pub fn lp_total_supply(&self) -> u64 {
         self.lp_total_supply
     }
+    /// # Returns
+    ///
+    /// new_lp_amount, new_lp_total_supply, new_pool_balances
     pub fn get_deposit_lp_amount_out(
         &self,
         deposit_amount: U256,
@@ -163,7 +170,9 @@ impl PoolState {
 
         Ok((new_lp_amount, new_lp_total_supply, new_pool_balances))
     }
-
+    /// # Returns
+    ///
+    /// new_lp_amount, new_lp_total_supply, new_pool_balances
     pub fn get_withdraw_asset_amount_out(
         &self,
         withdraw_amount: U256,
@@ -225,5 +234,14 @@ impl PoolState {
             "Pool state for liquidity pool {}",
             self.metadata.name
         );
+    }
+
+    pub fn to_lp_note_args(&self, amount: u64) -> Word {
+        Word::from(&[
+            Felt::new(amount),
+            Felt::new(self.balances.reserve_with_slippage.to::<u64>()),
+            Felt::new(self.balances.reserve.to::<u64>()),
+            Felt::new(self.balances.total_liabilities.to::<u64>()),
+        ])
     }
 }

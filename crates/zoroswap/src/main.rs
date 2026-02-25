@@ -24,7 +24,7 @@ use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
 use trading_engine::TradingEngine;
 use websocket::{ConnectionManager, EventBroadcaster};
-use zoro_miden::client::{MidenClient, delete_client_store};
+use zoro_miden::client::delete_client_store;
 
 #[derive(Parser, Debug)]
 #[command(name = "zoro-server")]
@@ -61,7 +61,6 @@ fn main() {
         info!("[INIT] Parsing config");
         info!("Deleting old sqlite3 store");
         delete_client_store(&args.store_path).await;
-
         // Enable WAL mode for better concurrent database access
         // This must be done before any clients are created
         if let Err(e) = enable_wal_mode(&args.store_path) {
@@ -75,14 +74,6 @@ fn main() {
             &args.store_path,
         )
         .map_err(|e| e.to_string())?;
-        let mut init_client = MidenClient::new(
-            config.miden_endpoint.clone(),
-            config.keystore_path,
-            config.store_path,
-            None,
-        )
-        .await
-        .unwrap_or_else(|err| panic!("Failed to instantiate init client: {err:?}"));
         info!(
             "[INFO] Pool information\n\n\tpool_id: {}",
             config.pool_account_id.to_bech32(config.network_id.clone()),
@@ -126,7 +117,6 @@ fn main() {
                 Sender<FaucetMintInstruction>,
                 NotesListener,
                 Arc<ConnectionManager>,
-                Arc<EventBroadcaster>,
             ),
             String,
         >((
@@ -137,7 +127,6 @@ fn main() {
             faucet_tx,
             notes_listener,
             connection_manager,
-            event_broadcaster,
         ))
     }) {
         Ok((
@@ -148,7 +137,6 @@ fn main() {
             faucet_tx,
             mut notes_listener,
             connection_manager,
-            event_broadcaster,
         )) => {
             thread::scope(|s| {
                 s.spawn(move || {
@@ -203,13 +191,7 @@ fn main() {
                     });
                 });
 
-                run_main_tokio((
-                    oracle_client,
-                    amm_state,
-                    faucet_tx,
-                    connection_manager,
-                    event_broadcaster,
-                ));
+                run_main_tokio((oracle_client, amm_state, faucet_tx, connection_manager));
             });
         }
         Err(e) => {
@@ -220,12 +202,11 @@ fn main() {
 
 #[tokio::main]
 async fn run_main_tokio(
-    (mut oracle_client, original_amm_state, faucet_tx, connection_manager, event_broadcaster): (
+    (mut oracle_client, original_amm_state, faucet_tx, connection_manager): (
         OracleSSEClient,
         Arc<AmmState>,
         Sender<FaucetMintInstruction>,
         Arc<ConnectionManager>,
-        Arc<EventBroadcaster>,
     ),
 ) {
     let server_url = original_amm_state.config().server_url;
@@ -248,7 +229,6 @@ async fn run_main_tokio(
         amm_state: original_amm_state.clone(),
         faucet_tx,
         connection_manager,
-        event_broadcaster,
     });
     let listener = tokio::net::TcpListener::bind(server_url)
         .await
