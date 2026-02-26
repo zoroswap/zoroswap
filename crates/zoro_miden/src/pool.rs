@@ -22,7 +22,7 @@ use miden_client::{
     vm::AdviceMap,
 };
 use rand::RngCore;
-use tracing::error;
+use tracing::{debug, error};
 
 use crate::{
     account::MidenAccount,
@@ -108,7 +108,7 @@ impl ZoroPool {
                 Felt::new(pool_settings.swap_fee.to::<u64>()),
                 Felt::new(pool_settings.backstop_fee.to::<u64>()),
                 Felt::new(pool_settings.protocol_fee.to::<u64>()),
-                Felt::new(0), // 0
+                Felt::new(0),
             ]
             .into();
             let curve: Word = [
@@ -298,7 +298,9 @@ impl ZoroPool {
         notes: Vec<TrustedNote>,
         prices: HashMap<AccountId, PriceData>,
     ) -> Result<Vec<(NoteId, ExecutionResult)>> {
+        debug!("Executing notes");
         self.miden_client.sync_state().await?;
+        debug!("Pool client synced");
         let mut advice_map = AdviceMap::default();
         let mut input_notes = Vec::with_capacity(notes.len());
         let mut expected_future_notes = Vec::with_capacity(notes.len());
@@ -350,17 +352,18 @@ impl ZoroPool {
             .await
             .map_err(|e| {
                 error!(
-                    "Failed to submit batch transaction",
                     error = ?e,
                     pool_id = %self.miden_account.id().to_hex(),
                     input_notes = len_input_notes,
                     advice_map = len_advice_map,
                     expected_future_notes = len_future_notes,
-                    expected_output_recipients = len_output_recipients
+                    expected_output_recipients = len_output_recipients,
+                    "Failed to submit batch transaction",
                 );
                 e
             })?;
         MidenClient::print_transaction_info(&tx_id);
+        self.miden_client.sync_state().await?;
         self.pool_states = pool_states;
         Ok(results)
     }
@@ -371,13 +374,12 @@ impl ZoroPool {
         pool_states: &HashMap<AccountId, PoolState>,
         prices: &HashMap<AccountId, PriceData>,
     ) -> Result<ExecutionDetails> {
-        let created_at = note.created_at();
         let note_instructions: NoteInstructions = note.clone().try_into()?;
         let now = Utc::now().timestamp_millis();
         let mut new_pool_states = pool_states.clone();
         match note_instructions {
             NoteInstructions::Deposit(instructions) => {
-                let past_deadline = now > created_at + instructions.deadline as i64;
+                let past_deadline = now > instructions.deadline as i64;
                 let mut pool_state = *pool_states
                     .get(&instructions.asset_in)
                     .ok_or(anyhow!("Trying to execute deposit for an unknown asset."))?;
@@ -391,10 +393,10 @@ impl ZoroPool {
                         advice_map_value: None,
                         input_note: Some((
                             note.note().clone(),
-                            Some(pool_state.to_lp_note_args(0)), // amount 0 will reject the deposit in masm
+                            Some(pool_state.to_lp_note_args(instructions.amount_in)), // amount 0 will reject the deposit in masm
                         )),
                         expected_future_note: None,
-                        new_pool_states: None,
+                        new_pool_states: Some(new_pool_states),
                         expected_output_recipient: None,
                         result: ExecutionResult::DepositSuccess(lp_amount.to::<u64>()),
                     })
@@ -427,7 +429,7 @@ impl ZoroPool {
                 }
             }
             NoteInstructions::Withdraw(instructions) => {
-                let past_deadline = now > created_at + instructions.deadline as i64;
+                let past_deadline = now > instructions.deadline as i64;
                 let mut pool_state = *pool_states.get(&instructions.asset_out).ok_or(anyhow!(
                     "Trying to execute withdrawal for an unknown asset."
                 ))?;
@@ -470,7 +472,7 @@ impl ZoroPool {
                 }
             }
             NoteInstructions::Swap(instructions) => {
-                let past_deadline = now > created_at + instructions.deadline as i64;
+                let past_deadline = now > instructions.deadline as i64;
                 let mut new_pool_states = pool_states.clone();
                 let mut pool_state_base = *new_pool_states
                     .get_mut(&instructions.asset_in)

@@ -24,7 +24,7 @@ async fn e2e_private_deposit_withdraw_test() -> Result<()> {
         prices: _,
     } = E2ETestSetup::new(store_path).await?;
 
-    let account = MidenAccount::deploy_new(&mut miden_client, keystore).await?;
+    let account = MidenAccount::deploy_new(&mut miden_client, config.keystore_path).await?;
     let pool = config.liquidity_pools[0];
     let initial_pool = *zoro_pool.pool_states().get(&pool.faucet_id).unwrap();
     zoro_pool.print_pool_states();

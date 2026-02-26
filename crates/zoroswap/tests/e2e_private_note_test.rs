@@ -19,7 +19,7 @@ async fn e2e_private_note() -> Result<()> {
         mut zoro_pool,
         prices,
     } = E2ETestSetup::new(store_path).await?;
-    let mut account = MidenAccount::deploy_new(&mut miden_client, keystore).await?;
+    let mut account = MidenAccount::deploy_new(&mut miden_client, config.keystore_path).await?;
 
     let pool0 = config.liquidity_pools[0];
     let pool1 = config.liquidity_pools[1];

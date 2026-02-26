@@ -475,6 +475,7 @@ impl TryFrom<TrustedNote> for NoteInstructions {
     }
 }
 
+#[derive(Debug)]
 pub struct TrustedNoteElements {
     pub inputs: NoteInputs,
     pub assets: NoteAssets,

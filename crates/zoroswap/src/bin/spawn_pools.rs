@@ -2,9 +2,11 @@ use anyhow::Result;
 use chrono::Utc;
 use clap::Parser;
 use dotenv::dotenv;
-use miden_client::note::{NoteTag, NoteType};
+use miden_client::{
+    note::{NoteTag, NoteType},
+    transaction::{OutputNote, TransactionRequestBuilder},
+};
 use std::collections::HashMap;
-use tracing::info;
 use zoro_miden::{
     account::MidenAccount,
     client::MidenClient,
@@ -71,16 +73,16 @@ async fn main() -> Result<()> {
     .await?;
 
     println!("\n[STEP 2] Mint tokens from faucet to lp account");
-    let amount = 100000000;
+    let amount = 1000000000;
     let lp_account = MidenAccount::deploy_new(&mut miden_client, config.keystore_path).await?;
     for pool in config.liquidity_pools.iter() {
+        let amount = amount * 10_u64.pow(pool.decimals as u32);
         miden_client
             .mint_asset(pool.faucet_id, *lp_account.id(), amount)
             .await?;
         println!("Minted note of {} tokens for liq pool.", amount);
         miden_client.sync_state().await?;
     }
-    miden_client.import_account(&config.pool_account_id).await?;
     miden_client
         .consume_notes(lp_account.id(), config.liquidity_pools.len())
         .await?;
@@ -88,14 +90,13 @@ async fn main() -> Result<()> {
     println!("\n[STEP 3] LP Account makes DEPOSIT notes for each liq pool");
     let mut notes = Vec::new();
     for pool in config.liquidity_pools.iter() {
+        let amount = amount * 10_u64.pow(pool.decimals as u32);
         println!("liq pool: {:?}", pool.name);
-        let amount_in: u64 = amount * 10u64.pow(pool.decimals as u32);
-        let max_slippage = 0.005; // 0.5 %
-        let min_lp_amount_out = (amount_in as f64) * (1.0 - max_slippage);
-        let min_lp_amount_out = min_lp_amount_out as u64;
+        let max_slippage = 0.5; // 0.5 %
+        let min_lp_amount_out = ((amount as f64) * (1.0 - max_slippage)) as u64;
         let deposit_note = TrustedNote::new(NoteInstructions::Deposit(DepositInstructions {
             asset_in: pool.faucet_id,
-            amount_in,
+            amount_in: amount,
             min_lp_amount_out,
             creator: *lp_account.id(),
             note_type: NoteType::Private,
@@ -103,19 +104,19 @@ async fn main() -> Result<()> {
             p2id_tag: lp_account.tag(),
             pool_tag: NoteTag::with_account_target(*zoro_pool.miden_account().id()),
         }))?;
+        let note_req = TransactionRequestBuilder::new()
+            .own_output_notes(vec![OutputNote::Full(deposit_note.note().clone())])
+            .build()
+            .unwrap();
+        miden_client
+            .client_mut()
+            .submit_new_transaction(*lp_account.id(), note_req)
+            .await?;
         notes.push(deposit_note);
     }
-    dbg!(notes.first());
-
     println!("\n[STEP 4] Execute DEPOSIT notes on zoro pool");
     zoro_pool.execute_notes(notes, HashMap::default()).await?;
-    zoro_pool
-        .miden_account_mut()
-        .refetch_account()
-        .await
-        .expect("Failed refreshing miden account");
     zoro_pool.print_pool_states();
-
     println!(
         "\n------\n New pool created: {:?}\n-----\n",
         zoro_pool
