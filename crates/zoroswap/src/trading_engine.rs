@@ -646,7 +646,7 @@ impl TradingEngine {
         let proof_bytes = proven_tx.to_bytes();
         tokio::fs::write("proof2.bin", proof_bytes).await?;
 
-        info!("Submitted TX: {:?}", tx_id);
+        // info!("Submitted TX: {:?}", tx_id);
 
         client.sync_state().await?;
 
