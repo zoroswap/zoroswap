@@ -52,7 +52,7 @@ impl NoteKind {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct TrustedNote {
     note: Note,
     note_kind: NoteKind,
@@ -101,19 +101,15 @@ impl TrustedNote {
     fn new_zoro_note(note_elements: TrustedNoteElements) -> Result<Self> {
         let manifest_dir = env!("CARGO_MANIFEST_DIR");
         let assembler = TransactionKernel::assembler().with_warnings_as_errors(true);
-        let path: PathBuf = [
+        let note_path = PathBuf::from_iter(&[
             manifest_dir,
             "masm",
             "notes",
             note_elements.note_kind.masm_name(),
-        ]
-        .iter()
-        .collect();
-        let note_code = read_to_string(&path).map_err(|e| anyhow!("{e:?}"))?;
-        let pool_code_path: PathBuf = [manifest_dir, "masm", "accounts", "zoropool.masm"]
-            .iter()
-            .collect();
-        let pool_code = read_to_string(&pool_code_path).map_err(|e| anyhow!("{e:?}"))?;
+        ]);
+        let pool_path = PathBuf::from_iter(&[manifest_dir, "masm", "accounts", "zoropool.masm"]);
+        let note_code = read_to_string(&note_path).map_err(|e| anyhow!("{e:?}"))?;
+        let pool_code = read_to_string(&pool_path).map_err(|e| anyhow!("{e:?}"))?;
         let pool_component_lib =
             create_library(assembler.clone(), "zoroswap::zoropool", &pool_code)
                 .map_err(|e| anyhow!("{e:?}"))?;
@@ -314,7 +310,8 @@ pub struct DepositInstructions {
     pub creator: AccountId,
     pub note_type: NoteType,
     pub deadline: u64,
-    pub p2id_tag: u64,
+    pub p2id_tag: NoteTag,
+    pub pool_tag: NoteTag,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -325,7 +322,8 @@ pub struct WithdrawInstructions {
     pub creator: AccountId,
     pub note_type: NoteType,
     pub deadline: u64,
-    pub p2id_tag: u64,
+    pub p2id_tag: NoteTag,
+    pub pool_tag: NoteTag,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -338,7 +336,8 @@ pub struct SwapInstructions {
     pub beneficiary: Option<AccountId>,
     pub note_type: NoteType,
     pub deadline: u64,
-    pub p2id_tag: u64,
+    pub p2id_tag: NoteTag,
+    pub pool_tag: NoteTag,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -403,7 +402,8 @@ impl TryFrom<TrustedNote> for NoteInstructions {
                     creator,
                     note_type: note.note().metadata().note_type(),
                     deadline,
-                    p2id_tag,
+                    p2id_tag: NoteTag::new(p2id_tag.try_into()?),
+                    pool_tag: note.note().metadata().tag(),
                 }))
             }
             NoteKind::Withdraw => {
@@ -425,7 +425,8 @@ impl TryFrom<TrustedNote> for NoteInstructions {
                     creator,
                     note_type: note.note().metadata().note_type(),
                     deadline,
-                    p2id_tag,
+                    p2id_tag: NoteTag::new(p2id_tag.try_into()?),
+                    pool_tag: note.note().metadata().tag(),
                 }))
             }
             NoteKind::Swap => {
@@ -466,7 +467,8 @@ impl TryFrom<TrustedNote> for NoteInstructions {
                     beneficiary: Some(beneficiary_id),
                     note_type: note.note().metadata().note_type(),
                     deadline,
-                    p2id_tag,
+                    p2id_tag: NoteTag::new(p2id_tag.try_into()?),
+                    pool_tag: note.note().metadata().tag(),
                 }))
             }
         }
@@ -528,18 +530,13 @@ impl TrustedNoteElements {
         } else {
             instructions.creator
         };
-        let p2id_tag = if instructions.note_type.eq(&NoteType::Public) {
-            NoteTag::with_account_target(beneficiary)
-        } else {
-            NoteTag::new(123)
-        };
         let inputs = NoteInputs::new(vec![
             requested_asset[0],
             requested_asset[1],
             requested_asset[2],
             requested_asset[3],
             Felt::new(instructions.deadline),
-            p2id_tag.into(),
+            instructions.p2id_tag.into(),
             Felt::new(0),
             Felt::new(0),
             beneficiary.suffix(),
@@ -550,8 +547,11 @@ impl TrustedNoteElements {
         let assets = NoteAssets::new(vec![
             FungibleAsset::new(instructions.asset_in, instructions.amount_in)?.into(),
         ])?;
-        let metadata = NoteMetadata::new(instructions.creator, instructions.note_type, p2id_tag);
-
+        let metadata = NoteMetadata::new(
+            instructions.creator,
+            instructions.note_type,
+            instructions.pool_tag,
+        );
         Ok(Self {
             assets,
             metadata,
@@ -563,11 +563,10 @@ impl TrustedNoteElements {
     }
 
     pub fn from_deposit_instructions(instructions: DepositInstructions) -> Result<Self> {
-        let p2id_tag = NoteTag::with_account_target(instructions.creator);
         let inputs = NoteInputs::new(vec![
             Felt::new(instructions.min_lp_amount_out),
             Felt::new(instructions.deadline),
-            p2id_tag.into(),
+            instructions.p2id_tag.into(),
             Felt::new(0),
             Felt::new(0),
             Felt::new(0),
@@ -577,8 +576,11 @@ impl TrustedNoteElements {
         let assets = NoteAssets::new(vec![
             FungibleAsset::new(instructions.asset_in, instructions.amount_in)?.into(),
         ])?;
-        let metadata = NoteMetadata::new(instructions.creator, instructions.note_type, p2id_tag);
-
+        let metadata = NoteMetadata::new(
+            instructions.creator,
+            instructions.note_type,
+            instructions.pool_tag,
+        );
         Ok(Self {
             assets,
             metadata,
@@ -590,7 +592,6 @@ impl TrustedNoteElements {
     }
 
     pub fn from_withdraw_instructions(instructions: WithdrawInstructions) -> Result<Self> {
-        let p2id_tag = NoteTag::with_account_target(instructions.creator);
         let asset_out: Word =
             FungibleAsset::new(instructions.asset_out, instructions.min_amount_out)?.into();
         let inputs = NoteInputs::new(vec![
@@ -601,15 +602,18 @@ impl TrustedNoteElements {
             Felt::new(0),
             Felt::new(instructions.lp_amount_in),
             Felt::new(instructions.deadline),
-            p2id_tag.into(),
+            instructions.p2id_tag.into(),
             Felt::new(0),
             Felt::new(0),
             instructions.creator.suffix(),
             instructions.creator.prefix().into(),
         ])?;
         let assets = NoteAssets::default();
-        let metadata = NoteMetadata::new(instructions.creator, instructions.note_type, p2id_tag);
-
+        let metadata = NoteMetadata::new(
+            instructions.creator,
+            instructions.note_type,
+            instructions.pool_tag,
+        );
         Ok(Self {
             assets,
             metadata,

@@ -350,17 +350,18 @@ impl ZoroPool {
             .await
             .map_err(|e| {
                 error!(
+                    "Failed to submit batch transaction",
                     error = ?e,
                     pool_id = %self.miden_account.id().to_hex(),
                     input_notes = len_input_notes,
                     advice_map = len_advice_map,
                     expected_future_notes = len_future_notes,
-                    expected_output_recipients = len_output_recipients,
-                    "Failed to submit batch transaction"
+                    expected_output_recipients = len_output_recipients
                 );
                 e
             })?;
         MidenClient::print_transaction_info(&tx_id);
+        self.pool_states = pool_states;
         Ok(results)
     }
 

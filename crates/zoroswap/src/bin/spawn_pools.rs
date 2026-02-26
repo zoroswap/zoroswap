@@ -2,11 +2,9 @@ use anyhow::Result;
 use chrono::Utc;
 use clap::Parser;
 use dotenv::dotenv;
-use miden_client::{
-    keystore::FilesystemKeyStore,
-    note::{NoteTag, NoteType},
-};
+use miden_client::note::{NoteTag, NoteType};
 use std::collections::HashMap;
+use tracing::info;
 use zoro_miden::{
     account::MidenAccount,
     client::MidenClient,
@@ -72,7 +70,7 @@ async fn main() -> Result<()> {
     )
     .await?;
 
-    println!("\n[STEP 2] Mint tokens from our faucet to zoro_pool account");
+    println!("\n[STEP 2] Mint tokens from faucet to lp account");
     let amount = 100000000;
     let lp_account = MidenAccount::deploy_new(&mut miden_client, config.keystore_path).await?;
     for pool in config.liquidity_pools.iter() {
@@ -87,7 +85,7 @@ async fn main() -> Result<()> {
         .consume_notes(lp_account.id(), config.liquidity_pools.len())
         .await?;
 
-    println!("\n[STEP 3] Make DEPOSIT notes for each liq pool");
+    println!("\n[STEP 3] LP Account makes DEPOSIT notes for each liq pool");
     let mut notes = Vec::new();
     for pool in config.liquidity_pools.iter() {
         println!("liq pool: {:?}", pool.name);
@@ -102,11 +100,14 @@ async fn main() -> Result<()> {
             creator: *lp_account.id(),
             note_type: NoteType::Private,
             deadline: (Utc::now().timestamp_millis() + 120_000) as u64,
-            p2id_tag: 0,
+            p2id_tag: lp_account.tag(),
+            pool_tag: NoteTag::with_account_target(*zoro_pool.miden_account().id()),
         }))?;
         notes.push(deposit_note);
     }
+    dbg!(notes.first());
 
+    println!("\n[STEP 4] Execute DEPOSIT notes on zoro pool");
     zoro_pool.execute_notes(notes, HashMap::default()).await?;
     zoro_pool
         .miden_account_mut()
