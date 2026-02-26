@@ -623,7 +623,7 @@ impl TradingEngine {
             .build()
             .map_err(|e| anyhow::anyhow!("Failed to build batch transaction request: {}", e))?;
 
-        let tx = client
+        let tx_inputs = client
             .execute_transaction(pool_account_id, consume_req)
             .await
             .map_err(|e| {
@@ -640,15 +640,19 @@ impl TradingEngine {
         //
         //
 
-        let proven_tx = client.prove_transaction(&tx).await?;
+        let proven_tx = client.prove_transaction(&tx_inputs).await?;
 
         // Serialize the proof to whatever file
         let proof_bytes = proven_tx.to_bytes();
         tokio::fs::write("proof2.bin", proof_bytes).await?;
 
-        // info!("Submitted TX: {:?}", tx_id);
+        info!("Submitted TX: {:?}", proven_tx.id());
 
-        client.sync_state().await?;
+        if let Err(e) = client.submit_proven_transaction(proven_tx, tx_inputs).await {
+            error!("{e:?}")
+        };
+
+        // client.sync_state().await?;
 
         // print_transaction_info(&tx_id);
 
