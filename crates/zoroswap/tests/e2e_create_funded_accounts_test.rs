@@ -1,6 +1,7 @@
 mod test_utils;
 
 use anyhow::Result;
+use tempfile::TempDir;
 use test_utils::*;
 
 #[tokio::test]
@@ -9,16 +10,15 @@ async fn e2e_create_funded_accounts() -> Result<()> {
         .with_env_filter("info,zoro=debug")
         .init();
 
-    // ---------------------------------------------------------------------------------
     println!("\n\t[STEP 0] Init client and config\n");
 
-    let store_path = "../../create_funded_accounts_test_store.sqlite3";
-    let _ = std::fs::remove_file(store_path);
+    let tmp_dir = TempDir::new()?;
+    let store_path = tmp_dir.path().join("store.sqlite3");
+    let store_path = store_path.to_str().unwrap();
 
     let mut setup = setup_test_environment(store_path).await?;
     let num_accounts = 2;
 
-    // ---------------------------------------------------------------------------------
     println!("\n\t[STEP 1] Create {num_accounts} funded accounts\n");
 
     let amount = 5_000_000u64; // fixed amount per pool
@@ -37,7 +37,6 @@ async fn e2e_create_funded_accounts() -> Result<()> {
         "Expected {num_accounts} accounts"
     );
 
-    // ---------------------------------------------------------------------------------
     println!("\n\t[STEP 2] Verify each account holds tokens from every pool\n");
 
     setup.client.sync_state().await?;

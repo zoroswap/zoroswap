@@ -77,7 +77,7 @@ fn main() {
             &args.keystore_path,
             &args.store_path,
         ).map_err(|e| e.to_string())?;
-        let mut init_client = instantiate_client(config.clone(), config.store_path)
+        let mut init_client = instantiate_client(config.clone(), config.store_path, None)
             .await
             .unwrap_or_else(|err| panic!("Failed to instantiate init client: {err:?}"));
         info!(

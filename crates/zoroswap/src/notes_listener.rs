@@ -43,7 +43,7 @@ impl NotesListener {
         // Create our own client for notes listening (with retry for DB contention)
         let mut client = None;
         for attempt in 1..=5 {
-            match instantiate_client(self.state.config(), self.state.config().store_path).await {
+            match instantiate_client(self.state.config(), self.state.config().store_path, None).await {
                 Ok(c) => {
                     client = Some(c);
                     break;
