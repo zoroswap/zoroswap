@@ -25,3 +25,5 @@ pub use zoro_primitives::*;
 
 #[cfg(feature = "zoro-curve-local")]
 pub use zoro_curve_local::*;
+
+pub mod testing;
