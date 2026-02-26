@@ -12,6 +12,7 @@ use alloy::primitives::U256;
 use anyhow::{Result, anyhow};
 use chrono::Utc;
 use dashmap::DashMap;
+use miden_client::Serializable;
 use miden_client::{
     Felt, Word,
     account::AccountId,
@@ -622,7 +623,7 @@ impl TradingEngine {
             .build()
             .map_err(|e| anyhow::anyhow!("Failed to build batch transaction request: {}", e))?;
 
-        let tx_id = client
+        let tx = client
             .execute_transaction(pool_account_id, consume_req)
             .await
             .map_err(|e| {
@@ -649,7 +650,7 @@ impl TradingEngine {
 
         client.sync_state().await?;
 
-        print_transaction_info(&tx_id);
+        // print_transaction_info(&tx_id);
 
         Ok(())
     }
