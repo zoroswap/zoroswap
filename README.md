@@ -84,7 +84,8 @@ cp faucets-example.toml faucets.toml
 ```
 
 You can now execute `/bin/bash run-local-setup.sh` or follow the steps 1-3 below.
-The script conducts the steps below.
+The script conducts the steps below, but with the `--features zoro-curve-local`
+flag for the server.
 
 ### 1. Spawn faucets
 
