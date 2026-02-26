@@ -185,7 +185,7 @@ impl PoolState {
         let reserve_decrement = if lp_total_supply == 0 {
             U256::ZERO
         } else {
-            (withdraw_amount * old_total_liabilities) / old_total_liabilities
+            (withdraw_amount * old_total_liabilities) / lp_total_supply
         };
 
         let curve =
