@@ -39,7 +39,7 @@ impl GuardedFaucet {
             let client = MidenClient::new(
                 self.config.miden_endpoint.clone(),
                 self.config.keystore_path,
-                self.config.keystore_path,
+                self.config.store_path,
                 Some(liq_pool.faucet_id),
             )
             .await?;

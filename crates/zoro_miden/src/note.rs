@@ -109,26 +109,23 @@ impl TrustedNote {
         ]
         .iter()
         .collect();
-        let note_code = read_to_string(&path)
-            .unwrap_or_else(|err| panic!("Error reading {}: {}", path.display(), err));
+        let note_code = read_to_string(&path).map_err(|e| anyhow!("{e:?}"))?;
         let pool_code_path: PathBuf = [manifest_dir, "masm", "accounts", "zoropool.masm"]
             .iter()
             .collect();
-        let pool_code = read_to_string(&pool_code_path)
-            .unwrap_or_else(|err| panic!("Error reading {}: {}", pool_code_path.display(), err));
+        let pool_code = read_to_string(&pool_code_path).map_err(|e| anyhow!("{e:?}"))?;
         let pool_component_lib =
-            create_library(assembler.clone(), "zoroswap::zoropool", &pool_code).unwrap();
+            create_library(assembler.clone(), "zoroswap::zoropool", &pool_code)
+                .map_err(|e| anyhow!("{e:?}"))?;
         let note_script = CodeBuilder::new()
-            .with_dynamically_linked_library(&pool_component_lib)
-            .unwrap()
-            .compile_note_script(note_code)
-            .unwrap();
+            .with_dynamically_linked_library(&pool_component_lib)?
+            .compile_note_script(note_code)?;
         let serial_number = Self::random_word()?;
         let recipient = NoteRecipient::new(serial_number, note_script, note_elements.inputs);
         let note = Note::new(note_elements.assets, note_elements.metadata, recipient);
         Ok(Self {
             note,
-            note_kind: NoteKind::Swap,
+            note_kind: note_elements.note_kind,
             serial_number,
             created_at: Utc::now().timestamp_millis(),
         })

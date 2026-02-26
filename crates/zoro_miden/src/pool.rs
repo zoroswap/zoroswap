@@ -1,4 +1,8 @@
-use std::{collections::HashMap, path::Path, str::FromStr};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+    str::FromStr,
+};
 
 use alloy::primitives::{I256, U256};
 use anyhow::{Result, anyhow};
@@ -70,16 +74,18 @@ impl ZoroPool {
     }
 
     pub async fn new_deployment(
-        masm_path: &str,
         liquidity_pools: Vec<LiquidityPoolConfig>,
         endpoint: Endpoint,
         keystore_path: &str,
         store_path: &str,
     ) -> Result<Self> {
+        let manifest_dir = env!("CARGO_MANIFEST_DIR");
+        let masm_path: PathBuf = [manifest_dir, "masm", "accounts", "zoropool.masm"]
+            .iter()
+            .collect();
         let mut miden_client =
             MidenClient::new(endpoint.clone(), keystore_path, store_path, None).await?;
-        let pool_reader_path = format!("{}/accounts/zoropool.masm", masm_path);
-        let pool_reader_path = Path::new(&pool_reader_path);
+        let pool_reader_path = Path::new(&masm_path);
         let pool_code = std::fs::read_to_string(pool_reader_path)
             .unwrap_or_else(|err| panic!("unable to read from {pool_reader_path:?}: {err}"));
 
@@ -326,11 +332,15 @@ impl ZoroPool {
             };
             results.push((note_id, result));
         }
+        let len_future_notes = expected_future_notes.len();
+        let len_output_recipients = expected_output_recipients.len();
+        let len_input_notes = input_notes.len();
+        let len_advice_map = advice_map.len();
         let consume_req = TransactionRequestBuilder::new()
             .extend_advice_map(advice_map)
-            .input_notes(input_notes.clone())
+            .input_notes(input_notes)
             .expected_future_notes(expected_future_notes)
-            .expected_output_recipients(expected_output_recipients.clone())
+            .expected_output_recipients(expected_output_recipients)
             .build()
             .map_err(|e| anyhow::anyhow!("Failed to build batch transaction request: {}", e))?;
         let tx_id = self
@@ -342,11 +352,13 @@ impl ZoroPool {
                 error!(
                     error = ?e,
                     pool_id = %self.miden_account.id().to_hex(),
-                    input_notes = input_notes.len(),
-                    expected_recipients = expected_output_recipients.len(),
+                    input_notes = len_input_notes,
+                    advice_map = len_advice_map,
+                    expected_future_notes = len_future_notes,
+                    expected_output_recipients = len_output_recipients,
                     "Failed to submit batch transaction"
                 );
-                anyhow::anyhow!("Failed to create and submit batch transaction: {:?}", e)
+                e
             })?;
         MidenClient::print_transaction_info(&tx_id);
         Ok(results)

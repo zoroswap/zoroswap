@@ -26,6 +26,7 @@ use crate::note::{NoteKind, TrustedNote};
 pub struct MidenClient {
     client: Client<FilesystemKeyStore>,
     partial_state_sync: Option<(AccountId, StateSync)>,
+    endpoint: Endpoint,
 }
 
 impl MidenClient {
@@ -69,6 +70,7 @@ impl MidenClient {
         Ok(Self {
             client,
             partial_state_sync,
+            endpoint,
         })
     }
     pub async fn add_note_tag(&mut self, note_tag: NoteTag) -> Result<()> {
@@ -168,7 +170,7 @@ impl MidenClient {
             debug!(
                 "{} consumable notes found for account {}. Waiting...",
                 notes.len(),
-                account_id.to_hex()
+                account_id.to_bech32(self.endpoint.to_network_id())
             );
             sleep(Duration::from_secs(1)).await;
         }
@@ -246,6 +248,8 @@ impl MidenClient {
         account_id: AccountId,
         amount: u64,
     ) -> Result<String> {
+        self.sync_state().await?;
+        self.client.import_account_by_id(faucet_id).await?;
         let fungible_asset = FungibleAsset::new(faucet_id, amount)?;
         let transaction_request = TransactionRequestBuilder::new().build_mint_fungible_asset(
             fungible_asset,
@@ -257,6 +261,8 @@ impl MidenClient {
             .client
             .submit_new_transaction(faucet_id, transaction_request)
             .await?;
+        Self::print_transaction_info(&tx_id);
+        self.sync_state().await?;
         Ok(format!("{:?}", tx_id))
     }
 

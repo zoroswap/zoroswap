@@ -2,7 +2,10 @@ use anyhow::Result;
 use chrono::Utc;
 use clap::Parser;
 use dotenv::dotenv;
-use miden_client::{keystore::FilesystemKeyStore, note::NoteType};
+use miden_client::{
+    keystore::FilesystemKeyStore,
+    note::{NoteTag, NoteType},
+};
 use std::collections::HashMap;
 use zoro_miden::{
     account::MidenAccount,
@@ -50,7 +53,6 @@ async fn main() -> Result<()> {
         &args.store_path,
     )?;
     let endpoint = config.miden_endpoint;
-    let keystore: FilesystemKeyStore = FilesystemKeyStore::new(config.keystore_path.into())?;
     let mut miden_client = MidenClient::new(
         endpoint.clone(),
         &args.keystore_path,
@@ -63,7 +65,6 @@ async fn main() -> Result<()> {
     println!("\n[STEP 1] Create zoro_pool account");
 
     let mut zoro_pool = ZoroPool::new_deployment(
-        config.masm_path,
         config.liquidity_pools.clone(),
         endpoint.clone(),
         config.keystore_path,
@@ -73,22 +74,20 @@ async fn main() -> Result<()> {
 
     println!("\n[STEP 2] Mint tokens from our faucet to zoro_pool account");
     let amount = 100000000;
+    let lp_account = MidenAccount::deploy_new(&mut miden_client, config.keystore_path).await?;
     for pool in config.liquidity_pools.iter() {
-        println!("liq pool: {:?}", pool.name);
-        println!("Importing the faucet account to client");
-        miden_client.import_account(&pool.faucet_id).await?;
         miden_client
-            .mint_asset(pool.faucet_id, config.pool_account_id, amount)
+            .mint_asset(pool.faucet_id, *lp_account.id(), amount)
             .await?;
         println!("Minted note of {} tokens for liq pool.", amount);
         miden_client.sync_state().await?;
     }
+    miden_client.import_account(&config.pool_account_id).await?;
     miden_client
-        .consume_notes(zoro_pool.miden_account().id(), config.liquidity_pools.len())
+        .consume_notes(lp_account.id(), config.liquidity_pools.len())
         .await?;
 
     println!("\n[STEP 3] Make DEPOSIT notes for each liq pool");
-    let lp_account = MidenAccount::deploy_new(&mut miden_client, keystore.clone()).await?;
     let mut notes = Vec::new();
     for pool in config.liquidity_pools.iter() {
         println!("liq pool: {:?}", pool.name);

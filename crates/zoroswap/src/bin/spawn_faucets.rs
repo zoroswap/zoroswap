@@ -75,7 +75,6 @@ async fn main() -> Result<()> {
         .unwrap_or_else(|err| panic!("Failed to create keystore: {err:?}"));
 
     println!("\nDeploying a new fungible faucet.");
-
     // Generate key pair
     let key_pair = AuthSecretKey::new_falcon512_rpo_with_rng(miden_client.client_mut().rng());
     for faucet in faucets {

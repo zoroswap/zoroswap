@@ -46,10 +46,7 @@ impl MidenAccount {
         Self { id, account }
     }
 
-    pub async fn deploy_new(
-        miden_client: &mut MidenClient,
-        keystore: FilesystemKeyStore,
-    ) -> Result<Self> {
+    pub async fn deploy_new(miden_client: &mut MidenClient, keystore_path: &str) -> Result<Self> {
         let mut init_seed = [0_u8; 32];
         miden_client.client_mut().rng().fill_bytes(&mut init_seed);
         let key_pair = AuthSecretKey::new_falcon512_rpo_with_rng(miden_client.client_mut().rng());
@@ -63,6 +60,7 @@ impl MidenAccount {
             .client_mut()
             .add_account(&account, false)
             .await?;
+        let keystore = FilesystemKeyStore::new(keystore_path.into())?;
         keystore.add_key(&key_pair).unwrap();
         miden_client.client_mut().sync_state().await?;
         Ok(Self {
