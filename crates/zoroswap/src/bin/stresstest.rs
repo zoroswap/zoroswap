@@ -377,6 +377,10 @@ async fn execute_withdraw(
 ) -> Result<StressOutcome> {
     let pool = &pools[pool_idx];
 
+    // TODO: This computes a fixed amount from the pool's decimal count rather than
+    // reading the account's actual LP token balance. Most withdrawals will fail as
+    // expected-failures because the account has no LP tokens to burn. To properly
+    // exercise withdraw logic, read the LP balance first (like execute_swap/execute_deposit do).
     let amount_to_withdraw = ((pool.decimals as u32 - 2) as f64 * amount_fraction * 100.0) as u64;
     let amount_to_withdraw = amount_to_withdraw.max(1) * 10u64.pow(pool.decimals as u32 - 2);
 
