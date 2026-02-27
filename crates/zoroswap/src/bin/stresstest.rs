@@ -1138,7 +1138,6 @@ async fn create_funded_accounts_via_server(
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
-        // .with_env_filter("info,zoroswap=debug,zoro_miden_client=debug")
         .init();
     dotenv::dotenv().ok();
 
