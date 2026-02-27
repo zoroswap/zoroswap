@@ -17,6 +17,7 @@ use miden_client::{
     },
 };
 use miden_client_sqlite_store::ClientBuilderSqliteExt;
+use miden_protocol::account::StorageSlotName;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use std::{collections::HashSet, fmt, sync::Arc, thread, time::{Duration, Instant}};
 use tempfile::TempDir;
@@ -371,18 +372,43 @@ async fn execute_withdraw(
     client: &mut MidenClient,
     account_id: AccountId,
     pools: &[LiquidityPoolConfig],
+    pool_account_id: AccountId,
     server_url: &str,
     pool_idx: usize,
     amount_fraction: f64,
 ) -> Result<StressOutcome> {
     let pool = &pools[pool_idx];
 
-    // TODO: This computes a fixed amount from the pool's decimal count rather than
-    // reading the account's actual LP token balance. Most withdrawals will fail as
-    // expected-failures because the account has no LP tokens to burn. To properly
-    // exercise withdraw logic, read the LP balance first (like execute_swap/execute_deposit do).
-    let amount_to_withdraw = ((pool.decimals as u32 - 2) as f64 * amount_fraction * 100.0) as u64;
-    let amount_to_withdraw = amount_to_withdraw.max(1) * 10u64.pow(pool.decimals as u32 - 2);
+    // Read the user's LP shares from the pool account's storage map.
+    // The key mirrors the MASM `get_user_deposit_key` proc which produces
+    // [faucet_prefix, faucet_suffix, user_id_suffix, user_id_prefix] on the
+    // stack, corresponding to Word [user_id_prefix, user_id_suffix, faucet_suffix, faucet_prefix].
+    let pool_record = client
+        .get_account(pool_account_id)
+        .await?
+        .ok_or(anyhow!("Pool account not found"))?;
+    let lp_balance = match pool_record.account_data() {
+        miden_client::store::AccountRecordData::Full(a) => {
+            let user_lp_key: Word = [
+                account_id.prefix().as_felt(),
+                account_id.suffix(),
+                pool.faucet_id.suffix(),
+                pool.faucet_id.prefix().as_felt(),
+            ].into();
+            let slot = StorageSlotName::new("zoroswap::user_deposits")
+                .expect("valid slot name");
+            a.storage().get_map_item(&slot, user_lp_key)?[0].as_int()
+        }
+        _ => return Err(anyhow!("Partial pool account data")),
+    };
+    if lp_balance == 0 {
+        return Ok(StressOutcome::ExpectedFailure("No LP shares to withdraw".into()));
+    }
+
+    let amount_to_withdraw = ((lp_balance as f64) * amount_fraction) as u64;
+    if amount_to_withdraw == 0 {
+        return Ok(StressOutcome::ExpectedFailure("Computed withdraw amount is 0".into()));
+    }
 
     let max_slippage = 0.05;
     let min_asset_amount_out = ((amount_to_withdraw as f64) * (1.0 - max_slippage)) as u64;
@@ -595,7 +621,7 @@ async fn execute_op(
                 *pool_idx, *amount_fraction).await
         }
         StressOp::Withdraw { pool_idx, amount_fraction } => {
-            execute_withdraw(client, account_id, pools, server_url,
+            execute_withdraw(client, account_id, pools, pool_account_id, server_url,
                 *pool_idx, *amount_fraction).await
         }
         StressOp::Malformed { variant, pool_idx } => {
