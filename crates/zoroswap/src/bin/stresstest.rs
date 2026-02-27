@@ -902,7 +902,7 @@ async fn create_funded_accounts_via_server(
     // via an MPSC channel and returns `{"success": true}` immediately. The actual
     // minting (prove + submit + block commitment) happens asynchronously on the
     // server and typically takes 15-40s per pool on testnet.
-    let phase3_timeout = Duration::from_secs(180);
+    let phase3_timeout = Duration::from_secs(360);
     println!("[SETUP] Funder consuming {num_pools} minted notes (timeout: {}s)...",
         phase3_timeout.as_secs());
     {
