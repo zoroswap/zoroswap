@@ -109,7 +109,7 @@ impl TradingEngine {
         // Create client with retry for DB contention
         let mut client = None;
         for attempt in 1..=5 {
-            match instantiate_client(self.state.config(), &self.store_path).await {
+            match instantiate_client(self.state.config(), &self.store_path, None).await {
                 Ok(c) => {
                     client = Some(c);
                     break;

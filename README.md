@@ -17,6 +17,7 @@ You can find our testnet deployment here: [https://zoroswap.com](https://zoroswa
 
 - [Curve Setup](#curve-setup)
 - [ZoroSwap Setup](#setup)
+- [Stress Testing](#stress-testing)
 
 ## Curve Setup
 
@@ -131,3 +132,62 @@ cargo test --release e2e_private_note -- --exact --nocapture
 3. Create a `ZOROSWAP` note requesting a swap of minted assets in line with current oracle prices and send it as a public note to testnet or via endpoint.
 4. Server should pick up the emitted note, consume it and execute against the pool we created earlier and emit a new `P2ID` targeted at the user with swapped assets.
 5. Consume the `P2ID` emitted by the server concluding the test.
+
+## Stress Testing
+
+The `stresstest` binary creates funded accounts, then dispatches randomized
+swaps, deposits, withdrawals, and malformed notes against a running ZoroSwap 
+server using a pool of concurrent worker threads.
+
+Each operation picks a random fraction (1–50%) of the account's balance.
+Operations are selected uniformly at random (25% each):
+
+| Operation | Description |
+|-----------|-------------|
+| **Swap** | Swap tokens from one pool to another (5% max slippage) |
+| **Deposit** | Deposit tokens into a liquidity pool and receive LP tokens |
+| **Withdraw** | Burn LP tokens and withdraw underlying assets from a pool |
+| **Malformed** | Intentionally invalid operation (zero amount, expired deadline, or garbage inputs) to test error handling |
+
+
+```sh
+# Basic run (3 accounts, 10k ops, single prover)
+cargo run --release --bin stresstest -- --remote-prover https://tx-prover.testnet.miden.io
+
+# Multiple provers (comma-separated) — workers are assigned round-robin
+cargo run --release --bin stresstest -- \
+    --accounts 6 \
+    --total-ops 50000 \
+    --remote-prover https://tx-prover.testnet.miden.io,http://localhost:50051
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--accounts` | 3 | Number of funded accounts (one worker per account) |
+| `--total-ops` | 10000 | Total number of operations to dispatch |
+| `--config` | `config.toml` | Path to config file |
+| `--remote-prover` | *(required)* | One or more remote prover endpoint URLs (comma-separated) |
+
+### Endpoints
+
+You can run the stresstests against a local Miden node or a remote one.
+The `stresstest` binary adheres to the endpoints specified in the `.env` file.
+
+If you run it locally, you need a running Miden node, deployed faucets/pool, 
+and a running `server` binary (same as for the E2E tests above).
+
+### Scaling throughput with multiple provers
+
+This is important: ZK proof generation is typically the main bottleneck. 
+Each worker blocks on the remote prover while a transaction is being proved, so
+throughput is limited by prover capacity! 
+
+_If your stresstest fires 10,000 operations through one prover, you're 
+measuring the prover's queue, not your application!_
+
+You can run additional prover instances and pass all their URLs comma-spearated 
+via `--remote-prover`. Workers are assigned to provers round-robin, distributing 
+the proving load across machines.
+
+To run your own prover instance see the
+[Miden remote prover](https://github.com/0xMiden/node/tree/main/bin/remote-prover).

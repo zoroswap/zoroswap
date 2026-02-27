@@ -48,6 +48,9 @@ jobs:
       - name: Run tests
         run: cargo test --package zoroswap --lib
 
+      - name: Check stresstest binary compiles
+        run: cargo check --bin stresstest
+
   e2e-tests:
     name: Run E2E Tests
     runs-on: ubuntu-latest

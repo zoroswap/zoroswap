@@ -8,7 +8,9 @@ use miden_client::{
     sync::StateSync,
 };
 use miden_client::{
-    DebugMode, builder::ClientBuilder, keystore::FilesystemKeyStore, rpc::GrpcClient,
+    DebugMode, RemoteTransactionProver,
+    builder::ClientBuilder, keystore::FilesystemKeyStore, rpc::GrpcClient,
+    transaction::TransactionProver,
 };
 use miden_client_sqlite_store::{ClientBuilderSqliteExt, SqliteStore};
 use miden_protocol::transaction::TransactionKernel;
@@ -79,6 +81,7 @@ pub fn enable_wal_mode(store_path: &str) -> Result<()> {
 pub async fn instantiate_client(
     config: Config,
     store_path: &str,
+    remote_prover_url: Option<String>,
 ) -> Result<MidenClient, ClientError> {
     info!("Creating a new Miden Client");
     info!("Keystore path: {}", config.keystore_path);
@@ -93,13 +96,18 @@ pub async fn instantiate_client(
             )
         })
         .into();
-    let mut client = ClientBuilder::new()
+    let mut builder = ClientBuilder::new()
         .rpc(rpc_api.clone())
         .authenticator(keystore)
         .sqlite_store(store_path.into())
-        .in_debug_mode(DebugMode::Enabled)
-        .build()
-        .await?;
+        // TODO: remove debug mode before production
+        .in_debug_mode(DebugMode::Enabled);
+    if let Some(url) = &remote_prover_url {
+        let prover: Arc<dyn TransactionProver + Send + Sync> =
+            Arc::new(RemoteTransactionProver::new(url));
+        builder = builder.prover(prover);
+    }
+    let mut client = builder.build().await?;
     // Sync first so the client knows the latest block height before importing accounts.
     // Without this, import_account_by_id may fail because the client is at block 0.
     client.sync_state().await?;
@@ -137,6 +145,7 @@ pub async fn instantiate_faucet_client(
         .rpc(rpc_client.clone())
         .authenticator(keystore.clone())
         .sqlite_store(store_path.into())
+        // TODO: remove debug mode before production
         .in_debug_mode(DebugMode::Enabled)
         .build()
         .await?;
