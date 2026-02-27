@@ -182,8 +182,8 @@ This is important: ZK proof generation is typically the main bottleneck.
 Each worker blocks on the remote prover while a transaction is being proved, so
 throughput is limited by prover capacity! 
 
-If your stresstest fires 10,000 operations through one prover, you're 
-measuring the prover's queue, not your application!
+_If your stresstest fires 10,000 operations through one prover, you're 
+measuring the prover's queue, not your application!_
 
 You can run additional prover instances and pass all their URLs comma-spearated 
 via `--remote-prover`. Workers are assigned to provers round-robin, distributing 
