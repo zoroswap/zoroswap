@@ -746,6 +746,7 @@ where
         .with_min_delay(Duration::from_secs(1))
         .with_max_delay(Duration::from_secs(60))
         .with_factor(2.0)
+        .with_max_times(10)
         .build();
 
     loop {
