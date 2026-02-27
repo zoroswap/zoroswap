@@ -210,6 +210,7 @@ fn generate_single_op(rng: &mut StdRng, num_pools: usize) -> StressOp {
     }
 }
 
+/// Execute a token swap between two pools for a given account.
 async fn execute_swap(
     client: &mut MidenClient,
     account_id: AccountId,
@@ -292,6 +293,7 @@ async fn execute_swap(
     Ok(StressOutcome::Success)
 }
 
+/// Deposit tokens into a pool and receive LP tokens in return.
 async fn execute_deposit(
     client: &mut MidenClient,
     account_id: AccountId,
@@ -364,6 +366,7 @@ async fn execute_deposit(
     Ok(StressOutcome::Success)
 }
 
+/// Burn LP tokens and withdraw the underlying assets from a pool.
 async fn execute_withdraw(
     client: &mut MidenClient,
     account_id: AccountId,
@@ -430,6 +433,7 @@ async fn execute_withdraw(
     Ok(StressOutcome::Success)
 }
 
+/// Submit an intentionally invalid operation to verify the system rejects it.
 async fn execute_malformed(
     client: &mut MidenClient,
     account_id: AccountId,
@@ -567,6 +571,7 @@ async fn execute_malformed(
     ))
 }
 
+/// Dispatch a single stress operation and classify the outcome.
 async fn execute_op(
     client: &mut MidenClient,
     account_id: AccountId,
@@ -612,6 +617,7 @@ async fn execute_op(
     }
 }
 
+/// Build a [`MidenClient`] for a single worker with its own SQLite store and prover.
 async fn create_worker_client(
     config: &Config,
     store_path: &str,
@@ -651,6 +657,7 @@ async fn create_worker_client(
     Ok(client)
 }
 
+/// Spawn a worker thread that pulls operations from a channel and executes them.
 fn run_worker(
     worker_id: usize,
     config: Config,
