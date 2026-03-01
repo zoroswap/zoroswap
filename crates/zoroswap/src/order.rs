@@ -54,14 +54,13 @@ impl Order {
             return Err(anyhow!("Note has no fungible assets!"));
         }
         let asset_in = asset_in.unwrap_fungible();
-        let note_inputs: &[Felt] = note.inputs().values();
-        debug!(note_inputs = ?note_inputs, "Parsing swap note");
-        let requested: &[Felt] = note_inputs
+        let vals: &[Felt] = note.inputs().values();
+        debug!(note_inputs = ?vals, "Parsing swap note");
+        let requested: &[Felt] = vals
             .get(..4)
             .ok_or(anyhow!("note has fewer than 4 inputs"))?;
         let requested_asset_out_id = AccountId::try_from([requested[3], requested[2]])?;
         let asset_out = FungibleAsset::new(requested_asset_out_id, requested[0].as_int())?;
-        let vals = note.inputs().values();
         let deadline: u64 = vals[4].into();
         let p2id_tag: u64 = vals[5].into();
         let deadline = DateTime::from_timestamp_millis(deadline as i64).ok_or(anyhow!(
@@ -125,9 +124,8 @@ impl Order {
         if !asset_in.is_fungible() {
             return Err(anyhow!("Note has no fungible assets!"));
         }
-        let note_inputs: &[Felt] = note.inputs().values();
-        debug!(note_inputs = ?note_inputs, "Parsing deposit note");
-        let vals = note.inputs().values();
+        let vals: &[Felt] = note.inputs().values();
+        debug!(note_inputs = ?vals, "Parsing deposit note");
         let asset_in = asset_in.unwrap_fungible();
         let min_lp_out: u64 = vals[0].into();
         let asset_out = FungibleAsset::new(asset_in.faucet_id(), min_lp_out)?;
@@ -170,10 +168,8 @@ impl Order {
     }
 
     pub fn from_withdraw_note(note: &Note) -> Result<Order> {
-        let note_inputs: &[Felt] = note.inputs().values();
-        debug!(note_inputs = ?note_inputs, "Parsing withdraw note");
-
-        let vals = note.inputs().values();
+        let vals: &[Felt] = note.inputs().values();
+        debug!(note_inputs = ?vals, "Parsing withdraw note");
         let lp_withdraw_amount: u64 = vals[5].into();
 
         let requested_asset_out_id = AccountId::try_from([vals[3], vals[2]])?;

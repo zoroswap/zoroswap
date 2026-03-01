@@ -20,6 +20,34 @@ env:
   MIDEN_NODE_VERSION:  v0.13.4
 
 jobs:
+  tests:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - name: Cache Rust/Cargo projects and dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-all-crates: true
+          cache-directories: true
+          cache-on-failure: true
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Create dummy zoro-curve crate
+        run: cargo new --name zoro_curve ../zoro-curve
+
+      - name: Run tests
+        run: cargo test --package zoroswap --lib
+
   e2e-tests:
     name: Run E2E Tests
     runs-on: ubuntu-latest

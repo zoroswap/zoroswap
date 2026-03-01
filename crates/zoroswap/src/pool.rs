@@ -273,7 +273,7 @@ pub fn create_set_pool_state_tx(
 
 /// Constants for fee calculations
 const FEE_PRECISION: U256 = U256::from_limbs([1_000_000, 0, 0, 0]); // 10^6
-const _PRICE_SCALING_FACTOR: i128 = 1e12 as i128;
+const PRICE_SCALING_FACTOR: i128 = 1e12 as i128;
 
 /// Calculates the amount out for a swap.
 ///
@@ -312,7 +312,7 @@ pub fn get_curve_amount_out(
     price: U256,
 ) -> Result<(U256, PoolBalances, PoolBalances)> {
     // log::info!("base pool: {base_pool:?}\nquote_pool: {quote_pool:?}");
-    let price_scaling_factor = U256::from(_PRICE_SCALING_FACTOR);
+    let price_scaling_factor = U256::from(PRICE_SCALING_FACTOR);
     let fee = quote_pool.settings.backstop_fee + quote_pool.settings.protocol_fee;
     let lp_fee = quote_pool.settings.swap_fee;
     // Initialize curves by direction
@@ -581,9 +581,11 @@ pub fn get_withdraw_asset_amount_out(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "zoro-curve-local")]
     use alloy::primitives::utils::parse_ether;
 
     #[test]
+    #[cfg(feature = "zoro-curve-local")]
     fn test_get_curve_amount_out_basic() {
         let base_pool = PoolState {
             settings: PoolSettings {
@@ -620,6 +622,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "zoro-curve-local")]
     fn test_get_curve_amount_out_zero_input() {
         let base_pool = PoolState {
             settings: PoolSettings {
@@ -655,7 +658,7 @@ mod tests {
 
     #[test]
     fn test_constants() {
-        assert_eq!(FEE_PRECISION, U256::from(1_000_000_000_000_000_000u64));
-        assert_eq!(_PRICE_SCALING_FACTOR, 1_000_000_000_000_000_000i128);
+        assert_eq!(FEE_PRECISION, U256::from(1_000_000u64));
+        assert_eq!(PRICE_SCALING_FACTOR, 1_000_000_000_000i128);
     }
 }
