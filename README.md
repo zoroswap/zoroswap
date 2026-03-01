@@ -16,7 +16,8 @@ You can find our testnet deployment here: [https://zoroswap.com](https://zoroswa
 ## Table of Contents
 
 - [Curve Setup](#curve-setup)
-- [ZoroSwap Setup](#setup)
+- [ZoroSwap Setup](#zoroswap-setup)
+- [End-to-End Tests](#end-to-end-tests)
 
 ## Curve Setup
 
@@ -74,7 +75,7 @@ cargo install --features zoro-curve-local
 
 Make sure you have followed the above instructions for setting up the curve!
 
-### 1. Copy environment and app configs
+### Copy environment and app configs
 
 ```sh
 cp .env-example .env
@@ -82,7 +83,11 @@ cp config-example.toml config.toml
 cp faucets-example.toml faucets.toml
 ```
 
-### 2. Spawn faucets
+You can now execute `/bin/bash run-local-setup.sh` or follow the steps 1-3 below.
+The script conducts the steps below, but with the `--features zoro-curve-local`
+flag for the server.
+
+### 1. Spawn faucets
 
 ```sh
 cargo run --release --bin spawn_faucets
@@ -90,7 +95,7 @@ cargo run --release --bin spawn_faucets
 
 It create faucets defined in `faucets.toml` and print out their faucet ids. Put them in corresponding entries `faucet_id` under `[[liquidity_pools]]` section in `config.toml` file.
 
-### 3. Spawn pool
+### 2. Spawn pool
 
 ```sh
 cargo run --release --bin spawn_pools
@@ -98,7 +103,7 @@ cargo run --release --bin spawn_pools
 
 It will print out pool id (at the end of program output). Put it into corresponding entry `pool_account_id` section in `config.toml` file.
 
-### 4. Run the server
+### 3. Run the server
 
 ```sh
 cargo run --release --bin server
