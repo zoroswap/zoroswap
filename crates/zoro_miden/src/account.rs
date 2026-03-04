@@ -13,13 +13,13 @@ use miden_client::{
     keystore::FilesystemKeyStore,
     note::{NoteRecipient, NoteTag, build_p2id_recipient},
     rpc::{Endpoint, GrpcClient, NodeRpcClient},
-    store::AccountRecordData,
 };
 use rand::RngCore;
 use tracing::{debug, warn};
 
 use crate::client::MidenClient;
 
+#[derive(Debug, Clone)]
 pub struct MidenAccount {
     id: AccountId,
     account: Option<Account>,
@@ -87,6 +87,10 @@ impl MidenAccount {
         &self.id
     }
 
+    pub fn set_account(&mut self, account: Account) {
+        self.account = Some(account)
+    }
+
     pub async fn account(&mut self) -> Result<Account> {
         // TODO: find out if this can be avoided, if we can somehow sync just what we need, not downaload it over and over again
         match self.refetch_account().await {
@@ -99,25 +103,6 @@ impl MidenAccount {
                 ))
             }
         }
-    }
-
-    pub async fn full(&self, miden_client: &mut MidenClient) -> Result<AccountId> {
-        let acc = miden_client
-            .client()
-            .get_account(*self.id())
-            .await?
-            .ok_or(anyhow!(
-                "Account {} not found in local store",
-                self.id().to_hex()
-            ))?;
-        let acc = match acc.account_data() {
-            AccountRecordData::Full(a) => Ok(a),
-            _ => Err(anyhow!(
-                "Expected full account data for {}",
-                self.id().to_hex()
-            )),
-        }?;
-        Ok(acc.id())
     }
 
     pub fn tag(&self) -> NoteTag {

@@ -18,13 +18,17 @@ use notes_listener::NotesListener;
 use oracle_sse::OracleSSEClient;
 use server::{AppState, create_router};
 use sqlite::enable_wal_mode;
-use std::{sync::Arc, thread};
+use std::{
+    sync::Arc,
+    thread::{self, sleep_ms},
+    time::Duration,
+};
 use tokio::{runtime::Builder, sync::mpsc::Sender};
 use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
 use trading_engine::TradingEngine;
 use websocket::{ConnectionManager, EventBroadcaster};
-use zoro_miden::client::delete_client_store;
+use zoro_miden::client::{MidenClient, delete_client_store};
 
 #[derive(Parser, Debug)]
 #[command(name = "zoro-server")]
@@ -63,9 +67,9 @@ fn main() {
         delete_client_store(&args.store_path).await;
         // Enable WAL mode for better concurrent database access
         // This must be done before any clients are created
-        if let Err(e) = enable_wal_mode(&args.store_path) {
-            warn!("Failed to enable WAL mode: {e}");
-        }
+        // if let Err(e) = enable_wal_mode(&args.store_path) {
+        //     warn!("Failed to enable WAL mode: {e}");
+        // }
 
         let config = Config::from_config_file(
             &args.config,
@@ -156,7 +160,7 @@ fn main() {
                         }
                     });
                 });
-
+                std::thread::sleep(Duration::from_millis(1000));
                 s.spawn(move || {
                     let rt = Builder::new_current_thread()
                         .enable_all()
@@ -172,7 +176,7 @@ fn main() {
                         }
                     });
                 });
-
+                std::thread::sleep(Duration::from_millis(2000));
                 s.spawn(move || {
                     let rt = Builder::new_current_thread()
                         .enable_all()

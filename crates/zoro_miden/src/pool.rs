@@ -18,6 +18,7 @@ use miden_client::{
     keystore::FilesystemKeyStore,
     note::{Note, NoteDetails, NoteId, NoteRecipient, NoteTag},
     rpc::Endpoint,
+    store::AccountRecordData,
     transaction::{TransactionKernel, TransactionRequestBuilder},
     vm::AdviceMap,
 };
@@ -219,7 +220,33 @@ impl ZoroPool {
     }
 
     pub async fn update_pool_state_from_chain(&mut self) -> Result<()> {
-        let acc = self.miden_account.account().await?;
+        let id = *self.miden_account.id();
+        dbg!(&self.miden_account);
+        if self.miden_client.client().get_account(id).await.is_err() {
+            self.miden_client
+                .import_account(&id)
+                .await
+                .map_err(|e| anyhow!("Error on account update from client: {e}"))?;
+            self.miden_client.sync_state().await?;
+        }
+        println!("1");
+        let record = self
+            .miden_client
+            .client()
+            .get_account(id)
+            .await
+            .map_err(|e| any)?;
+        println!("2");
+        let acc = match record.account_data() {
+            AccountRecordData::Full(a) => Ok(a),
+            _ => Err(anyhow!(
+                "Expected full account data for {}",
+                self.miden_account.id().to_hex()
+            )),
+        }?
+        .clone();
+        self.miden_account.set_account(acc.clone());
+
         for pool in self.liquidity_pools.iter() {
             let (settings, balances, lp_total_supply) =
                 Self::extract_liqudity_pool_state_from_account(&acc, pool.faucet_id).await?;

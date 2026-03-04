@@ -19,7 +19,7 @@ async fn e2e_private_deposit_withdraw_test() -> Result<()> {
     let E2ETestSetup {
         config,
         client: mut miden_client,
-        keystore,
+        keystore: _,
         mut zoro_pool,
         prices: _,
     } = E2ETestSetup::new(store_path).await?;
@@ -49,7 +49,8 @@ async fn e2e_private_deposit_withdraw_test() -> Result<()> {
         creator: *account.id(),
         note_type: NoteType::Private,
         deadline: Utc::now().timestamp_millis() as u64 + 120_000,
-        p2id_tag: NoteTag::with_account_target(*account.id()).as_u32() as u64,
+        p2id_tag: NoteTag::with_account_target(*account.id()),
+        pool_tag: NoteTag::with_account_target(config.pool_account_id),
     }))?;
 
     let note_req = TransactionRequestBuilder::new()
@@ -99,7 +100,8 @@ async fn e2e_private_deposit_withdraw_test() -> Result<()> {
         min_amount_out: min_asset_amount_out,
         creator: *account.id(),
         note_type: NoteType::Private,
-        p2id_tag: NoteTag::with_account_target(*account.id()).as_u32() as u64,
+        p2id_tag: NoteTag::with_account_target(*account.id()),
+        pool_tag: NoteTag::with_account_target(config.pool_account_id),
         deadline: Utc::now().timestamp_millis() as u64 + 120_000,
     }))?;
 

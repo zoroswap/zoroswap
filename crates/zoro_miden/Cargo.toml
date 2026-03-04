@@ -9,13 +9,12 @@ alloy = { workspace = true }
 anyhow = "1.0"
 base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
-miden-assembly = "0.20"
-miden-client = { version = "0.13.1", features = ["testing", "tonic"] }
-miden-client-sqlite-store = { version = "0.13.1" }
-miden-protocol = { version = "0.13", default-features = false, features = [
-  "testing"
-] }
-miden-standards = { version = "0.13", default-features = false }
+miden-assembly = { workspace = true }
+miden-client = { workspace = true }
+miden-protocol = { workspace = true }
+miden-standards = { workspace = true }
+miden-tx = { workspace = true }
+miden-client-sqlite-store = { workspace = true }
 rand = { version = "0.9" }
 serde = { version = "1", features = ["derive"] }
 tokio = { version = "1.46", features = ["fs", "macros", "rt-multi-thread"] }
