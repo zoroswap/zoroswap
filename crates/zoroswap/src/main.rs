@@ -160,7 +160,7 @@ fn main() {
                         }
                     });
                 });
-                std::thread::sleep(Duration::from_millis(1000));
+                std::thread::sleep(Duration::from_millis(100));
                 s.spawn(move || {
                     let rt = Builder::new_current_thread()
                         .enable_all()
@@ -176,7 +176,7 @@ fn main() {
                         }
                     });
                 });
-                std::thread::sleep(Duration::from_millis(2000));
+                std::thread::sleep(Duration::from_millis(100));
                 s.spawn(move || {
                     let rt = Builder::new_current_thread()
                         .enable_all()

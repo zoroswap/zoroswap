@@ -39,6 +39,7 @@ impl MidenClient {
         info!(
             keystore_path = keystore_path,
             store_path = store_path,
+            endpoint = ?endpoint,
             "Creating a new Miden Client"
         );
         let timeout_ms = 30_000;
@@ -80,6 +81,8 @@ impl MidenClient {
     pub async fn import_account(&mut self, account_id: &AccountId) -> Result<()> {
         if let Err(e) = self.client.import_account_by_id(*account_id).await {
             warn!("Error importing an account into client {e:?}");
+        } else {
+            self.client.sync_state().await?;
         }
         Ok(())
     }
@@ -118,7 +121,6 @@ impl MidenClient {
             // Apply received and computed updates to the store
             self.client.apply_state_sync(state_sync_update).await?;
         } else {
-            // Notmal sync
             self.client.sync_state().await?;
         }
         Ok(())
@@ -248,6 +250,11 @@ impl MidenClient {
         account_id: AccountId,
         amount: u64,
     ) -> Result<String> {
+        info!(
+            "Minting asset {} for account: {}",
+            faucet_id.to_bech32(self.endpoint.to_network_id()),
+            account_id.to_bech32(self.endpoint.to_network_id())
+        );
         self.sync_state().await?;
         self.client.import_account_by_id(faucet_id).await?;
         let fungible_asset = FungibleAsset::new(faucet_id, amount)?;
@@ -271,6 +278,11 @@ impl MidenClient {
         account_id: &AccountId,
         n_notes: usize,
     ) -> Result<String> {
+        info!(
+            "Consuming simple {} notes for account {}",
+            n_notes,
+            account_id.to_bech32(self.endpoint.to_network_id())
+        );
         let notes = self.wait_for_notes(account_id, n_notes).await?;
         let transaction_request = TransactionRequestBuilder::new().build_consume_notes(notes)?;
         let tx_id = self

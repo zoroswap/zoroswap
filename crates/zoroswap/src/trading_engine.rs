@@ -67,7 +67,9 @@ impl TradingEngine {
                 .clone()
                 .into_iter()
                 .collect::<HashMap<_, _>>();
-            if let Ok(results) = zoro_pool.execute_notes(notes, prices).await {
+            if !notes.is_empty()
+                && let Ok(results) = zoro_pool.execute_notes(notes, prices).await
+            {
                 for (note_id, result) in &results {
                     let order_id = self.state.get_order_id(note_id).unwrap_or_default();
                     let _ = self.broadcaster.broadcast_order_update(OrderUpdateEvent {

@@ -2,6 +2,8 @@ use std::{
     collections::HashMap,
     path::{Path, PathBuf},
     str::FromStr,
+    thread::sleep,
+    time::Duration,
 };
 
 use alloy::primitives::{I256, U256};
@@ -23,7 +25,7 @@ use miden_client::{
     vm::AdviceMap,
 };
 use rand::RngCore;
-use tracing::{debug, error};
+use tracing::{debug, error, info};
 
 use crate::{
     account::MidenAccount,
@@ -62,6 +64,10 @@ impl ZoroPool {
         pool_account_id: &AccountId,
         liquidity_pools: Vec<LiquidityPoolConfig>,
     ) -> Result<Self> {
+        info!(
+            "Creating new ZORO pool from account: {}",
+            pool_account_id.to_bech32(endpoint.to_network_id())
+        );
         let miden_account = MidenAccount::new(*pool_account_id, None);
         let miden_client = MidenClient::new(endpoint, keystore_path, store_path, None).await?;
         let mut zoro_pool = Self {
@@ -221,21 +227,17 @@ impl ZoroPool {
 
     pub async fn update_pool_state_from_chain(&mut self) -> Result<()> {
         let id = *self.miden_account.id();
-        dbg!(&self.miden_account);
-        if self.miden_client.client().get_account(id).await.is_err() {
-            self.miden_client
-                .import_account(&id)
-                .await
-                .map_err(|e| anyhow!("Error on account update from client: {e}"))?;
-            self.miden_client.sync_state().await?;
-        }
-        println!("1");
+        self.miden_client
+            .import_account(&id)
+            .await
+            .map_err(|e| anyhow!("Error on account update from client: {e}"))?;
         let record = self
             .miden_client
-            .client()
+            .client_mut()
             .get_account(id)
             .await
-            .map_err(|e| any)?;
+            .map_err(|e| anyhow!("Account {id} not found in client: {e:?}"))?
+            .ok_or(anyhow!("Account {id} not found in client"))?;
         println!("2");
         let acc = match record.account_data() {
             AccountRecordData::Full(a) => Ok(a),
@@ -246,7 +248,6 @@ impl ZoroPool {
         }?
         .clone();
         self.miden_account.set_account(acc.clone());
-
         for pool in self.liquidity_pools.iter() {
             let (settings, balances, lp_total_supply) =
                 Self::extract_liqudity_pool_state_from_account(&acc, pool.faucet_id).await?;
@@ -325,9 +326,8 @@ impl ZoroPool {
         notes: Vec<TrustedNote>,
         prices: HashMap<AccountId, PriceData>,
     ) -> Result<Vec<(NoteId, ExecutionResult)>> {
-        debug!("Executing notes");
+        info!("Executing {} notes agains pool", notes.len());
         self.miden_client.sync_state().await?;
-        debug!("Pool client synced");
         let mut advice_map = AdviceMap::default();
         let mut input_notes = Vec::with_capacity(notes.len());
         let mut expected_future_notes = Vec::with_capacity(notes.len());
