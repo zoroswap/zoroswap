@@ -640,8 +640,13 @@ impl TradingEngine {
         let proven_tx = client.prove_transaction(&tx_inputs).await?;
         // Serialize the proof to whatever file
         let proof_bytes = proven_tx.to_bytes();
-        tokio::fs::write("proof2.bin", proof_bytes).await?;
-        tokio::fs::write("proof2_inputs.bin", tx_inputs.to_bytes()).await?;
+        let timestmap = Utc::now().timestamp_millis();
+        tokio::fs::write(format!("proof_{timestamp}.bin"), proof_bytes).await?;
+        tokio::fs::write(
+            format!("proof_{timestamp}_inputs.bin"),
+            tx_inputs.to_bytes(),
+        )
+        .await?;
 
         info!("Submitted TX: {:?}", proven_tx.id());
 
