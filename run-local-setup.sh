@@ -1,7 +1,16 @@
 #!/usr/bin/env bash
+
+# This script runs through the steps in the readme to
+# spawn faucets and pools, update the local config.toml
+# with the ids and then runs the server.
+#
+# The script starts the server with opinionated log levels
+# and a local proprietary curve. Just remove the 
+# ` --features zoro-curve-local` if you want to use the 
+# dummy curve.
+
 set -euo pipefail
 
-export MIDEN_NODE_ENDPOINT=localhost
 export RUST_LOG=debug,tower=warn,h2=warn,miden_client=warn
 
 # Updates faucet_id in the [[liquidity_pools]] block matching the given symbol.

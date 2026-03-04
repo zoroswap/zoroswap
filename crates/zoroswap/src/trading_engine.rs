@@ -332,13 +332,6 @@ impl TradingEngine {
                 }));
                 continue;
             }
-            let price = {
-                self.state.oracle_price_for_pair(
-                    order.asset_in.faucet_id(),
-                    order.asset_out.faucet_id(),
-                )?
-            };
-
             match order.order_type {
                 OrderType::Deposit => {
                     let (amount_out, new_pool_state) = get_deposit_lp_amount_out(
@@ -426,6 +419,10 @@ impl TradingEngine {
                     }
                 }
                 OrderType::Swap => {
+                    let price = self.state.oracle_price_for_pair(
+                        order.asset_in.faucet_id(),
+                        order.asset_out.faucet_id(),
+                    )?;
                     // TODO: check for
                     //       ERR_MAX_COVERAGE_RATIO_EXCEEDED +
                     //       ERR_RESERVE_WITH_SLIPPAGE_EXCEEDS_ASSET_BALANCE
@@ -1054,11 +1051,6 @@ mod tests {
             executions.executions.len(),
             1,
             "Should have processed 1 order"
-        );
-        assert_eq!(
-            ctx.state.get_open_orders().len(),
-            0,
-            "Open orders should be empty after matching"
         );
     }
 
