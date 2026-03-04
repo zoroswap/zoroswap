@@ -4,64 +4,6 @@ version = "0.4.1"
 edition = "2024"
 license = "GPL-3.0-only"
 
-[dependencies]
-zoro_primitives = { path = "../zoro_primitives", default-features = false }
-zoro_miden_client = { path = "../zoro_miden_client" }
-miden-client = { version = "0.13.2", features = ["testing", "tonic"] }
-miden-client-sqlite-store = { version = "0.13.1" }
-miden-standards = { version = "0.13", default-features = false }
-miden-protocol = { version = "0.13", default-features = false, features = [
-  "testing",
-] }
-miden-assembly = "0.20"
-miden-tx = "0.13"
-rand = { version = "0.9" }
-serde = { version = "1", features = ["derive"] }
-serde_json = { version = "1.0", features = ["raw_value"] }
-tokio = { version = "1.46", features = [
-  "rt-multi-thread",
-  "net",
-  "macros",
-  "fs",
-  "sync",
-] }
-tokio-stream = "0.1"
-
-# Web server dependencies
-axum = { version = "0.8.4", features = ["macros", "tokio", "ws"] }
-tower = "0.5.2"
-tower-http = { version = "0.6.6", features = ["cors", "fs"] }
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-chrono = { version = "0.4", features = ["serde"] }
-uuid = { version = "1.0", features = ["v4", "serde"] }
-
-# HTTP client for price fetching
-reqwest = { version = "0.12", features = ["json"] }
-
-# Additional utilities
-anyhow = "1.0"
-base64 = "0.22"
-dotenv = "0.15"
-dashmap = "6.1.0"
-rusqlite = "0.36"
-alloy = { workspace = true }
-url = "2.5.4"
-toml = "0.9.4"
-reqwest-eventsource = "0.6.0"
-futures-util = "0.3.31"
-clap = { version = "4.5", features = ["derive"] }
-
-# Proprietary curve usage
-#
-# The feature `local-curve` makes `zoro` use the `zoro-curve`
-# folder relative to this directory.
-zoro_curve_local = { package = "zoro_curve", path = "../../../zoro-curve", optional = true }
-
-[features]
-default = ["zoro_primitives/dummy-curve"]
-zoro-curve-local = ["dep:zoro_curve_local"]
-
 [[bin]]
 name = "server"
 path = "src/main.rs"
@@ -73,3 +15,57 @@ path = "src/bin/spawn_faucets.rs"
 [[bin]]
 name = "spawn_pools"
 path = "src/bin/spawn_pools.rs"
+
+[dependencies]
+alloy = { workspace = true }
+# Additional utilities
+anyhow = "1.0"
+# Web server dependencies
+axum = { version = "0.8.4", features = ["macros", "tokio", "ws"] }
+base64 = "0.22"
+chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4.5", features = ["derive"] }
+dashmap = "6.1.0"
+dotenv = "0.15"
+futures-util = "0.3.31"
+miden-assembly = "0.20"
+miden-client = { version = "0.13.2", features = ["testing", "tonic"] }
+miden-client-sqlite-store = { version = "0.13.2" }
+miden-protocol = { version = "0.13", default-features = false, features = [
+  "testing",
+] }
+miden-standards = { version = "0.13", default-features = false }
+miden-tx = "0.13"
+rand = { version = "0.9" }
+# HTTP client for price fetching
+reqwest = { version = "0.12", features = ["json"] }
+reqwest-eventsource = "0.6.0"
+rusqlite = "0.36"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1.0", features = ["raw_value"] }
+tokio = { version = "1.46", features = [
+  "fs",
+  "macros",
+  "net",
+  "rt-multi-thread",
+  "sync",
+] }
+tokio-stream = "0.1"
+toml = "0.9.4"
+tower = "0.5.2"
+tower-http = { version = "0.6.6", features = ["cors", "fs"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+url = "2.5.4"
+uuid = { version = "1.0", features = ["serde", "v4"] }
+# Proprietary curve usage
+#
+# The feature `local-curve` makes `zoro` use the `zoro-curve`
+# folder relative to this directory.
+zoro_curve_local = { package = "zoro_curve", path = "../../../zoro-curve", optional = true }
+zoro_miden_client = { path = "../zoro_miden_client" }
+zoro_primitives = { path = "../zoro_primitives", default-features = false }
+
+[features]
+default = ["zoro_primitives/dummy-curve"]
+zoro-curve-local = ["dep:zoro_curve_local"]
