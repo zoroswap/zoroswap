@@ -47,7 +47,7 @@ impl NoteKind {
             NoteKind::P2ID => "P2ID.masm",
             NoteKind::Deposit => "DEPOSIT.masm",
             NoteKind::Withdraw => "WITHDRAW.masm",
-            NoteKind::Swap => "SWAP.masm",
+            NoteKind::Swap => "ZOROSWAP.masm",
         }
     }
 }
@@ -78,10 +78,10 @@ impl TrustedNote {
         let serial_number = if let Some(serial_num) = note_elements.referential_serial_number {
             // when returnin p2ids for zoro notes
             let p2id_serial_num: Word = [
-                serial_num[0] + Felt::new(1),
+                serial_num[0],
                 serial_num[1],
                 serial_num[2],
-                serial_num[3],
+                serial_num[3] + Felt::new(1),
             ]
             .into();
             Ok(p2id_serial_num)
@@ -108,8 +108,10 @@ impl TrustedNote {
             note_elements.note_kind.masm_name(),
         ]);
         let pool_path = PathBuf::from_iter(&[manifest_dir, "masm", "accounts", "zoropool.masm"]);
-        let note_code = read_to_string(&note_path).map_err(|e| anyhow!("{e:?}"))?;
-        let pool_code = read_to_string(&pool_path).map_err(|e| anyhow!("{e:?}"))?;
+        let note_code = read_to_string(&note_path)
+            .map_err(|e| anyhow!("Error parsing note code at path {note_path:?}: {e:?}"))?;
+        let pool_code = read_to_string(&pool_path)
+            .map_err(|e| anyhow!("Error parsing pool code at path {pool_path:?}: {e:?}"))?;
         let pool_component_lib =
             create_library(assembler.clone(), "zoroswap::zoropool", &pool_code)
                 .map_err(|e| anyhow!("{e:?}"))?;

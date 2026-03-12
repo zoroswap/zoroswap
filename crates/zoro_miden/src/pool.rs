@@ -2,8 +2,6 @@ use std::{
     collections::HashMap,
     path::{Path, PathBuf},
     str::FromStr,
-    thread::sleep,
-    time::Duration,
 };
 
 use alloy::primitives::{I256, U256};
@@ -15,6 +13,7 @@ use miden_client::{
         Account, AccountBuilder, AccountComponent, AccountId, AccountStorageMode, AccountType,
         StorageMap, StorageSlot, StorageSlotName, component::BasicWallet,
     },
+    address::NetworkId,
     asset::AssetVault,
     auth::{AuthFalcon512Rpo, AuthSecretKey},
     keystore::FilesystemKeyStore,
@@ -25,7 +24,7 @@ use miden_client::{
     vm::AdviceMap,
 };
 use rand::RngCore;
-use tracing::{debug, error, info};
+use tracing::{error, info};
 
 use crate::{
     account::MidenAccount,
@@ -50,6 +49,7 @@ pub struct ZoroPool {
     miden_client: MidenClient,
     pool_states: HashMap<AccountId, PoolState>,
     liquidity_pools: Vec<LiquidityPoolConfig>,
+    endpoint: Endpoint,
 }
 
 impl ZoroPool {
@@ -65,18 +65,22 @@ impl ZoroPool {
         liquidity_pools: Vec<LiquidityPoolConfig>,
     ) -> Result<Self> {
         info!(
-            "Creating new ZORO pool from account: {}",
-            pool_account_id.to_bech32(endpoint.to_network_id())
+            "Creating new ZORO pool from account: {} with tag {}",
+            pool_account_id.to_bech32(endpoint.to_network_id()),
+            NoteTag::with_account_target(*pool_account_id)
         );
         let miden_account = MidenAccount::new(*pool_account_id, None);
-        let miden_client = MidenClient::new(endpoint, keystore_path, store_path, None).await?;
+        let miden_client =
+            MidenClient::new(endpoint.clone(), keystore_path, store_path, None).await?;
         let mut zoro_pool = Self {
             miden_client,
             miden_account,
             pool_states: HashMap::with_capacity(liquidity_pools.len()),
             liquidity_pools,
+            endpoint,
         };
         zoro_pool.update_pool_state_from_chain().await?;
+        zoro_pool.print_pool_states();
         Ok(zoro_pool)
     }
 
@@ -222,6 +226,7 @@ impl ZoroPool {
             pool_states,
             liquidity_pools,
             miden_client,
+            endpoint,
         })
     }
 
@@ -238,7 +243,6 @@ impl ZoroPool {
             .await
             .map_err(|e| anyhow!("Account {id} not found in client: {e:?}"))?
             .ok_or(anyhow!("Account {id} not found in client"))?;
-        println!("2");
         let acc = match record.account_data() {
             AccountRecordData::Full(a) => Ok(a),
             _ => Err(anyhow!(
@@ -326,24 +330,35 @@ impl ZoroPool {
         notes: Vec<TrustedNote>,
         prices: HashMap<AccountId, PriceData>,
     ) -> Result<Vec<(NoteId, ExecutionResult)>> {
-        info!("Executing {} notes agains pool", notes.len());
+        info!("Executing {} notes on the zoro pool", notes.len());
         self.miden_client.sync_state().await?;
         let mut advice_map = AdviceMap::default();
         let mut input_notes = Vec::with_capacity(notes.len());
         let mut expected_future_notes = Vec::with_capacity(notes.len());
         let mut expected_output_recipients = Vec::with_capacity(notes.len());
         let mut pool_states = self.pool_states.clone();
-        let mut results: Vec<(NoteId, ExecutionResult)> = Vec::new();
+
+        self.print_pool_states();
+        self.miden_account
+            .print_vault(self.endpoint.to_network_id())
+            .await?;
+
+        let mut results: Vec<(NoteId, ExecutionResult)> = Vec::with_capacity(notes.len());
+        let mut accounts_to_import = Vec::with_capacity(notes.len());
         for note in notes {
             let note_id = note.note().id();
+            let execution_details =
+                self.prepare_note_execution_details(note, &pool_states, &prices)?;
+            execution_details.print_execution_details(self.endpoint.to_network_id());
             let ExecutionDetails {
                 advice_map_value,
                 input_note,
                 expected_future_note,
                 expected_output_recipient,
                 new_pool_states,
+                counterparty_account,
                 result,
-            } = self.prepare_note_execution_details(note, &pool_states, &prices)?;
+            } = execution_details;
             if let Some(advice_map_value) = advice_map_value {
                 advice_map.insert(advice_map_value.0, advice_map_value.1);
             };
@@ -359,8 +374,17 @@ impl ZoroPool {
             if let Some(new_pool_states) = new_pool_states {
                 pool_states = new_pool_states
             };
+            if let Some(counterparty_account) = counterparty_account {
+                accounts_to_import.push(counterparty_account)
+            }
+
             results.push((note_id, result));
         }
+
+        for acc in accounts_to_import {
+            self.miden_client.import_account(&acc).await?;
+        }
+
         let len_future_notes = expected_future_notes.len();
         let len_output_recipients = expected_output_recipients.len();
         let len_input_notes = input_notes.len();
@@ -426,6 +450,7 @@ impl ZoroPool {
                         new_pool_states: Some(new_pool_states),
                         expected_output_recipient: None,
                         result: ExecutionResult::DepositSuccess(lp_amount.to::<u64>()),
+                        counterparty_account: Some(instructions.creator),
                     })
                 } else {
                     // Return the asset back to the creator of this failed deposit
@@ -447,6 +472,7 @@ impl ZoroPool {
                         )),
                         new_pool_states: None,
                         expected_output_recipient: Some(p2id.note().recipient().clone()),
+                        counterparty_account: Some(instructions.creator),
                         result: if past_deadline {
                             ExecutionResult::PastDeadline
                         } else {
@@ -486,6 +512,7 @@ impl ZoroPool {
                         new_pool_states: Some(new_pool_states),
                         expected_output_recipient: Some(p2id.note().recipient().clone()),
                         result: ExecutionResult::WithdrawSuccess(amount_out.to::<u64>()),
+                        counterparty_account: Some(instructions.creator),
                     })
                 } else {
                     Ok(ExecutionDetails {
@@ -514,7 +541,7 @@ impl ZoroPool {
                     .get(&instructions.asset_out)
                     .ok_or(anyhow!("No price for asset {}", instructions.asset_out))?;
                 let price = base_price.quote_with(quote_price.price);
-                let (p2id, amount_out, result) = if !past_deadline
+                let (p2id, amount_out, result, counterparty_account) = if !past_deadline
                     && let Ok((amount_out, new_base_pool_balances, new_quote_pool_balances)) =
                         get_curve_amount_out(
                             &pool_state_base,
@@ -543,6 +570,7 @@ impl ZoroPool {
                         p2id,
                         amount_out.to::<u64>(),
                         ExecutionResult::SwapSuccess(amount_out.to::<u64>()),
+                        Some(beneficiary),
                     )
                 } else {
                     let p2id = TrustedNote::build_p2id(
@@ -556,7 +584,12 @@ impl ZoroPool {
                     } else {
                         ExecutionResult::Failed
                     };
-                    (p2id, instructions.amount_in, result)
+                    (
+                        p2id,
+                        instructions.amount_in,
+                        result,
+                        Some(instructions.creator),
+                    )
                 };
 
                 let advice_map_value = vec![
@@ -585,6 +618,7 @@ impl ZoroPool {
                     new_pool_states: Some(new_pool_states),
                     expected_output_recipient: Some(p2id.note().recipient().clone()),
                     result,
+                    counterparty_account,
                 })
             }
             NoteInstructions::P2ID(_) => Err(anyhow!("Cant execute a P2ID against zoro pool.")),
@@ -599,6 +633,7 @@ pub struct ExecutionDetails {
     expected_future_note: Option<(NoteDetails, NoteTag)>,
     expected_output_recipient: Option<NoteRecipient>,
     new_pool_states: Option<HashMap<AccountId, PoolState>>,
+    counterparty_account: Option<AccountId>,
     result: ExecutionResult,
 }
 
@@ -610,4 +645,25 @@ pub enum ExecutionResult {
     #[default]
     Failed,
     PastDeadline,
+}
+
+impl ExecutionDetails {
+    pub fn print_execution_details(&self, network_id: NetworkId) {
+        let acc = if let Some(acc) = self.counterparty_account {
+            acc.to_bech32(network_id)
+        } else {
+            "none".to_string()
+        };
+        let input_note_id = if let Some(input_note) = &self.input_note {
+            input_note.0.id().to_string()
+        } else {
+            "none".to_string()
+        };
+        info!(
+            account = acc,
+            result = ?self.result,
+            note_id = input_note_id,
+            "Execution details"
+        )
+    }
 }

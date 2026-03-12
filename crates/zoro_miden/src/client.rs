@@ -8,6 +8,7 @@ use miden_assembly::{
 use miden_client::{
     Client, DebugMode,
     account::{Account, AccountId},
+    address::NetworkId,
     asset::FungibleAsset,
     builder::ClientBuilder,
     keystore::FilesystemKeyStore,
@@ -15,7 +16,7 @@ use miden_client::{
     rpc::{Endpoint, GrpcClient},
     store::{NoteFilter, TransactionFilter},
     sync::StateSync,
-    transaction::{TransactionId, TransactionRequestBuilder},
+    transaction::{OutputNote, TransactionId, TransactionRequestBuilder},
 };
 use miden_client_sqlite_store::{ClientBuilderSqliteExt, SqliteStore};
 use tokio::time::sleep;
@@ -270,16 +271,17 @@ impl MidenClient {
             .await?;
         Self::print_transaction_info(&tx_id);
         self.sync_state().await?;
+        self.consume_simple_notes(&account_id, 1).await?;
         Ok(format!("{:?}", tx_id))
     }
 
-    pub async fn consume_notes(
+    pub async fn consume_simple_notes(
         &mut self,
         account_id: &AccountId,
         n_notes: usize,
     ) -> Result<String> {
         info!(
-            "Consuming simple {} notes for account {}",
+            "Consuming {} notes for account {}",
             n_notes,
             account_id.to_bech32(self.endpoint.to_network_id())
         );
@@ -292,6 +294,29 @@ impl MidenClient {
         self.sync_state().await?;
         Self::print_transaction_info(&tx_id);
         Ok(format!("{:?}", tx_id))
+    }
+
+    pub fn network_id(&self) -> NetworkId {
+        self.endpoint.to_network_id()
+    }
+
+    pub async fn send_note(
+        &mut self,
+        account_id: &AccountId,
+        target_account_id: &AccountId,
+        note: TrustedNote,
+    ) -> Result<()> {
+        self.client.import_account_by_id(*target_account_id).await?;
+        let note_req = TransactionRequestBuilder::new()
+            .own_output_notes(vec![OutputNote::Full(note.note().clone())])
+            .build()
+            .unwrap();
+        let tx_id = self
+            .client_mut()
+            .submit_new_transaction(*account_id, note_req)
+            .await?;
+        MidenClient::print_transaction_info(&tx_id);
+        Ok(())
     }
 
     pub fn print_transaction_info(tx: &TransactionId) {

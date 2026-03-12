@@ -105,10 +105,7 @@ async fn e2e_private_deposit_withdraw_test() -> Result<()> {
         deadline: Utc::now().timestamp_millis() as u64 + 120_000,
     }))?;
 
-    let note_req = TransactionRequestBuilder::new()
-        .own_output_notes(vec![OutputNote::Full(withdraw_note.note().clone())])
-        .build()
-        .unwrap();
+    let note_req = TransactionRequestBuilder::new().build().unwrap();
 
     let _tx_id = miden_client
         .client_mut()

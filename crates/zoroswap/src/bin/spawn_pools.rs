@@ -83,9 +83,6 @@ async fn main() -> Result<()> {
         println!("Minted note of {} tokens for liq pool.", amount);
         miden_client.sync_state().await?;
     }
-    miden_client
-        .consume_notes(lp_account.id(), config.liquidity_pools.len())
-        .await?;
 
     println!("\n[STEP 3] LP Account makes DEPOSIT notes for each liq pool");
     let mut notes = Vec::new();
@@ -104,13 +101,12 @@ async fn main() -> Result<()> {
             p2id_tag: lp_account.tag(),
             pool_tag: NoteTag::with_account_target(*zoro_pool.miden_account().id()),
         }))?;
-        let note_req = TransactionRequestBuilder::new()
-            .own_output_notes(vec![OutputNote::Full(deposit_note.note().clone())])
-            .build()
-            .unwrap();
         miden_client
-            .client_mut()
-            .submit_new_transaction(*lp_account.id(), note_req)
+            .send_note(
+                lp_account.id(),
+                zoro_pool.miden_account().id(),
+                deposit_note.clone(),
+            )
             .await?;
         notes.push(deposit_note);
     }
