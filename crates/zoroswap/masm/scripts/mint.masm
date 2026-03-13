@@ -1,0 +1,75 @@
+const EXPIRATION_DELTA=10
+
+#! Returns a boolean indicating if the notes counter `i` has reached `n`
+#!
+#! Inputs:  [i, n]
+#! Outputs: [i != n, i, n]
+proc check_continue_neq
+    # [i, n]
+    dup.1
+    dup.1
+    neq
+    # [i != n , i, n]
+end
+
+#! Distributes freshly minted fungible assets to the `n` provided recipients.
+#!
+#! Inputs:
+#!  Operand stack: [COMMITMENT]
+#!  Advice map: {
+#!      COMMITMENT: [n, RECIPIENT_1, note_type_1, tag_1, amount_1, RECIPIENT_2, note_type_2, tag_2, amount_2, ...]
+#!  }
+#! Outputs:
+#!  Operant stack: []
+#!
+#! Where:
+#! - n is the amount of recipients to receive assets
+#! - amount is the amount to be minted and sent.
+#! - tag is the tag to be included in the note.
+#! - note_type is the type of the note that holds the asset.
+#! - RECIPIENT is the recipient of the asset, i.e.,
+#!   hash(hash(hash(serial_num, [0; 4]), script_root), input_commitment).
+begin
+    # Set the transaction expiration delta (10 blocks)
+    push.EXPIRATION_DELTA
+    exec.::miden::protocol::tx::update_expiration_block_delta
+    # OS => []
+
+    adv.push_mapval dropw
+    # OS => []
+    # AS => [n, RECIPIENT_1, note_type_1, tag_1, amount_1, ...]
+
+    adv_push.1 push.0
+    # OS => [0, n]
+    # AS => [RECIPIENT_1, note_type_1, tag_1, amount_1, ...]
+
+    exec.check_continue_neq
+    # OS => [0, 0, n]
+
+    while.true
+        # OS => [i, n]
+        # AS => [RECIPIENT_i, note_type_i, tag_i, amount_i, ...]
+
+        # set the params for the distribute call by getting values from the advice stack
+        # We need stack: [amount, tag, note_type, RECIPIENT(4), pad(9), i, n]
+        push.0.0.0.0.0.0.0.0.0 adv_push.4 adv_push.3
+        # OS => [amount_i, tag_i, note_type_i, RECIPIENT_i(4), pad(9), i, n]
+        # AS => [...]
+
+        call.::miden::standards::faucets::basic_fungible::distribute
+        # OS => [note_idx, pad(15), i, n]
+
+        dropw dropw dropw dropw
+        # OS => [i, n]
+
+        add.1
+        # OS => [i + 1, n]
+
+        exec.check_continue_neq
+        # OS => [i + 1 != n, i + 1, n]
+    end
+    # OS => [n, n]
+
+    drop drop
+    # OS => []
+end

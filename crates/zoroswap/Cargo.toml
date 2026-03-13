@@ -15,6 +15,7 @@ miden-protocol = { version = "0.13", default-features = false, features = [
 ] }
 miden-assembly = "0.20"
 miden-tx = "0.13"
+miden-core = "0.20"
 rand = { version = "0.9" }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1.0", features = ["raw_value"] }
