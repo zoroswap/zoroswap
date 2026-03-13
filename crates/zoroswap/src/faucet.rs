@@ -12,7 +12,10 @@ use miden_client::{
     transaction::{TransactionRequest, TransactionRequestBuilder, TransactionScript},
 };
 use miden_core::crypto::hash::Rpo256;
-use std::collections::{BTreeSet, HashMap};
+use std::{
+    collections::{BTreeSet, HashMap},
+    path::Path,
+};
 use tokio::sync::mpsc::{Receiver, Sender};
 use tracing::error;
 use zoro_miden_client::MidenClient;
@@ -51,7 +54,8 @@ impl GuardedFaucet {
         let amount = 10000000;
         let mut instructions = Vec::with_capacity(limit);
         let masm_file_path = format!("{}/scripts/mint.masm", self.config.masm_path);
-        let tx_script = CodeBuilder::new().compile_tx_script(masm_file_path.clone())?;
+        let masm_file = std::fs::read_to_string(Path::new(&masm_file_path))?;
+        let tx_script = CodeBuilder::new().compile_tx_script(masm_file)?;
 
         loop {
             let n_mints = self.rx.recv_many(&mut instructions, limit).await;
