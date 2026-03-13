@@ -11,7 +11,7 @@ use miden_client::{
 };
 use std::collections::{BTreeSet, HashMap};
 use tokio::sync::mpsc::{Receiver, Sender};
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, info};
 use zoro_miden_client::MidenClient;
 
 pub struct FaucetMintInstruction {
@@ -50,7 +50,7 @@ impl GuardedFaucet {
                 .recipients
                 .get(&(mint_instruction.account_id, mint_instruction.faucet_id))
                 .unwrap_or(&0);
-            let can_mint = (Utc::now().timestamp() as u64) - last_mint > 1;
+            let can_mint = (Utc::now().timestamp() as u64) - last_mint > 120;
             if can_mint {
                 let amount = 10000000;
                 match Self::mint_asset(
