@@ -189,6 +189,12 @@ async fn mint_faucet(
     let (_, faucet_id) =
         AccountId::from_bech32(&payload.faucet_id).map_err(|e| ApiError(anyhow!(e)))?;
 
+    if !state.amm_state.liquidity_pools().contains_key(&faucet_id) {
+        return Ok(Json(
+            serde_json::json!({ "success": false, "message": format!("Error minting: faucet {} is not supported", faucet_id.to_hex()) }),
+        ));
+    }
+
     let resp = match state
         .faucet_tx
         .send(FaucetMintInstruction {
@@ -200,7 +206,9 @@ async fn mint_faucet(
         Ok(()) => Json(serde_json::json!({ "success": true })),
         Err(e) => {
             error!("Error processing mint: {e:?}");
-            Json(serde_json::json!({ "success": false, "message": format!("Error minting: {e:?}") }))
+            Json(
+                serde_json::json!({ "success": false, "message": format!("Error minting: {e:?}") }),
+            )
         }
     };
     Ok(resp)

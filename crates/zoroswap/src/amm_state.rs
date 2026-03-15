@@ -72,6 +72,16 @@ impl AmmState {
             OrderType::Swap => Order::from_swap_note(&note),
         }?;
 
+        if !self
+            .liquidity_pools
+            .contains_key(&order.asset_in.faucet_id())
+            || !self
+                .liquidity_pools
+                .contains_key(&order.asset_out.faucet_id())
+        {
+            return Err(anyhow!("Wrong faucet ids for order."));
+        }
+
         let order_id = order.id;
         // Store note_id mapping before inserting note (note might be consumed later)
         self.note_ids.insert(order_id, note_id.clone());
@@ -110,7 +120,10 @@ impl AmmState {
                     );
                 }
                 Err(e) => {
-                    error!("Failed to map oracle id '{}' to faucet id: {e:?}", price_update.id)
+                    error!(
+                        "Failed to map oracle id '{}' to faucet id: {e:?}",
+                        price_update.id
+                    )
                 }
             }
         }

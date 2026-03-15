@@ -616,6 +616,7 @@ impl TradingEngine {
             .input_notes(input_notes.clone())
             .expected_future_notes(expected_future_notes)
             .expected_output_recipients(expected_output_recipients.clone())
+            .ignore_invalid_input_notes()
             .build()
             .map_err(|e| anyhow::anyhow!("Failed to build batch transaction request: {}", e))?;
 
