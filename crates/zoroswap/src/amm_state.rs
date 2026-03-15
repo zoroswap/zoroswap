@@ -74,7 +74,10 @@ impl AmmState {
     }
 
     pub fn flush_open_orders(&self) -> Vec<Order> {
-        let orders = self.get_open_orders();
+        let orders = self.get_open_orders().clone();
+        for order in orders.iter() {
+            self.closed_orders.insert(order.id, *order);
+        }
         self.open_orders.clear();
         orders
     }

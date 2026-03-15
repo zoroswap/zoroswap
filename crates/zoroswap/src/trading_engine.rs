@@ -31,6 +31,7 @@ impl TradingEngine {
         let min_match_interval = Duration::from_millis(100); // Debounce
         let max_match_interval = Duration::from_millis(1000); // Max wait (event-driven)
         let config = self.state.config();
+        let mut cycle = 0_u128;
         let mut zoro_pool = ZoroPool::new_from_existing_pool(
             config.miden_endpoint.clone(),
             config.keystore_path,
@@ -54,8 +55,18 @@ impl TradingEngine {
                 continue;
             }
             let mut orders = self.state.flush_open_orders();
+            if orders.is_empty() {
+                continue;
+            }
+
             // MEV protection: randomize order processing sequence
             orders.shuffle(&mut rand::rng());
+
+            info!("Cycle {cycle}.");
+            for order in orders.iter() {
+                order.print_info(config.network_id.clone());
+            }
+
             // match & execute on the zoro pool
             let notes: Vec<TrustedNote> = orders
                 .iter()
@@ -80,6 +91,7 @@ impl TradingEngine {
                     });
                 }
             }
+            cycle += 1;
         }
     }
 

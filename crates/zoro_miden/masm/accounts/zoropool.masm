@@ -95,6 +95,7 @@ pub proc set_pool_state
 
     dup.3 swap
     # => [asset_balance, reserve_with_slippage, pool_state_loc, liabilities, reserve, reserve_with_slippage, 0, ASSET]
+    debug.stack.12
     lte assert.err=ERR_RESERVE_WITH_SLIPPAGE_EXCEEDS_ASSET_BALANCE
     # => [liabilities, reserve, reserve_with_slippage, 0, ASSET]
     # => [ POOL_STATE, ASSET]

@@ -59,7 +59,7 @@ async fn e2e_private_note() -> Result<()> {
     println!("\n\t[STEP 2] Create & send zoroswap note\n");
     let pool0_price = prices.get(&pool0.faucet_id).unwrap().price;
     let pool1_price = prices.get(&pool1.faucet_id).unwrap().price;
-    let amount_in = amount / 2; // 0.03
+    let amount_in = amount / 2;
     let max_slippage = 0.005; // 0.5 %
     let min_amount_out =
         ((pool0_price as f64) / (pool1_price as f64)) * (amount_in as f64) * (1.0 - max_slippage);
@@ -83,9 +83,6 @@ async fn e2e_private_note() -> Result<()> {
         pool_tag: NoteTag::with_account_target(config.pool_account_id),
     }))?;
 
-    miden_client
-        .import_account(zoro_pool.miden_account().id())
-        .await?;
     miden_client
         .send_note(account.id(), zoro_pool.miden_account().id(), note.clone())
         .await?;

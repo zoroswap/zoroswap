@@ -1,5 +1,7 @@
 use anyhow::Result;
 use chrono::{DateTime, Utc};
+use miden_client::address::NetworkId;
+use tracing::info;
 use uuid::Uuid;
 use zoro_miden::note::{NoteInstructions, TrustedNote};
 
@@ -23,5 +25,14 @@ impl Order {
             updated_at: now,
             instructions,
         })
+    }
+
+    pub fn print_info(&self, network_id: NetworkId) {
+        info!(
+            "Order {}, created at {}. {}",
+            self.id,
+            self.created_at.to_rfc3339(),
+            self.instructions.to_pretty_info(network_id)
+        );
     }
 }

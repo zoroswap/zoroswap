@@ -2,11 +2,9 @@ use anyhow::Result;
 use chrono::Utc;
 use clap::Parser;
 use dotenv::dotenv;
-use miden_client::{
-    note::{NoteTag, NoteType},
-    transaction::{OutputNote, TransactionRequestBuilder},
-};
+use miden_client::note::{NoteTag, NoteType};
 use std::collections::HashMap;
+use tracing_subscriber::EnvFilter;
 use zoro_miden::{
     account::MidenAccount,
     client::MidenClient,
@@ -39,8 +37,13 @@ struct Args {
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
+    let filter_layer = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+        EnvFilter::new(
+            "info,miden_client=warn,rusqlite_migration=warn,h2=warn,rustls=warn,hyper=warn",
+        )
+    });
     tracing_subscriber::fmt()
-        .with_env_filter("info,zoro=debug")
+        .with_env_filter(filter_layer)
         .init();
 
     dotenv().ok();
@@ -71,6 +74,8 @@ async fn main() -> Result<()> {
         config.store_path,
     )
     .await?;
+    let acc = zoro_pool.miden_account_mut().account().await?;
+    miden_client.client_mut().add_account(&acc, true).await?;
 
     println!("\n[STEP 2] Mint tokens from faucet to lp account");
     let amount = 1000000000;

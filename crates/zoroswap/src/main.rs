@@ -141,14 +141,6 @@ fn main() {
             mut notes_listener,
             connection_manager,
         )) => {
-            tokio::spawn(async {
-                info!("[RUN] Starting trading engine");
-                if let Err(e) = trading_engine.start().await {
-                    error!("Critical error on trading engine: {e:?}. Exiting with status 1.");
-                    std::process::exit(1);
-                }
-            });
-
             thread::scope(|s| {
                 s.spawn(move || {
                     let rt = Builder::new_current_thread()
@@ -157,7 +149,15 @@ fn main() {
                         .unwrap_or_else(|err| {
                             panic!("Failed building runtime for trading engine: {err:?}")
                         });
-                    rt.block_on(async {});
+                    rt.block_on(async {
+                        info!("[RUN] Starting trading engine");
+                        if let Err(e) = trading_engine.start().await {
+                            error!(
+                                "Critical error on trading engine: {e:?}. Exiting with status 1."
+                            );
+                            std::process::exit(1);
+                        }
+                    });
                 });
                 std::thread::sleep(Duration::from_millis(100));
                 s.spawn(move || {

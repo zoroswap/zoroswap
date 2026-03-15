@@ -2,6 +2,7 @@ use std::{
     collections::HashMap,
     path::{Path, PathBuf},
     str::FromStr,
+    time::Duration,
 };
 
 use alloy::primitives::{I256, U256};
@@ -24,6 +25,7 @@ use miden_client::{
     vm::AdviceMap,
 };
 use rand::RngCore;
+use tokio::time::sleep;
 use tracing::{error, info};
 
 use crate::{
@@ -212,6 +214,14 @@ impl ZoroPool {
             .add_account(&pool_contract.clone(), false)
             .await?;
         miden_client.sync_state().await?;
+        let init_tx = TransactionRequestBuilder::new().build()?;
+        miden_client
+            .client_mut()
+            .submit_new_transaction(pool_contract.id(), init_tx)
+            .await?;
+        miden_client.sync_state().await?;
+        println!("Waiting for acc to be included in block ...",);
+        sleep(Duration::from_secs(5)).await;
 
         let mut pool_states = HashMap::with_capacity(liquidity_pools.len());
         for pool in liquidity_pools.iter() {
@@ -372,6 +382,7 @@ impl ZoroPool {
                 expected_output_recipients.push(expected_output_recipient);
             };
             if let Some(new_pool_states) = new_pool_states {
+                info!("UPDATING POOL STATES, new states: {:?} ", new_pool_states);
                 pool_states = new_pool_states
             };
             if let Some(counterparty_account) = counterparty_account {
@@ -416,6 +427,7 @@ impl ZoroPool {
         MidenClient::print_transaction_info(&tx_id);
         self.miden_client.sync_state().await?;
         self.pool_states = pool_states;
+        self.print_pool_states();
         Ok(results)
     }
 
@@ -527,7 +539,6 @@ impl ZoroPool {
             }
             NoteInstructions::Swap(instructions) => {
                 let past_deadline = now > instructions.deadline as i64;
-                let mut new_pool_states = pool_states.clone();
                 let mut pool_state_base = *new_pool_states
                     .get_mut(&instructions.asset_in)
                     .ok_or(anyhow!("Trying to execute swap for an unknown asset."))?;
@@ -566,6 +577,8 @@ impl ZoroPool {
                     )?;
                     pool_state_base.update_balances(new_base_pool_balances);
                     pool_state_quote.update_balances(new_quote_pool_balances);
+                    new_pool_states.insert(instructions.asset_in, pool_state_base);
+                    new_pool_states.insert(instructions.asset_out, pool_state_quote);
                     (
                         p2id,
                         amount_out.to::<u64>(),

@@ -183,7 +183,9 @@ proc store_args_to_memory
     adv.push_mapval
     swap.3 drop push.ARGS_POINTER   # => 999 = mem address
     padw padw padw
+    debug.stack.12
     adv_pipe
+    debug.stack.8
     dropw swapw dropw swapw dropw
 
 end
@@ -291,6 +293,7 @@ proc execute_ZOROSWAP
         mem_load.IN_POOL_RESERVE_WITH_SLIPPAGE mem_load.IN_POOL_RESERVE mem_load.IN_POOL_LIABILITIES
         push.0.0.0.0
         mem_loadw_be.IN_ASSET_WORD
+        debug.stack
         call.zoropool::receive_asset
 
         mem_load.BENEFICIARY_ID_SUFFIX mem_store.P2ID_TARGET_ID_SUFFIX  

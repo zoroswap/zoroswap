@@ -1,11 +1,12 @@
-use std::{fs::read_to_string, path::PathBuf, sync::OnceLock};
+use std::{any::Any, fs::read_to_string, path::PathBuf, sync::OnceLock};
 
 use anyhow::{Result, anyhow};
 use base64::{Engine as _, engine::general_purpose};
-use chrono::Utc;
+use chrono::{DateTime, TimeZone, Utc};
 use miden_client::{
     Felt, Word,
     account::AccountId,
+    address::NetworkId,
     assembly::CodeBuilder,
     asset::{Asset, FungibleAsset},
     note::{
@@ -300,6 +301,72 @@ impl NoteInstructions {
             NoteInstructions::Withdraw(_) => NoteKind::Withdraw,
             NoteInstructions::Swap(_) => NoteKind::Swap,
             NoteInstructions::P2ID(_) => NoteKind::P2ID,
+        }
+    }
+
+    pub fn to_pretty_info(&self, network_id: NetworkId) -> String {
+        match self {
+            NoteInstructions::Deposit(i) => {
+                let deadline = match Utc.timestamp_millis_opt(i.deadline as i64) {
+                    chrono::LocalResult::Single(r) => r.to_rfc3339(),
+                    chrono::LocalResult::Ambiguous(r, _t) => r.to_rfc3339(),
+                    chrono::LocalResult::None => "Invalid time".to_string(),
+                };
+                format!(
+                    "Deposit of {} -> min LP: {} for faucet {}. From user {} (tag {}) with deadline {}. Type: {}.",
+                    i.amount_in,
+                    i.min_lp_amount_out,
+                    i.asset_in.to_bech32(network_id.clone()),
+                    i.creator.to_bech32(network_id.clone()),
+                    i.p2id_tag.as_u32(),
+                    deadline,
+                    i.note_type,
+                )
+            }
+            NoteInstructions::Withdraw(i) => {
+                let deadline = match Utc.timestamp_millis_opt(i.deadline as i64) {
+                    chrono::LocalResult::Single(r) => r.to_rfc3339(),
+                    chrono::LocalResult::Ambiguous(r, _t) => r.to_rfc3339(),
+                    chrono::LocalResult::None => "Invalid time".to_string(),
+                };
+                format!(
+                    "Withdraw of {} LP -> min {} for faucet {}. From user {} (tag {}) with deadline {}. Type: {}.",
+                    i.lp_amount_in,
+                    i.min_amount_out,
+                    i.asset_out.to_bech32(network_id.clone()),
+                    i.creator.to_bech32(network_id.clone()),
+                    i.p2id_tag.as_u32(),
+                    deadline,
+                    i.note_type
+                )
+            }
+            NoteInstructions::Swap(i) => {
+                let deadline = match Utc.timestamp_millis_opt(i.deadline as i64) {
+                    chrono::LocalResult::Single(r) => r.to_rfc3339(),
+                    chrono::LocalResult::Ambiguous(r, _t) => r.to_rfc3339(),
+                    chrono::LocalResult::None => "Invalid time".to_string(),
+                };
+                format!(
+                    "Swap of {} -> min {} for faucets {} -> {}. From user {} (tag {}) with deadline {}. Type: {}.",
+                    i.amount_in,
+                    i.min_amount_out,
+                    i.asset_in.to_bech32(network_id.clone()),
+                    i.asset_out.to_bech32(network_id.clone()),
+                    i.creator.to_bech32(network_id.clone()),
+                    i.p2id_tag.as_u32(),
+                    deadline,
+                    i.note_type,
+                )
+            }
+            NoteInstructions::P2ID(i) => {
+                format!(
+                    "P2ID with amount {} for faucet {}. Target user {}. Type: {}.",
+                    i.asset_in,
+                    i.amount_in,
+                    i.target.to_bech32(network_id),
+                    i.note_type,
+                )
+            }
         }
     }
 }

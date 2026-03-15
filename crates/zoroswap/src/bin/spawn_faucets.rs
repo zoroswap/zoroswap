@@ -15,6 +15,7 @@ use miden_client::{
 use miden_standards::account::{auth::AuthFalcon512Rpo, faucets::BasicFungibleFaucet};
 use rand::RngCore;
 use serde::Deserialize;
+use tracing_subscriber::EnvFilter;
 use zoro_miden::client::MidenClient;
 
 #[derive(Deserialize, Debug)]
@@ -44,8 +45,14 @@ struct Args {
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
+
+    let filter_layer = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+        EnvFilter::new(
+            "info,miden_client=warn,rusqlite_migration=warn,h2=warn,rustls=warn,hyper=warn",
+        )
+    });
     tracing_subscriber::fmt()
-        .with_env_filter("info,zoro=debug")
+        .with_env_filter(filter_layer)
         .init();
 
     dotenv().ok();

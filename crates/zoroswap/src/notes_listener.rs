@@ -5,11 +5,11 @@ use crate::{
 use anyhow::Result;
 use chrono::Utc;
 use miden_client::{
-    note::{Note, NoteId, NoteTag},
+    note::{Note, NoteId, NoteTag, NoteType},
     store::NoteFilter,
 };
-use std::{collections::HashSet, sync::Arc, time::Duration};
-use tracing::{debug, error};
+use std::{any::Any, collections::HashSet, sync::Arc, time::Duration};
+use tracing::{debug, error, info};
 use zoro_miden::{client::MidenClient, note::TrustedNote};
 
 pub struct NotesListener {
@@ -48,6 +48,7 @@ impl NotesListener {
         let tick_interval = self.state.config().amm_tick_interval;
 
         loop {
+            tokio::time::sleep(Duration::from_millis(tick_interval)).await;
             // Sync state
             if let Err(e) = miden_client.sync_state().await {
                 error!(
@@ -65,13 +66,20 @@ impl NotesListener {
                     let valid_notes: Vec<&Note> = notes
                         .iter()
                         .filter(|n| {
-                            !failed_notes.contains(&n.id()) && !processed_notes.contains(&n.id())
+                            !failed_notes.contains(&n.id())
+                                && !processed_notes.contains(&n.id())
+                                && n.metadata().note_type().eq(&NoteType::Public)
                         })
                         .collect();
 
+                    if valid_notes.is_empty() {
+                        continue;
+                    }
+
+                    info!("Adding {} public notes to processing.", valid_notes.len());
+
                     for note in valid_notes.iter() {
                         let note_miden_id = note.id();
-
                         match self.state.add_order(note.clone().clone()) {
                             Ok((note_id, order_id, _)) => {
                                 // Track this note as processed to avoid duplicates
@@ -116,8 +124,6 @@ impl NotesListener {
                     error!("Error in listening for zoro swap notes: {:?}", e);
                 }
             };
-
-            tokio::time::sleep(Duration::from_millis(tick_interval)).await;
         }
     }
 
