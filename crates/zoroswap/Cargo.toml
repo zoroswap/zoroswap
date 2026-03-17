@@ -29,8 +29,8 @@ dashmap = "6.1.0"
 dotenv = "0.15"
 futures-util = "0.3.31"
 miden-assembly = "0.20"
-miden-client = { version = "0.13.2", features = ["testing", "tonic"] }
-miden-client-sqlite-store = { version = "0.13.2" }
+miden-client = { version = "0.13.3", features = ["testing", "tonic"] }
+miden-client-sqlite-store = { version = "0.13.3" }
 miden-core = "0.20"
 miden-protocol = { version = "0.13", default-features = false, features = [
   "testing",
