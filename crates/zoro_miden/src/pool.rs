@@ -26,7 +26,7 @@ use miden_client::{
 };
 use rand::RngCore;
 use tokio::time::sleep;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use crate::{
     account::MidenAccount,
@@ -354,12 +354,12 @@ impl ZoroPool {
             .await?;
 
         let mut results: Vec<(NoteId, ExecutionResult)> = Vec::with_capacity(notes.len());
-        let mut accounts_to_import = Vec::with_capacity(notes.len());
         for note in notes {
             let note_id = note.note().id();
             let execution_details =
                 self.prepare_note_execution_details(note, &pool_states, &prices)?;
             execution_details.print_execution_details(self.endpoint.to_network_id());
+            let local_simulation_clone = execution_details.clone();
             let ExecutionDetails {
                 advice_map_value,
                 input_note,
@@ -369,6 +369,29 @@ impl ZoroPool {
                 counterparty_account,
                 result,
             } = execution_details;
+
+            // Import the account if unknown
+            if let Some(counterparty_account) = counterparty_account
+                && let Ok(acc_query) = self
+                    .miden_client
+                    .client()
+                    .get_account(counterparty_account)
+                    .await
+                && acc_query.is_none()
+            {
+                self.miden_client
+                    .import_account(&counterparty_account)
+                    .await?;
+            }
+            // Simulate execution first to avoid poisoned notes
+            if let Err(e) = self.simulate_note_execution(&local_simulation_clone).await {
+                warn!(
+                    id = note_id.to_hex(),
+                    error = ?e,
+                    "Rejected note in the simulation"
+                )
+            }
+            // Add to execution
             if let Some(advice_map_value) = advice_map_value {
                 advice_map.insert(advice_map_value.0, advice_map_value.1);
             };
@@ -385,15 +408,8 @@ impl ZoroPool {
                 info!("UPDATING POOL STATES, new states: {:?} ", new_pool_states);
                 pool_states = new_pool_states
             };
-            if let Some(counterparty_account) = counterparty_account {
-                accounts_to_import.push(counterparty_account)
-            }
 
             results.push((note_id, result));
-        }
-
-        for acc in accounts_to_import {
-            self.miden_client.import_account(&acc).await?;
         }
 
         let len_future_notes = expected_future_notes.len();
@@ -429,6 +445,48 @@ impl ZoroPool {
         self.pool_states = pool_states;
         self.print_pool_states();
         Ok(results)
+    }
+
+    async fn simulate_note_execution(
+        &mut self,
+        execution_details: &ExecutionDetails,
+    ) -> Result<()> {
+        let ExecutionDetails {
+            advice_map_value,
+            input_note,
+            expected_future_note,
+            expected_output_recipient,
+            new_pool_states: _,
+            counterparty_account: _,
+            result: _,
+        } = execution_details;
+        let mut consume_req = TransactionRequestBuilder::new();
+
+        if let Some(advice_map_value) = advice_map_value {
+            let mut advice_map = AdviceMap::default();
+            advice_map.insert(advice_map_value.0, advice_map_value.clone().1);
+            consume_req = consume_req.extend_advice_map(advice_map);
+        };
+        if let Some(input_note) = input_note {
+            consume_req = consume_req.input_notes(vec![input_note.clone()]);
+        };
+        if let Some(expected_future_note) = expected_future_note {
+            consume_req = consume_req.expected_future_notes(vec![expected_future_note.clone()]);
+        };
+        if let Some(expected_output_recipient) = expected_output_recipient {
+            consume_req =
+                consume_req.expected_output_recipients(vec![expected_output_recipient.clone()]);
+        };
+
+        let tx = consume_req
+            .build()
+            .map_err(|e| anyhow::anyhow!("Failed to build batch transaction request: {}", e))?;
+        self.miden_client
+            .client_mut()
+            .execute_transaction(*self.miden_account.id(), tx)
+            .await?;
+
+        Ok(())
     }
 
     fn prepare_note_execution_details(
@@ -639,7 +697,7 @@ impl ZoroPool {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct ExecutionDetails {
     advice_map_value: Option<(Word, Vec<Felt>)>,
     input_note: Option<(Note, Option<Word>)>,

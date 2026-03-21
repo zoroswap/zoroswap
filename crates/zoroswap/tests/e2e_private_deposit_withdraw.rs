@@ -2,10 +2,7 @@ mod test_utils;
 
 use anyhow::Result;
 use chrono::Utc;
-use miden_client::{
-    note::{NoteTag, NoteType},
-    transaction::{OutputNote, TransactionRequestBuilder},
-};
+use miden_client::note::{NoteTag, NoteType};
 use std::time::Duration;
 use test_utils::*;
 use tracing::info;
@@ -14,7 +11,7 @@ use zoro_miden::account::MidenAccount;
 use zoro_miden::note::{DepositInstructions, NoteInstructions, TrustedNote, WithdrawInstructions};
 
 #[tokio::test]
-async fn e2e_private_deposit_withdraw_test() -> Result<()> {
+async fn e2e_private_deposit_withdraw() -> Result<()> {
     let filter_layer = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
         EnvFilter::new(
             "info,miden_client=warn,rusqlite_migration=warn,h2=warn,rustls=warn,hyper=warn",
@@ -32,7 +29,7 @@ async fn e2e_private_deposit_withdraw_test() -> Result<()> {
         client: mut miden_client,
         keystore: _,
         mut zoro_pool,
-        prices,
+        prices: _,
     } = E2ETestSetup::new(store_path).await?;
     let mut account = MidenAccount::deploy_new(&mut miden_client, config.keystore_path).await?;
     let pool = config.liquidity_pools[0];
