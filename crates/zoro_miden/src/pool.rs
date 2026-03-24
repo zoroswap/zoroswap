@@ -2,7 +2,7 @@ use std::{
     collections::HashMap,
     path::{Path, PathBuf},
     str::FromStr,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use alloy::primitives::{I256, U256};
@@ -347,13 +347,14 @@ impl ZoroPool {
         let mut expected_output_recipients = Vec::with_capacity(notes.len());
         let mut pool_states = self.pool_states.clone();
 
-        self.print_pool_states();
-        self.miden_account
-            .print_vault(self.endpoint.to_network_id())
-            .await?;
+        // self.print_pool_states();
+        // self.miden_account
+        //     .print_vault(self.endpoint.to_network_id())
+        //     .await?;
 
         let mut results: Vec<(NoteId, ExecutionResult)> = Vec::with_capacity(notes.len());
         for note in notes {
+            let start = Instant::now();
             let note_id = note.note().id();
             let execution_details =
                 self.prepare_note_execution_details(note, &pool_states, &prices)?;
@@ -387,7 +388,8 @@ impl ZoroPool {
                 warn!(
                     id = note_id.to_hex(),
                     error = ?e,
-                    "Rejected note in the simulation"
+                    note_id = note_id.to_hex(),
+                    "Rejected in the simulation"
                 )
             }
             // Add to execution
@@ -404,13 +406,13 @@ impl ZoroPool {
                 expected_output_recipients.push(expected_output_recipient);
             };
             if let Some(new_pool_states) = new_pool_states {
-                info!("UPDATING POOL STATES, new states: {:?} ", new_pool_states);
                 pool_states = new_pool_states
             };
+            info!(note_id = note_id.to_hex(), time_elapsed = ?start.elapsed(), "Processed note");
 
             results.push((note_id, result));
         }
-
+        let start = Instant::now();
         let len_future_notes = expected_future_notes.len();
         let len_output_recipients = expected_output_recipients.len();
         let len_input_notes = input_notes.len();
@@ -439,10 +441,11 @@ impl ZoroPool {
                 );
                 e
             })?;
+        info!(len_notes = len_input_notes, time_elapsed= ?start.elapsed(), "Executed notes");
         MidenClient::print_transaction_info(&tx_id);
         self.miden_client.sync_state().await?;
         self.pool_states = pool_states;
-        self.print_pool_states();
+        // self.print_pool_states();
         Ok(results)
     }
 

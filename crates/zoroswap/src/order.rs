@@ -32,10 +32,11 @@ impl Order {
 
     pub fn print_info(&self, network_id: NetworkId) {
         info!(
-            "Order {}, created at {}. {}",
-            self.id,
-            self.created_at.to_rfc3339(),
-            self.instructions.to_pretty_info(network_id)
+            id =? self.id,
+            created = self.created_at.to_rfc3339(),
+            instructions = self.instructions.to_pretty_info(network_id),
+            note_id = self.note_id.to_hex(),
+            "Order summary"
         );
     }
 }

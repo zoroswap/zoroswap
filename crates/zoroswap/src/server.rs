@@ -223,7 +223,6 @@ async fn submit_swap(
     Json(payload): Json<SubmitOrderRequest>,
 ) -> Json<SubmitOrderResponse> {
     debug!("Received swap order submission request");
-    // Deserialize the note from base64
     let note = match TrustedNote::from_base64(&payload.note_data) {
         Ok(note) => note,
         Err(e) => {
@@ -235,10 +234,15 @@ async fn submit_swap(
             });
         }
     };
+    let note_id = note.note().id();
 
     match state.amm_state.add_order(note.note().clone()) {
         Ok((_, order_id, _)) => {
-            info!("Successfully added swap order: {:?}", order_id);
+            info!(
+                order_id =? order_id,
+                note_id = note_id.to_hex(),
+                "New swap order"
+            );
             Json(SubmitOrderResponse {
                 success: true,
                 order_id: order_id.to_string(),
@@ -262,8 +266,6 @@ async fn submit_deposit(
     State(state): State<AppState>,
     Json(payload): Json<SubmitOrderRequest>,
 ) -> Json<SubmitOrderResponse> {
-    info!("Received deposit order submission request");
-    // Deserialize the note from base64
     let note = match TrustedNote::from_base64(&payload.note_data) {
         Ok(note) => note,
         Err(e) => {
@@ -275,13 +277,16 @@ async fn submit_deposit(
             });
         }
     };
-
+    let note_id = note.note().id();
     match state.amm_state.add_order(note.note().clone()) {
         Ok((_, order_id, _)) => {
-            info!("Successfully added deposit order: {:?}", order_id);
+            info!(
+                order_id =? order_id,
+                note_id = note_id.to_hex(),
+                "New deposit order"
+            );
             Json(SubmitOrderResponse {
                 success: true,
-                //order_id: note_id,
                 order_id: order_id.to_string(),
                 message:
                     "Deposit order submitted successfully. Matching engine will process it automatically."
@@ -303,8 +308,6 @@ async fn submit_withdraw(
     State(state): State<AppState>,
     Json(payload): Json<SubmitOrderRequest>,
 ) -> Json<SubmitOrderResponse> {
-    info!("Received withdraw order submission request");
-    // Deserialize the note from base64
     let note = match TrustedNote::from_base64(&payload.note_data) {
         Ok(note) => note,
         Err(e) => {
@@ -316,10 +319,15 @@ async fn submit_withdraw(
             });
         }
     };
+    let note_id = note.note().id();
 
     match state.amm_state.add_order(note.note().clone()) {
         Ok((_, order_id, _)) => {
-            info!("Successfully added withdraw order: {}", order_id);
+            info!(
+                order_id =? order_id,
+                note_id = note_id.to_hex(),
+                "New withdraw order"
+            );
             Json(SubmitOrderResponse {
                 success: true,
                 order_id: order_id.to_string(),

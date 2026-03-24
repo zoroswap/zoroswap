@@ -6,7 +6,11 @@ use anyhow::Result;
 use chrono::Utc;
 use miden_client::account::AccountId;
 use rand::seq::SliceRandom;
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 use tracing::{info, warn};
 use zoro_miden::{note::TrustedNote, pool::ZoroPool};
 
@@ -51,6 +55,8 @@ impl TradingEngine {
         let mut interval = tokio::time::interval(max_match_interval);
         loop {
             interval.tick().await;
+            let start = Instant::now();
+
             if self.prices_are_stale().await {
                 continue;
             }
@@ -62,7 +68,7 @@ impl TradingEngine {
             // MEV protection: randomize order processing sequence
             orders.shuffle(&mut rand::rng());
 
-            info!("Cycle {cycle}.");
+            info!(cycle = cycle, "Trading engine cycle.");
             for order in orders.iter() {
                 order.print_info(config.network_id.clone());
             }
@@ -91,6 +97,7 @@ impl TradingEngine {
                     });
                 }
             }
+            info!(cycle=cycle, time_elapsed =? start.elapsed(), "Trading engine cycle ends.");
             cycle += 1;
         }
     }
