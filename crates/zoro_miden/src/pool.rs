@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{BTreeSet, HashMap},
     path::{Path, PathBuf},
     str::FromStr,
     time::Duration,
@@ -22,7 +22,7 @@ use miden_client::{
     rpc::Endpoint,
     store::AccountRecordData,
     transaction::{TransactionKernel, TransactionRequestBuilder},
-    vm::AdviceMap,
+    vm::{AdviceInputs, AdviceMap},
 };
 use rand::RngCore;
 use tokio::time::sleep;
@@ -383,13 +383,13 @@ impl ZoroPool {
                     .await?;
             }
             // Simulate execution first to avoid poisoned notes
-            if let Err(e) = self.simulate_note_execution(&local_simulation_clone).await {
-                warn!(
-                    id = note_id.to_hex(),
-                    error = ?e,
-                    "Rejected note in the simulation"
-                )
-            }
+            // if let Err(e) = self.simulate_note_execution(&local_simulation_clone).await {
+            //     warn!(
+            //         id = note_id.to_hex(),
+            //         error = ?e,
+            //         "Rejected note in the simulation"
+            //     )
+            // }
             // Add to execution
             if let Some(advice_map_value) = advice_map_value {
                 advice_map.insert(advice_map_value.0, advice_map_value.1);
@@ -482,7 +482,12 @@ impl ZoroPool {
             .map_err(|e| anyhow::anyhow!("Failed to build batch transaction request: {}", e))?;
         self.miden_client
             .client_mut()
-            .execute_transaction(*self.miden_account.id(), tx)
+            .execute_program(
+                *self.miden_account.id(),
+                tx.into(),
+                AdviceInputs::default(),
+                BTreeSet::new(),
+            )
             .await?;
 
         Ok(())
