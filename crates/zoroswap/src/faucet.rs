@@ -94,7 +94,7 @@ impl GuardedFaucet {
                         .submit_new_transaction(pool.faucet_id, tx_req)
                         .await
                     {
-                        error!("Error on submiting mint tx: {e}");
+                        error!(error = ?e, "Error on submiting mint tx");
                     } else {
                         client.partial_sync_state(&pool.faucet_id).await?;
                     }
