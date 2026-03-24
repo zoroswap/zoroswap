@@ -4,7 +4,6 @@ use crate::{
     order::Order,
     websocket::{EventBroadcaster, messages::PoolStateEvent},
 };
-use alloy::primitives::U256;
 use anyhow::{Result, anyhow};
 use chrono::Utc;
 use dashmap::DashMap;
@@ -12,8 +11,11 @@ use miden_client::{
     account::AccountId,
     note::{Note, NoteId},
 };
-use std::{collections::HashMap, sync::Arc};
-use tracing::{error, info};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
+use tracing::error;
 use uuid::Uuid;
 use zoro_miden::{note::TrustedNote, pool_state::PoolState, price::PriceData};
 
@@ -26,10 +28,13 @@ pub struct AmmState {
     oracle_prices: DashMap<AccountId, PriceData>,
     config: Arc<Config>,
     broadcaster: Arc<EventBroadcaster>,
+    valid_faucets: HashSet<AccountId>,
 }
 
 impl AmmState {
     pub async fn new(config: Config, broadcaster: Arc<EventBroadcaster>) -> Self {
+        let valid_faucets: HashSet<AccountId> =
+            config.liquidity_pools.iter().map(|p| p.faucet_id).collect();
         Self {
             open_orders: DashMap::new(),
             closed_orders: DashMap::new(),
@@ -39,6 +44,7 @@ impl AmmState {
             config: Arc::new(config),
             oracle_prices: DashMap::new(),
             broadcaster,
+            valid_faucets,
         }
     }
 

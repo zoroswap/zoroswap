@@ -8,7 +8,7 @@ use miden_client::{
     note::{Note, NoteId, NoteTag, NoteType},
     store::NoteFilter,
 };
-use std::{any::Any, collections::HashSet, sync::Arc, time::Duration};
+use std::{collections::HashSet, sync::Arc, time::Duration};
 use tracing::{debug, error, info};
 use zoro_miden::{client::MidenClient, note::TrustedNote};
 
@@ -36,7 +36,6 @@ impl NotesListener {
             config.miden_endpoint,
             config.keystore_path,
             config.store_path,
-            None,
         )
         .await?;
         miden_client

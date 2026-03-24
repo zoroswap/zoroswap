@@ -72,8 +72,7 @@ impl ZoroPool {
             NoteTag::with_account_target(*pool_account_id)
         );
         let miden_account = MidenAccount::new(*pool_account_id, None);
-        let miden_client =
-            MidenClient::new(endpoint.clone(), keystore_path, store_path, None).await?;
+        let miden_client = MidenClient::new(endpoint.clone(), keystore_path, store_path).await?;
         let mut zoro_pool = Self {
             miden_client,
             miden_account,
@@ -97,7 +96,7 @@ impl ZoroPool {
             .iter()
             .collect();
         let mut miden_client =
-            MidenClient::new(endpoint.clone(), keystore_path, store_path, None).await?;
+            MidenClient::new(endpoint.clone(), keystore_path, store_path).await?;
         let pool_reader_path = Path::new(&masm_path);
         let pool_code = std::fs::read_to_string(pool_reader_path)
             .unwrap_or_else(|err| panic!("unable to read from {pool_reader_path:?}: {err}"));

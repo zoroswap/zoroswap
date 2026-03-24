@@ -26,17 +26,12 @@ use crate::note::{NoteKind, TrustedNote};
 
 pub struct MidenClient {
     client: Client<FilesystemKeyStore>,
-    partial_state_sync: Option<(AccountId, StateSync)>,
+    state_sync: StateSync,
     endpoint: Endpoint,
 }
 
 impl MidenClient {
-    pub async fn new(
-        endpoint: Endpoint,
-        keystore_path: &str,
-        store_path: &str,
-        partial_account_sync: Option<AccountId>,
-    ) -> Result<Self> {
+    pub async fn new(endpoint: Endpoint, keystore_path: &str, store_path: &str) -> Result<Self> {
         info!(
             keystore_path = keystore_path,
             store_path = store_path,
@@ -61,17 +56,12 @@ impl MidenClient {
         client.ensure_genesis_in_place().await?;
         client.sync_state().await?;
 
-        let partial_state_sync = if let Some(acc_id) = partial_account_sync {
-            let sqlite_store = Arc::new(SqliteStore::new(store_path.into()).await?);
-            let note_screener = NoteScreener::new(sqlite_store, Some(keystore));
-            let state_sync = StateSync::new(rpc_client, Arc::new(note_screener), None);
-            Some((acc_id, state_sync))
-        } else {
-            None
-        };
+        let sqlite_store = Arc::new(SqliteStore::new(store_path.into()).await?);
+        let note_screener = NoteScreener::new(sqlite_store);
+        let state_sync = StateSync::new(rpc_client, Arc::new(note_screener), None);
         Ok(Self {
             client,
-            partial_state_sync,
+            state_sync,
             endpoint,
         })
     }
@@ -87,43 +77,44 @@ impl MidenClient {
         }
         Ok(())
     }
+    pub async fn partial_sync_state(&mut self, account_id: &AccountId) -> Result<()> {
+        // Partial sync
+        let accounts = self
+            .client
+            .get_account_header_by_id(*account_id)
+            .await?
+            .map(|(header, _)| vec![header])
+            .unwrap_or_default();
+        let note_tags = BTreeSet::new();
+        let input_notes = vec![];
+        let expected_output_notes = self.client.get_output_notes(NoteFilter::Expected).await?;
+        let uncommitted_transactions = self
+            .client
+            .get_transactions(TransactionFilter::Uncommitted)
+            .await?;
+
+        // Build current partial MMR
+        let current_partial_mmr = self.client.get_current_partial_mmr().await?;
+
+        // Get the sync update from the network
+        let state_sync_update = self
+            .state_sync
+            .sync_state(
+                current_partial_mmr,
+                accounts,
+                note_tags,
+                input_notes,
+                expected_output_notes,
+                uncommitted_transactions,
+            )
+            .await?;
+
+        // Apply received and computed updates to the store
+        self.client.apply_state_sync(state_sync_update).await?;
+        Ok(())
+    }
     pub async fn sync_state(&mut self) -> Result<()> {
-        if let Some((account_id, state_sync)) = &self.partial_state_sync {
-            // Partial sync
-            let accounts = self
-                .client
-                .get_account_header_by_id(*account_id)
-                .await?
-                .map(|(header, _)| vec![header])
-                .unwrap_or_default();
-            let note_tags = BTreeSet::new();
-            let input_notes = vec![];
-            let expected_output_notes = self.client.get_output_notes(NoteFilter::Expected).await?;
-            let uncommitted_transactions = self
-                .client
-                .get_transactions(TransactionFilter::Uncommitted)
-                .await?;
-
-            // Build current partial MMR
-            let current_partial_mmr = self.client.get_current_partial_mmr().await?;
-
-            // Get the sync update from the network
-            let state_sync_update = state_sync
-                .sync_state(
-                    current_partial_mmr,
-                    accounts,
-                    note_tags,
-                    input_notes,
-                    expected_output_notes,
-                    uncommitted_transactions,
-                )
-                .await?;
-
-            // Apply received and computed updates to the store
-            self.client.apply_state_sync(state_sync_update).await?;
-        } else {
-            self.client.sync_state().await?;
-        }
+        self.client.sync_state().await?;
         Ok(())
     }
     pub fn client(&self) -> &Client<FilesystemKeyStore> {

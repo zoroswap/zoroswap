@@ -64,11 +64,6 @@ fn main() {
         info!("[INIT] Parsing config");
         info!("Deleting old sqlite3 store");
         delete_client_store(&args.store_path).await;
-        // Enable WAL mode for better concurrent database access
-        // This must be done before any clients are created
-        // if let Err(e) = enable_wal_mode(&args.store_path) {
-        //     warn!("Failed to enable WAL mode: {e}");
-        // }
 
         let config = Config::from_config_file(
             &args.config,

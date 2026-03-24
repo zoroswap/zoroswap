@@ -56,13 +56,8 @@ async fn main() -> Result<()> {
         &args.store_path,
     )?;
     let endpoint = config.miden_endpoint;
-    let mut miden_client = MidenClient::new(
-        endpoint.clone(),
-        &args.keystore_path,
-        &args.store_path,
-        None,
-    )
-    .await?;
+    let mut miden_client =
+        MidenClient::new(endpoint.clone(), &args.keystore_path, &args.store_path).await?;
 
     miden_client.sync_state().await?;
     println!("\n[STEP 1] Create zoro_pool account");
