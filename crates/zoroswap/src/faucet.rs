@@ -12,7 +12,7 @@ use miden_client::{
 };
 use std::{collections::HashMap, path::Path};
 use tokio::sync::mpsc::{Receiver, Sender};
-use tracing::error;
+use tracing::{error, info};
 use zoro_miden::{client::MidenClient, faucet::compile_mint_script};
 
 #[derive(Copy, Clone)]
@@ -52,13 +52,16 @@ impl GuardedFaucet {
         let amount = 10000000;
         let mut instructions = Vec::with_capacity(limit);
         let tx_script = compile_mint_script()?;
+        for pool in self.config.liquidity_pools.iter() {
+            client.import_account(&pool.faucet_id).await?;
+            info!("Faucet {} imported.", pool.name);
+        }
 
         loop {
             let n_mints = self.rx.recv_many(&mut instructions, limit).await;
             for pool in self.config.liquidity_pools.iter() {
                 client.partial_sync_state(&pool.faucet_id).await?;
                 let mut notes = Vec::with_capacity(n_mints);
-
                 let instructions_for_faucet: Vec<FaucetMintInstruction> = instructions
                     .iter()
                     .filter_map(|i| {
