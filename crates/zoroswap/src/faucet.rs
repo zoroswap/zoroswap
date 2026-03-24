@@ -51,7 +51,7 @@ impl GuardedFaucet {
                 .recipients
                 .get(&(mint_instruction.account_id, mint_instruction.faucet_id))
                 .unwrap_or(&0);
-            let can_mint = (Utc::now().timestamp() as u64) - last_mint > 1;
+            let can_mint = (Utc::now().timestamp() as u64) - last_mint > 120_000;
             debug!(
                 "Faucet request for {} from faucet {}",
                 mint_instruction.account_id.to_hex(),
