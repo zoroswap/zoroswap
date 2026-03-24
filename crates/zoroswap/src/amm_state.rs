@@ -47,6 +47,9 @@ impl AmmState {
         let note = TrustedNote::from_note(note.clone())?;
         let order = Order::from_trusted_note(note.clone())?;
         let order_id = order.id;
+        if order.instructions.involves_faucets(&self.valid_faucets) {
+            return Err(anyhow!("Wrong faucet ids for order."));
+        }
         self.note_ids.insert(order_id, hex.clone());
         self.notes.insert(order_id, note);
         self.open_orders.insert(order_id, order);

@@ -1,8 +1,8 @@
-use std::{any::Any, fs::read_to_string, path::PathBuf, sync::OnceLock};
+use std::{collections::HashSet, fs::read_to_string, path::PathBuf, sync::OnceLock};
 
 use anyhow::{Result, anyhow};
 use base64::{Engine as _, engine::general_purpose};
-use chrono::{DateTime, TimeZone, Utc};
+use chrono::{TimeZone, Utc};
 use miden_client::{
     Felt, Word,
     account::AccountId,
@@ -368,6 +368,17 @@ impl NoteInstructions {
                 )
             }
         }
+    }
+
+    pub fn involves_faucets(&self, faucets: &HashSet<AccountId>) -> bool {
+        let faucets_involved = match self {
+            NoteInstructions::P2ID(i) => vec![i.asset_in],
+            NoteInstructions::Deposit(i) => vec![i.asset_in],
+            NoteInstructions::Withdraw(i) => vec![i.asset_out],
+            NoteInstructions::Swap(i) => vec![i.asset_in, i.asset_out],
+        };
+        let faucets_involved: HashSet<AccountId> = HashSet::from_iter(faucets_involved);
+        faucets_involved.is_subset(faucets)
     }
 }
 
