@@ -482,12 +482,7 @@ impl ZoroPool {
             .map_err(|e| anyhow::anyhow!("Failed to build batch transaction request: {}", e))?;
         self.miden_client
             .client_mut()
-            .execute_program(
-                *self.miden_account.id(),
-                tx.into(),
-                AdviceInputs::default(),
-                BTreeSet::new(),
-            )
+            .execute_transaction(*self.miden_account.id(), tx)
             .await?;
 
         Ok(())
