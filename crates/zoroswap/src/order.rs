@@ -1,6 +1,6 @@
 use anyhow::Result;
 use chrono::{DateTime, Utc};
-use miden_client::address::NetworkId;
+use miden_client::{address::NetworkId, note::NoteId};
 use tracing::info;
 use uuid::Uuid;
 use zoro_miden::note::{NoteInstructions, TrustedNote};
@@ -13,10 +13,12 @@ pub struct Order {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub instructions: NoteInstructions,
+    pub note_id: NoteId,
 }
 
 impl Order {
     pub fn from_trusted_note(note: TrustedNote) -> Result<Self> {
+        let note_id = note.note().id();
         let instructions = note.try_into()?;
         let now = Utc::now();
         Ok(Self {
@@ -24,6 +26,7 @@ impl Order {
             created_at: now,
             updated_at: now,
             instructions,
+            note_id,
         })
     }
 

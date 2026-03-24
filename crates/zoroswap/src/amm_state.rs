@@ -135,10 +135,10 @@ impl AmmState {
     }
 
     /// Clones a note without removing it from state.
-    pub fn get_note(&self, id: &Uuid) -> Result<TrustedNote> {
+    pub fn pluck_note(&self, id: &Uuid) -> Result<TrustedNote> {
         self.notes
-            .get(id)
-            .map(|n| n.clone())
+            .remove(id)
+            .map(|(_, n)| n)
             .ok_or(anyhow!("No note found for id {id} in state."))
     }
 
