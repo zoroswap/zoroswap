@@ -70,7 +70,7 @@ impl TradingEngine {
             // match & execute on the zoro pool
             let notes: Vec<TrustedNote> = orders
                 .iter()
-                .filter_map(|o| self.state.get_note(&o.id).ok())
+                .filter_map(|o| self.state.pluck_note(&o.id).ok())
                 .collect();
             let prices = self
                 .state
