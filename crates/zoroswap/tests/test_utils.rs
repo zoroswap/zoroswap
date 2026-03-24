@@ -37,7 +37,6 @@ impl E2ETestSetup {
             config.miden_endpoint.clone(),
             config.keystore_path,
             config.store_path,
-            None,
         )
         .await?;
         let keystore = FilesystemKeyStore::new(config.keystore_path.into())?;

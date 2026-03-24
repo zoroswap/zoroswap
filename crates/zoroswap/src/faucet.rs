@@ -13,7 +13,7 @@ use miden_client::{
 use std::{collections::HashMap, path::Path};
 use tokio::sync::mpsc::{Receiver, Sender};
 use tracing::error;
-use zoro_miden::client::MidenClient;
+use zoro_miden::{client::MidenClient, faucet::compile_mint_script};
 
 #[derive(Copy, Clone)]
 pub struct FaucetMintInstruction {
@@ -51,9 +51,7 @@ impl GuardedFaucet {
         let limit = 50;
         let amount = 10000000;
         let mut instructions = Vec::with_capacity(limit);
-        let masm_file_path = format!("{}/scripts/mint.masm", self.config.masm_path);
-        let masm_file = std::fs::read_to_string(Path::new(&masm_file_path))?;
-        let tx_script = CodeBuilder::new().compile_tx_script(masm_file)?;
+        let tx_script = compile_mint_script()?;
 
         loop {
             let n_mints = self.rx.recv_many(&mut instructions, limit).await;

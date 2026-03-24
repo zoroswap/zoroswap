@@ -1,11 +1,16 @@
+use std::path::PathBuf;
+
+use anyhow::Result;
 use miden_client::{
     ClientError, Felt,
     account::{
         Account, AccountBuilder, AccountStorageMode, AccountType, component::BasicFungibleFaucet,
     },
+    assembly::CodeBuilder,
     asset::TokenSymbol,
     auth::{AuthFalcon512Rpo, AuthSecretKey},
     keystore::FilesystemKeyStore,
+    transaction::TransactionScript,
 };
 use rand::RngCore;
 
@@ -42,4 +47,12 @@ pub async fn create_basic_faucet(
         .await?;
     keystore.add_key(&key_pair).unwrap();
     Ok(account)
+}
+
+pub fn compile_mint_script() -> Result<TransactionScript> {
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    let masm_file_path = PathBuf::from_iter(&[manifest_dir, "masm", "scripts", "mint.masm"]);
+    let masm_file = std::fs::read_to_string(masm_file_path)?;
+    let tx_script = CodeBuilder::new().compile_tx_script(masm_file)?;
+    Ok(tx_script)
 }
