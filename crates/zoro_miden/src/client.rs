@@ -1,4 +1,4 @@
-use std::{collections::BTreeSet, sync::Arc, time::Duration};
+use std::{collections::BTreeSet, fs, path::PathBuf, sync::Arc, time::Duration};
 
 use anyhow::Result;
 use miden_assembly::{
@@ -21,6 +21,7 @@ use miden_client::{
 use miden_client_sqlite_store::{ClientBuilderSqliteExt, SqliteStore};
 use tokio::time::sleep;
 use tracing::{debug, info, warn};
+use uuid::Uuid;
 
 use crate::note::{NoteKind, TrustedNote};
 
@@ -31,10 +32,10 @@ pub struct MidenClient {
 }
 
 impl MidenClient {
-    pub async fn new(endpoint: Endpoint, keystore_path: &str, store_path: &str) -> Result<Self> {
+    pub async fn new(endpoint: Endpoint, keystore_path: &str, store_dir: &str) -> Result<Self> {
         info!(
             keystore_path = keystore_path,
-            store_path = store_path,
+            store_dir= store_dir,
             endpoint = ?endpoint,
             "Creating a new Miden Client"
         );
@@ -45,18 +46,19 @@ impl MidenClient {
                 panic!("Failed to create keystore at {}: {err:?}", keystore_path)
             }),
         );
-
+        let name = format!("{:?}.sqlite3", Uuid::new_v4());
+        let store_path: PathBuf = [store_dir, &name].iter().collect();
         let mut client = ClientBuilder::new()
             .rpc(rpc_client.clone())
             .authenticator(keystore.clone())
-            .sqlite_store(store_path.into())
+            .sqlite_store(store_path.clone())
             .in_debug_mode(DebugMode::Enabled)
             .build()
             .await?;
         client.ensure_genesis_in_place().await?;
         client.sync_state().await?;
 
-        let sqlite_store = Arc::new(SqliteStore::new(store_path.into()).await?);
+        let sqlite_store = Arc::new(SqliteStore::new(store_path).await?);
         let note_screener = NoteScreener::new(sqlite_store);
         let state_sync = StateSync::new(rpc_client, Arc::new(note_screener), None);
         Ok(Self {
@@ -364,17 +366,11 @@ pub fn print_contract_procedures(pool_contract: &Account) {
 // Store Management
 // --------------------------------------------------------------------------
 
-/// Deletes the SQLite client store file.
-///
-/// Useful for cleaning up test environments or resetting client state.
-pub async fn delete_client_store(store_path: &str) {
-    if tokio::fs::metadata(store_path).await.is_ok() {
-        if let Err(e) = tokio::fs::remove_file(store_path).await {
-            warn!("Failed to remove {}: {}", store_path, e);
-        } else {
-            info!("Cleared sqlite store: {}", store_path);
-        }
-    } else {
-        debug!("Store not found for deleting: {}", store_path);
+pub async fn delete_client_store(store_dir: &str) {
+    if let Err(e) = fs::remove_dir_all(store_dir) {
+        warn!(e = ?e, "Warning on removing store dir");
+    }
+    if let Err(e) = fs::create_dir_all(store_dir) {
+        warn!(e = ?e, "Warning on creating store dir");
     }
 }

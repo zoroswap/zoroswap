@@ -30,8 +30,8 @@ struct Args {
     keystore_path: String,
 
     /// Path to the SQLite store file
-    #[arg(short, long, default_value = "./store.sqlite3")]
-    store_path: String,
+    #[arg(short, long, default_value = "./stores")]
+    store_dir: String,
 }
 
 #[tokio::main]
@@ -49,15 +49,10 @@ async fn main() -> Result<()> {
     dotenv().ok();
 
     // Initialize client
-    let config = Config::from_config_file(
-        &args.config,
-        &args.masm_path,
-        &args.keystore_path,
-        &args.store_path,
-    )?;
+    let config = Config::from_config_file(&args.config, &args.keystore_path, &args.store_dir)?;
     let endpoint = config.miden_endpoint;
     let mut miden_client =
-        MidenClient::new(endpoint.clone(), &args.keystore_path, &args.store_path).await?;
+        MidenClient::new(endpoint.clone(), &args.keystore_path, &args.store_dir).await?;
 
     miden_client.sync_state().await?;
     println!("\n[STEP 1] Create zoro_pool account");
@@ -66,7 +61,7 @@ async fn main() -> Result<()> {
         config.liquidity_pools.clone(),
         endpoint.clone(),
         config.keystore_path,
-        config.store_path,
+        config.store_dir,
     )
     .await?;
     let acc = zoro_pool.miden_account_mut().account().await?;
@@ -76,6 +71,7 @@ async fn main() -> Result<()> {
     let amount = 1000000000;
     let lp_account = MidenAccount::deploy_new(&mut miden_client, config.keystore_path).await?;
     for pool in config.liquidity_pools.iter() {
+        miden_client.import_account(&pool.faucet_id).await?;
         let amount = amount * 10_u64.pow(pool.decimals as u32);
         miden_client
             .mint_asset(pool.faucet_id, *lp_account.id(), amount)

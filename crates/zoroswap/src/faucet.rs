@@ -4,13 +4,12 @@ use chrono::Utc;
 use miden_client::{
     Felt,
     account::AccountId,
-    assembly::CodeBuilder,
     asset::{Asset, FungibleAsset},
     crypto::Rpo256,
     note::{Note, NoteAttachment, NoteType, create_p2id_note},
     transaction::{TransactionRequest, TransactionRequestBuilder, TransactionScript},
 };
-use std::{collections::HashMap, path::Path};
+use std::collections::HashMap;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tracing::{error, info};
 use zoro_miden::{client::MidenClient, faucet::compile_mint_script};
@@ -45,7 +44,7 @@ impl GuardedFaucet {
         let mut client = MidenClient::new(
             self.config.miden_endpoint.clone(),
             self.config.keystore_path,
-            self.config.store_path,
+            self.config.store_dir,
         )
         .await?;
         let limit = 50;

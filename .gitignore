@@ -9,3 +9,5 @@ faucets.toml
 .DS_Store*
 store.sqlite3-wal
 store.sqlite3-shm
+stores/*
+testing_stores/*

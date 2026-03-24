@@ -22,15 +22,14 @@ async fn e2e_private_deposit_withdraw() -> Result<()> {
         .init();
 
     println!("\n\t[STEP 0] Init client and config\n");
-    let store_path = "../../private_test_store.sqlite3";
-    let _ = std::fs::remove_file(store_path);
+    let store_dir = "./testing_stores";
     let E2ETestSetup {
         config,
         client: mut miden_client,
         keystore: _,
         mut zoro_pool,
         prices: _,
-    } = E2ETestSetup::new(store_path).await?;
+    } = E2ETestSetup::new(store_dir).await?;
     let mut account = MidenAccount::deploy_new(&mut miden_client, config.keystore_path).await?;
     let pool = config.liquidity_pools[0];
 

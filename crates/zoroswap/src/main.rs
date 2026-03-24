@@ -45,8 +45,8 @@ struct Args {
     keystore_path: String,
 
     /// Path to the SQLite store file
-    #[arg(short, long, default_value = "./store.sqlite3")]
-    store_path: String,
+    #[arg(short, long, default_value = "./stores")]
+    store_dir: String,
 }
 
 fn main() {
@@ -62,15 +62,10 @@ fn main() {
     match runtime.block_on(async {
         info!("[INIT] Parsing config");
         info!("Deleting old sqlite3 store");
-        delete_client_store(&args.store_path).await;
+        delete_client_store(&args.store_dir).await;
 
-        let config = Config::from_config_file(
-            &args.config,
-            &args.masm_path,
-            &args.keystore_path,
-            &args.store_path,
-        )
-        .map_err(|e| e.to_string())?;
+        let config = Config::from_config_file(&args.config, &args.keystore_path, &args.store_dir)
+            .map_err(|e| e.to_string())?;
         info!(
             "[INFO] Pool information\n\n\tpool_id: {}",
             config.pool_account_id.to_bech32(config.network_id.clone()),

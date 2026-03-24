@@ -35,7 +35,7 @@ impl NotesListener {
         let mut miden_client = MidenClient::new(
             config.miden_endpoint,
             config.keystore_path,
-            config.store_path,
+            config.store_dir,
         )
         .await?;
         miden_client

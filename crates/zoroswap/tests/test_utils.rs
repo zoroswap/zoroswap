@@ -18,15 +18,10 @@ pub struct E2ETestSetup {
 }
 
 impl E2ETestSetup {
-    pub async fn new(store_path: &str) -> Result<Self> {
+    pub async fn new(store_dir: &str) -> Result<Self> {
         dotenv::dotenv().ok();
 
-        let config = Config::from_config_file(
-            "../../config.toml",
-            "../../masm",
-            "../../keystore",
-            store_path,
-        )?;
+        let config = Config::from_config_file("../../config.toml", "../../keystore", store_dir)?;
 
         assert!(
             config.liquidity_pools.len() > 1,
@@ -36,7 +31,7 @@ impl E2ETestSetup {
         let mut client = MidenClient::new(
             config.miden_endpoint.clone(),
             config.keystore_path,
-            config.store_path,
+            config.store_dir,
         )
         .await?;
         let keystore = FilesystemKeyStore::new(config.keystore_path.into())?;
@@ -44,7 +39,7 @@ impl E2ETestSetup {
         let zoro_pool = ZoroPool::new_from_existing_pool(
             config.miden_endpoint.clone(),
             config.keystore_path,
-            config.store_path,
+            config.store_dir,
             &config.pool_account_id,
             config.liquidity_pools.clone(),
         )

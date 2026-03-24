@@ -70,7 +70,7 @@ async fn main() -> Result<()> {
     };
 
     let mut miden_client =
-        MidenClient::new(miden_endpoint.clone(), &args.keystore_path, "store.sqlite3").await?;
+        MidenClient::new(miden_endpoint.clone(), &args.keystore_path, "stores/").await?;
 
     miden_client.sync_state().await?;
     let keystore: FilesystemKeyStore = FilesystemKeyStore::new(args.keystore_path.into())
