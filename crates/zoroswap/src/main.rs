@@ -5,7 +5,6 @@ mod notes_listener;
 mod oracle_sse;
 mod order;
 mod server;
-mod sqlite;
 mod trading_engine;
 mod websocket;
 
