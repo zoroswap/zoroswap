@@ -59,7 +59,7 @@ impl GuardedFaucet {
         loop {
             let n_mints = self.rx.recv_many(&mut instructions, limit).await;
             for pool in self.config.liquidity_pools.iter() {
-                client.partial_sync_state(&pool.faucet_id).await?;
+                client.sync_state().await?;
                 let mut notes = Vec::with_capacity(n_mints);
                 let instructions_for_faucet: Vec<FaucetMintInstruction> = instructions
                     .iter()
