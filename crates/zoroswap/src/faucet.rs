@@ -11,7 +11,7 @@ use miden_client::{
 };
 use std::collections::HashMap;
 use tokio::sync::mpsc::{Receiver, Sender};
-use tracing::{error, info};
+use tracing::{error, info, warn};
 use zoro_miden::{client::MidenClient, faucet::compile_mint_script};
 
 #[derive(Copy, Clone)]
@@ -78,6 +78,12 @@ impl GuardedFaucet {
                         .unwrap_or(&0);
                     let can_mint = (Utc::now().timestamp() as u64) - last_mint > 120;
                     if can_mint
+                        && let Err(e) = client
+                            .partial_sync_state(&mint_instruction.account_id)
+                            .await
+                    {
+                        warn!(error = ?e,"Error partially syncing acc into faucet");
+                    } else if can_mint
                         && let Ok(note) = GuardedFaucet::create_p2id_from_instruction(
                             *mint_instruction,
                             amount,
