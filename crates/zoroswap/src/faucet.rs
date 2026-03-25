@@ -77,6 +77,17 @@ impl GuardedFaucet {
                         .get(&(mint_instruction.account_id, mint_instruction.faucet_id))
                         .unwrap_or(&0);
                     let can_mint = (Utc::now().timestamp() as u64) - last_mint > 120;
+                    if can_mint {
+                        info!(
+                            faucet_id = mint_instruction
+                                .faucet_id
+                                .to_bech32(self.config.network_id.clone()),
+                            minter = mint_instruction
+                                .account_id
+                                .to_bech32(self.config.network_id.clone()),
+                            "Minting"
+                        );
+                    }
                     if can_mint
                         && let Ok(note) = GuardedFaucet::create_p2id_from_instruction(
                             *mint_instruction,
