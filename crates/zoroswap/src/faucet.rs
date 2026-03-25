@@ -71,32 +71,29 @@ impl GuardedFaucet {
                         }
                     })
                     .collect();
+                let now = Utc::now().timestamp() as u64;
+
                 for mint_instruction in instructions_for_faucet.iter() {
-                    let last_mint = self
-                        .recipients
-                        .get(&(mint_instruction.account_id, mint_instruction.faucet_id))
-                        .unwrap_or(&0);
-                    let can_mint = (Utc::now().timestamp() as u64) - last_mint > 120;
+                    let minter_id = mint_instruction.account_id;
+                    let faucet_id = mint_instruction.faucet_id;
+                    let last_mint = self.recipients.get(&(minter_id, faucet_id)).unwrap_or(&0);
+                    let can_mint = now - last_mint > 120;
                     if can_mint {
                         info!(
-                            faucet_id = mint_instruction
-                                .faucet_id
-                                .to_bech32(self.config.network_id.clone()),
-                            minter = mint_instruction
-                                .account_id
-                                .to_bech32(self.config.network_id.clone()),
+                            faucet_id = faucet_id.to_bech32(self.config.network_id.clone()),
+                            minter = minter_id.to_bech32(self.config.network_id.clone()),
                             "Minting"
                         );
-                    }
-                    if can_mint
-                        && let Ok(note) = GuardedFaucet::create_p2id_from_instruction(
+                        if let Ok(note) = GuardedFaucet::create_p2id_from_instruction(
                             *mint_instruction,
                             amount,
                             &mut client,
                         )
                         .await
-                    {
-                        notes.push(note)
+                        {
+                            notes.push(note);
+                            self.recipients.insert((minter_id, faucet_id), now);
+                        }
                     }
                 }
                 if !notes.is_empty()
