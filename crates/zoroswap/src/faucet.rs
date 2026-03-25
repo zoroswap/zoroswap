@@ -11,7 +11,7 @@ use miden_client::{
 };
 use std::collections::HashMap;
 use tokio::sync::mpsc::{Receiver, Sender};
-use tracing::{error, info, warn};
+use tracing::{error, info};
 use zoro_miden::{client::MidenClient, faucet::compile_mint_script};
 
 #[derive(Copy, Clone)]
@@ -54,6 +54,7 @@ impl GuardedFaucet {
         for pool in self.config.liquidity_pools.iter() {
             client.import_account(&pool.faucet_id).await?;
             info!("Faucet {} imported.", pool.name);
+            let account = client.get_account(account_id).await?;
         }
 
         loop {
@@ -78,15 +79,6 @@ impl GuardedFaucet {
                         .unwrap_or(&0);
                     let can_mint = (Utc::now().timestamp() as u64) - last_mint > 120;
                     if can_mint
-                        && let Err(e) = client.import_account(&mint_instruction.account_id).await
-                    {
-                        warn!(error = ?e,"Error importing acc into faucet");
-                    } else if let Err(e) = client
-                        .partial_sync_state(&mint_instruction.account_id)
-                        .await
-                    {
-                        warn!(error = ?e,"Error partially syncing acc into faucet");
-                    } else if can_mint
                         && let Ok(note) = GuardedFaucet::create_p2id_from_instruction(
                             *mint_instruction,
                             amount,
@@ -97,15 +89,20 @@ impl GuardedFaucet {
                         notes.push(note)
                     }
                 }
-                if let Ok(tx_req) = Self::create_transaction(&notes, tx_script.clone()) {
-                    if let Err(e) = client
+                if !notes.is_empty()
+                    && let Ok(tx_req) = Self::create_transaction(&notes, tx_script.clone())
+                {
+                    match client
                         .client_mut()
                         .submit_new_transaction(pool.faucet_id, tx_req)
                         .await
                     {
-                        error!(error = ?e, "Error on submiting mint tx");
-                    } else {
-                        client.partial_sync_state(&pool.faucet_id).await?;
+                        Err(e) => {
+                            error!(error = ?e, pool = pool.name, "Error on submiting mint tx");
+                        }
+                        Ok(tx) => {
+                            info!(tx = tx.to_hex(), pool = pool.name, "New faucet mint")
+                        }
                     }
                 }
             }
