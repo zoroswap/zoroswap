@@ -54,7 +54,6 @@ impl GuardedFaucet {
         for pool in self.config.liquidity_pools.iter() {
             client.import_account(&pool.faucet_id).await?;
             info!("Faucet {} imported.", pool.name);
-            let account = client.get_account(account_id).await?;
         }
 
         loop {
