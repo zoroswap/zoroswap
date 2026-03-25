@@ -371,18 +371,18 @@ impl ZoroPool {
             } = execution_details;
 
             // Import the account if unknown
-            if let Some(counterparty_account) = counterparty_account
-                && let Ok(acc_query) = self
-                    .miden_client
-                    .client()
-                    .get_account(counterparty_account)
-                    .await
-                && acc_query.is_none()
-            {
-                self.miden_client
-                    .import_account(&counterparty_account)
-                    .await?;
-            }
+            // if let Some(counterparty_account) = counterparty_account
+            //     && let Ok(acc_query) = self
+            //         .miden_client
+            //         .client()
+            //         .get_account(counterparty_account)
+            //         .await
+            //     && acc_query.is_none()
+            // {
+            //     self.miden_client
+            //         .import_account(&counterparty_account)
+            //         .await?;
+            // }
             // Simulate execution first to avoid poisoned notes
             if let Err(e) = self.simulate_note_execution(&local_simulation_clone).await {
                 warn!(
