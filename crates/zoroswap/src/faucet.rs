@@ -78,9 +78,12 @@ impl GuardedFaucet {
                         .unwrap_or(&0);
                     let can_mint = (Utc::now().timestamp() as u64) - last_mint > 120;
                     if can_mint
-                        && let Err(e) = client
-                            .partial_sync_state(&mint_instruction.account_id)
-                            .await
+                        && let Err(e) = client.import_account(&mint_instruction.account_id).await
+                    {
+                        warn!(error = ?e,"Error importing acc into faucet");
+                    } else if let Err(e) = client
+                        .partial_sync_state(&mint_instruction.account_id)
+                        .await
                     {
                         warn!(error = ?e,"Error partially syncing acc into faucet");
                     } else if can_mint
