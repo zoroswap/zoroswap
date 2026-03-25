@@ -22,7 +22,7 @@ async fn e2e_private_deposit_withdraw() -> Result<()> {
         .init();
 
     println!("\n\t[STEP 0] Init client and config\n");
-    let store_dir = "./testing_stores";
+    let store_dir = "../../testing_stores";
     let E2ETestSetup {
         config,
         client: mut miden_client,

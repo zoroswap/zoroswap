@@ -21,8 +21,8 @@ async fn e2e_private_note() -> Result<()> {
         .init();
 
     println!("\n\t[STEP 0] Init client and config\n");
-    let store_dir = "./testing_stores";
-    let _ = std::fs::remove_file(store_dir);
+    let store_dir = "../../testing_stores";
+    // let _ = std::fs::remove_file(store_dir);
     let E2ETestSetup {
         config,
         client: mut miden_client,

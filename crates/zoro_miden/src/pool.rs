@@ -26,7 +26,7 @@ use miden_client::{
 };
 use rand::RngCore;
 use tokio::time::sleep;
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 
 use crate::{
     account::MidenAccount,
