@@ -47,7 +47,7 @@ impl GuardedFaucet {
             self.config.store_dir,
         )
         .await?;
-        let limit = 50;
+        let limit = 30;
         let amount = 10000000;
         let mut instructions = Vec::with_capacity(limit);
         let tx_script = compile_mint_script()?;
@@ -57,6 +57,7 @@ impl GuardedFaucet {
         }
 
         loop {
+            instructions.clear();
             let n_mints = self.rx.recv_many(&mut instructions, limit).await;
             for pool in self.config.liquidity_pools.iter() {
                 client.sync_state().await?;
@@ -77,7 +78,7 @@ impl GuardedFaucet {
                     let minter_id = mint_instruction.account_id;
                     let faucet_id = mint_instruction.faucet_id;
                     let last_mint = self.recipients.get(&(minter_id, faucet_id)).unwrap_or(&0);
-                    let can_mint = now - last_mint > 120;
+                    let can_mint = now - last_mint > 240;
                     if can_mint {
                         info!(
                             faucet_id = faucet_id.to_bech32(self.config.network_id.clone()),
