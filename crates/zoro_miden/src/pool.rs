@@ -681,17 +681,32 @@ impl ZoroPool {
                 };
 
                 let advice_map_value = vec![
-                    Felt::new(pool_state_base.balances().total_liabilities.to::<u64>()),
-                    Felt::new(pool_state_base.balances().reserve.to::<u64>()),
-                    Felt::new(pool_state_base.balances().reserve_with_slippage.to::<u64>()),
+                    Felt::new(
+                        pool_state_base
+                            .balances()
+                            .total_liabilities
+                            .saturating_to::<u64>(),
+                    ),
+                    Felt::new(pool_state_base.balances().reserve.saturating_to::<u64>()),
+                    Felt::new(
+                        pool_state_base
+                            .balances()
+                            .reserve_with_slippage
+                            .saturating_to::<u64>(),
+                    ),
                     Felt::new(amount_out),
-                    Felt::new(pool_state_quote.balances().total_liabilities.to::<u64>()),
-                    Felt::new(pool_state_quote.balances().reserve.to::<u64>()),
+                    Felt::new(
+                        pool_state_quote
+                            .balances()
+                            .total_liabilities
+                            .saturating_to::<u64>(),
+                    ),
+                    Felt::new(pool_state_quote.balances().reserve.saturating_to::<u64>()),
                     Felt::new(
                         pool_state_quote
                             .balances()
                             .reserve_with_slippage
-                            .to::<u64>(),
+                            .saturating_to::<u64>(),
                     ),
                     Felt::new(0),
                 ];
