@@ -1,12 +1,19 @@
 use anyhow::Result;
+use chrono::Utc;
 use clap::Parser;
 use dotenv::dotenv;
 use miden_client::{
-    account::AccountId, asset::FungibleAsset, note::NoteType,
+    account::AccountId,
+    asset::FungibleAsset,
+    note::{NoteTag, NoteType},
     transaction::TransactionRequestBuilder,
 };
 use tracing_subscriber::EnvFilter;
-use zoro_miden::client::MidenClient;
+use zoro_miden::{
+    account::MidenAccount,
+    client::MidenClient,
+    note::{DepositInstructions, NoteInstructions, TrustedNote},
+};
 use zoroswap::Config;
 
 #[derive(Parser, Debug)]
@@ -56,14 +63,16 @@ async fn main() -> Result<()> {
 
     miden_client.sync_state().await?;
     let faucet_id = AccountId::from_bech32(&args.faucet)?;
+    let lp_account = MidenAccount::deploy_new(&mut miden_client, config.keystore_path).await?;
 
     miden_client.import_account(&faucet_id.1).await?;
+    miden_client.import_account(lp_account.id()).await?;
     miden_client.import_account(&config.pool_account_id).await?;
 
     let fungible_asset = FungibleAsset::new(faucet_id.1, args.amount)?;
     let transaction_request = TransactionRequestBuilder::new().build_mint_fungible_asset(
         fungible_asset,
-        config.pool_account_id,
+        *lp_account.id(),
         NoteType::Public,
         miden_client.client_mut().rng(),
     )?;
@@ -86,13 +95,38 @@ async fn main() -> Result<()> {
     // Create transaction and submit it to consume notes
     let consume_tx_id = miden_client
         .client_mut()
-        .submit_new_transaction(config.pool_account_id, consume_tx_request)
+        .submit_new_transaction(*lp_account.id(), consume_tx_request)
         .await?;
 
     println!(
         "Consume transaction submitted successfully, ID: {:?}",
         consume_tx_id.to_hex()
     );
+
+    let mut notes = Vec::new();
+    for pool in config.liquidity_pools.iter() {
+        println!("liq pool: {:?}", pool.name);
+        let max_slippage = 0.5; // 0.5 %
+        let min_lp_amount_out = ((args.amount as f64) * (1.0 - max_slippage)) as u64;
+        let deposit_note = TrustedNote::new(NoteInstructions::Deposit(DepositInstructions {
+            asset_in: pool.faucet_id,
+            amount_in: args.amount,
+            min_lp_amount_out,
+            creator: *lp_account.id(),
+            note_type: NoteType::Private,
+            deadline: (Utc::now().timestamp_millis() + 120_000) as u64,
+            p2id_tag: lp_account.tag(),
+            pool_tag: NoteTag::with_account_target(config.pool_account_id),
+        }))?;
+        miden_client
+            .send_note(
+                lp_account.id(),
+                &config.pool_account_id,
+                deposit_note.clone(),
+            )
+            .await?;
+        notes.push(deposit_note);
+    }
 
     miden_client.sync_state().await?;
     Ok(())
