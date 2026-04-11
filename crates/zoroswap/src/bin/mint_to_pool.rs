@@ -79,7 +79,7 @@ async fn main() -> Result<()> {
         amount_in: args.amount,
         min_lp_amount_out,
         creator: *lp_account.id(),
-        note_type: NoteType::Private,
+        note_type: NoteType::Public,
         deadline: (Utc::now().timestamp_millis() + 120_000) as u64,
         p2id_tag: lp_account.tag(),
         pool_tag: NoteTag::with_account_target(config.pool_account_id),
