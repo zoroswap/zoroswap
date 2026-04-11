@@ -64,8 +64,7 @@ async fn main() -> Result<()> {
 
     miden_client.import_account(&faucet_id.1).await?;
 
-    let amount: u64 = 1000;
-    let fungible_asset = FungibleAsset::new(faucet_id.1, amount)?;
+    let fungible_asset = FungibleAsset::new(faucet_id.1, args.amount)?;
     let transaction_request = TransactionRequestBuilder::new().build_mint_fungible_asset(
         fungible_asset,
         target_id.1,

@@ -110,7 +110,7 @@ where target and faucet ids are in bech32 form and amount is the raw amount of t
 Similarly
 
 ```sh
-cargo run --release --bin mint_to_pool -- --target mtst1aq8m694fvkqvxyqx9jv2rryu0ca7gg2n --faucet mtst1arsgfczpjauh7gqt89gxxe3jkvmut2pe --amount 1000
+cargo run --release --bin mint_to_pool -- --faucet mtst1arsgfczpjauh7gqt89gxxe3jkvmut2pe --amount 1000
 ```
 
 will mint directly to pool (and consume on it).

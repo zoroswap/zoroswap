@@ -25,10 +25,6 @@ struct Args {
     #[arg(short, long, default_value = "./stores")]
     store_dir: String,
 
-    /// target id
-    #[arg(short, long, required = true, help = "Target id in bech32")]
-    target: String,
-
     /// faucet id
     #[arg(short, long, required = true, help = "Faucet id in bech32")]
     faucet: String,
@@ -60,16 +56,14 @@ async fn main() -> Result<()> {
 
     miden_client.sync_state().await?;
     let faucet_id = AccountId::from_bech32(&args.faucet)?;
-    let target_id = AccountId::from_bech32(&args.target)?;
 
     miden_client.import_account(&faucet_id.1).await?;
     miden_client.import_account(&config.pool_account_id).await?;
 
-    let amount: u64 = 1000;
-    let fungible_asset = FungibleAsset::new(faucet_id.1, amount)?;
+    let fungible_asset = FungibleAsset::new(faucet_id.1, args.amount)?;
     let transaction_request = TransactionRequestBuilder::new().build_mint_fungible_asset(
         fungible_asset,
-        target_id.1,
+        config.pool_account_id,
         NoteType::Public,
         miden_client.client_mut().rng(),
     )?;
