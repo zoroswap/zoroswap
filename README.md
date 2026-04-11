@@ -95,6 +95,18 @@ cargo run --release --bin spawn_faucets
 
 It create faucets defined in `faucets.toml` and print out their faucet ids. Put them in corresponding entries `faucet_id` under `[[liquidity_pools]]` section in `config.toml` file.
 
+#### Manual minting
+
+We expose a simple program to mint from the faucets you have spawned
+
+Simply run:
+
+```sh
+cargo run --release --bin mint -- --target mtst1aq8m694fvkqvxyqx9jv2rryu0ca7gg2n --faucet mtst1arsgfczpjauh7gqt89gxxe3jkvmut2pe --amount 1000
+```
+
+where target and faucet ids are in bech32 form and amount is the raw amount of tokens.
+
 ### 2. Spawn pool
 
 ```sh
