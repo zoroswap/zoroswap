@@ -21,7 +21,7 @@ use miden_client::{
     note::{Note, NoteDetails, NoteId, NoteRecipient, NoteTag},
     rpc::Endpoint,
     store::AccountRecordData,
-    transaction::{TransactionKernel, TransactionRequestBuilder, TransactionResult},
+    transaction::{TransactionKernel, TransactionRequestBuilder},
     vm::AdviceMap,
 };
 use rand::RngCore;
@@ -354,7 +354,6 @@ impl ZoroPool {
 
         let mut results: Vec<(NoteId, ExecutionResult)> = Vec::with_capacity(notes.len());
         for note in notes {
-            let start = Instant::now();
             let note_id = note.note().id();
             let execution_details =
                 self.prepare_note_execution_details(note, &pool_states, &prices)?;
@@ -440,8 +439,8 @@ impl ZoroPool {
         let tx_id = self
             .miden_client
             .client_mut()
-            // .submit_new_transaction(*self.miden_account.id(), consume_req)
-            .execute_transaction(*self.miden_account.id(), consume_req)
+            .submit_new_transaction(*self.miden_account.id(), consume_req)
+            // .execute_transaction(*self.miden_account.id(), consume_req)
             .await
             .map_err(|e| {
                 error!(
@@ -456,7 +455,7 @@ impl ZoroPool {
                 e
             })?;
         info!(len_notes = len_input_notes, time_elapsed= ?start.elapsed(), "Executed notes");
-        // MidenClient::print_transaction_info(&tx_id);
+        MidenClient::print_transaction_info(&tx_id);
         self.miden_client.sync_state().await?;
         self.pool_states = pool_states;
         self.print_pool_states();
