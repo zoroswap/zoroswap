@@ -7,12 +7,12 @@ use miden_client::{
     Felt,
     account::{AccountBuilder, AccountStorageMode, AccountType},
     asset::TokenSymbol,
-    auth::AuthSecretKey,
-    keystore::FilesystemKeyStore,
+    auth::{AuthScheme, AuthSecretKey, AuthSingleSig},
+    keystore::{FilesystemKeyStore, Keystore},
     rpc::Endpoint,
     transaction::TransactionRequestBuilder,
 };
-use miden_standards::account::{auth::AuthFalcon512Rpo, faucets::BasicFungibleFaucet};
+use miden_standards::account::faucets::BasicFungibleFaucet;
 use rand::RngCore;
 use serde::Deserialize;
 use tracing_subscriber::EnvFilter;
@@ -78,7 +78,7 @@ async fn main() -> Result<()> {
 
     println!("\nDeploying a new fungible faucet.");
     // Generate key pair
-    let key_pair = AuthSecretKey::new_falcon512_rpo_with_rng(miden_client.client_mut().rng());
+    let key_pair = AuthSecretKey::new_falcon512_poseidon2_with_rng(miden_client.client_mut().rng());
     for faucet in faucets {
         // Faucet parameters
         let symbol = TokenSymbol::new(&faucet.symbol)
@@ -94,7 +94,10 @@ async fn main() -> Result<()> {
         let builder = AccountBuilder::new(init_seed)
             .account_type(AccountType::FungibleFaucet)
             .storage_mode(AccountStorageMode::Public)
-            .with_auth_component(AuthFalcon512Rpo::new(key_pair.public_key().to_commitment()))
+            .with_auth_component(AuthSingleSig::new(
+                key_pair.public_key().to_commitment(),
+                AuthScheme::Falcon512Poseidon2,
+            ))
             .with_component(
                 BasicFungibleFaucet::new(symbol, decimals, max_supply)
                     .unwrap_or_else(|err| panic!("Failed to create BasicFungibleFaucet: {err:?}")),
@@ -111,9 +114,7 @@ async fn main() -> Result<()> {
             .await?;
 
         // Add the key pair to the keystore
-        keystore
-            .add_key(&key_pair)
-            .unwrap_or_else(|err| panic!("Failed to add key to keystore: {err:?}"));
+        keystore.add_key(&key_pair, faucet_account.id()).await?;
 
         println!(
             "Faucet account ID ({}): {:?}",

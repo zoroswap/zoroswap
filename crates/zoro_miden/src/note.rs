@@ -10,16 +10,13 @@ use miden_client::{
     assembly::CodeBuilder,
     asset::{Asset, FungibleAsset},
     note::{
-        Note, NoteAssets, NoteInputs, NoteMetadata, NoteRecipient, NoteTag, NoteType,
-        WellKnownNote, build_p2id_recipient,
+        Note, NoteAssets, NoteMetadata, NoteRecipient, NoteStorage, NoteTag, NoteType,
     },
     store::InputNoteRecord,
     transaction::TransactionKernel,
+    Deserializable, Serializable,
 };
-use miden_protocol::{
-    crypto::rand::Randomizable,
-    utils::{Deserializable, Serializable},
-};
+use miden_standards::note::{P2idNoteStorage, StandardNote};
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use tracing::info;
 
@@ -89,7 +86,7 @@ impl TrustedNote {
         } else {
             Self::random_word()
         }?;
-        let recipient = build_p2id_recipient(target, serial_number)?;
+        let recipient = P2idNoteStorage::new(target).into_recipient(serial_number);
         let note = Note::new(note_elements.assets, note_elements.metadata, recipient);
         Ok(TrustedNote {
             note,
@@ -216,18 +213,14 @@ impl TrustedNote {
     }
 
     pub fn random_word() -> Result<Word> {
-        let mut seed = [0; 32];
-        // default from os to get initial seed
-        let mut std_rng = StdRng::from_os_rng();
-        std_rng.fill(&mut seed);
-        // regenerate with a seed
-        // TODO: maybe not needed?
-        let mut rng = StdRng::from_seed(seed);
-        let mut seed = [0u8; 32];
-        rng.fill(&mut seed);
-        let random_word = Word::from_random_bytes(&seed)
-            .ok_or(anyhow!("Error generating new word, no word was produced"))?;
-        Ok(random_word)
+        let mut rng = StdRng::from_os_rng();
+        let felts = [
+            Felt::new(rng.random::<u64>() >> 1),
+            Felt::new(rng.random::<u64>() >> 1),
+            Felt::new(rng.random::<u64>() >> 1),
+            Felt::new(rng.random::<u64>() >> 1),
+        ];
+        Ok(Word::new(felts))
     }
 }
 
@@ -244,7 +237,7 @@ impl NoteRoots {
             deposit: get_script_root_for_local_script("DEPOSIT.masm")?,
             withdraw: get_script_root_for_local_script("WITHDRAW.masm")?,
             swap: get_script_root_for_local_script("ZOROSWAP.masm")?,
-            p2id: WellKnownNote::P2ID.script_root(),
+            p2id: StandardNote::P2ID.script_root(),
         })
     }
 
@@ -466,15 +459,15 @@ impl TryFrom<TrustedNote> for NoteInstructions {
                 if !asset_in.is_fungible() {
                     return Err(anyhow!("Note has no fungible assets!"));
                 }
-                let vals = note.note().inputs().values();
+                let vals = note.note().storage().items();
                 let asset_in = asset_in.unwrap_fungible();
-                let min_lp_amount_out: u64 = vals[0].into();
-                let deadline: u64 = vals[1].into();
-                let p2id_tag: u64 = vals[2].into();
-                let creator_prefix = vals[7];
+                let min_lp_amount_out: u64 = vals[0].as_canonical_u64();
+                let deadline: u64 = vals[1].as_canonical_u64();
+                let p2id_tag: u64 = vals[2].as_canonical_u64();
                 let creator_suffix = vals[6];
-                let creator = AccountId::try_from([creator_prefix, creator_suffix])
-                    .or(Err(anyhow!("Couldn't parse creator_id from order note")))?;
+                let creator_prefix = vals[7];
+                let creator = AccountId::try_from_elements(creator_suffix, creator_prefix)
+                    .map_err(|_| anyhow!("Couldn't parse creator_id from order note"))?;
                 Ok(Self::Deposit(DepositInstructions {
                     asset_in: asset_in.faucet_id(),
                     amount_in: asset_in.amount(),
@@ -487,16 +480,16 @@ impl TryFrom<TrustedNote> for NoteInstructions {
                 }))
             }
             NoteKind::Withdraw => {
-                let vals = note.note().inputs().values();
-                let requested_asset_out_id = AccountId::try_from([vals[3], vals[2]])?;
-                let asset_out = FungibleAsset::new(requested_asset_out_id, vals[0].as_int())?;
-                let lp_withdraw_amount: u64 = vals[5].into();
-                let deadline: u64 = vals[6].into();
-                let p2id_tag: u64 = vals[7].into();
-                let creator_prefix = vals[11];
+                let vals = note.note().storage().items();
+                let requested_asset_out_id = AccountId::try_from_elements(vals[2], vals[3])?;
+                let asset_out = FungibleAsset::new(requested_asset_out_id, vals[0].as_canonical_u64())?;
+                let lp_withdraw_amount: u64 = vals[5].as_canonical_u64();
+                let deadline: u64 = vals[6].as_canonical_u64();
+                let p2id_tag: u64 = vals[7].as_canonical_u64();
                 let creator_suffix = vals[10];
-                let creator = AccountId::try_from([creator_prefix, creator_suffix])
-                    .or(Err(anyhow!("Couldn't parse creator_id from order note")))?;
+                let creator_prefix = vals[11];
+                let creator = AccountId::try_from_elements(creator_suffix, creator_prefix)
+                    .map_err(|_| anyhow!("Couldn't parse creator_id from order note"))?;
 
                 Ok(Self::Withdraw(WithdrawInstructions {
                     asset_out: asset_out.faucet_id(),
@@ -520,24 +513,24 @@ impl TryFrom<TrustedNote> for NoteInstructions {
                     return Err(anyhow!("Note has no fungible assets!"));
                 }
                 let asset_in = asset_in.unwrap_fungible();
-                let vals: &[Felt] = note.note().inputs().values();
+                let vals: &[Felt] = note.note().storage().items();
                 let requested: &[Felt] = vals
                     .get(..4)
                     .ok_or(anyhow!("note has fewer than 4 inputs"))?;
-                let requested_asset_out_id = AccountId::try_from([requested[3], requested[2]])?;
-                let asset_out = FungibleAsset::new(requested_asset_out_id, requested[0].as_int())?;
-                let deadline: u64 = vals[4].into();
-                let p2id_tag: u64 = vals[5].into();
-                let beneficiary_prefix = vals[9];
+                let requested_asset_out_id = AccountId::try_from_elements(requested[2], requested[3])?;
+                let asset_out = FungibleAsset::new(requested_asset_out_id, requested[0].as_canonical_u64())?;
+                let deadline: u64 = vals[4].as_canonical_u64();
+                let p2id_tag: u64 = vals[5].as_canonical_u64();
                 let beneficiary_suffix = vals[8];
-                let beneficiary_id = AccountId::try_from([beneficiary_prefix, beneficiary_suffix])
-                    .or(Err(anyhow!(
+                let beneficiary_prefix = vals[9];
+                let beneficiary_id = AccountId::try_from_elements(beneficiary_suffix, beneficiary_prefix)
+                    .map_err(|_| anyhow!(
                         "Couldn't parse beneficiary_id from order note"
-                    )))?;
-                let creator_prefix = vals[11];
+                    ))?;
                 let creator_suffix = vals[10];
-                let creator_id = AccountId::try_from([creator_prefix, creator_suffix])
-                    .or(Err(anyhow!("Couldn't parse creator_id from order note")))?;
+                let creator_prefix = vals[11];
+                let creator_id = AccountId::try_from_elements(creator_suffix, creator_prefix)
+                    .map_err(|_| anyhow!("Couldn't parse creator_id from order note"))?;
                 Ok(Self::Swap(SwapInstructions {
                     asset_in: asset_in.faucet_id(),
                     amount_in: asset_in.amount(),
@@ -557,7 +550,7 @@ impl TryFrom<TrustedNote> for NoteInstructions {
 
 #[derive(Debug)]
 pub struct TrustedNoteElements {
-    pub inputs: NoteInputs,
+    pub inputs: NoteStorage,
     pub assets: NoteAssets,
     pub metadata: NoteMetadata,
     pub target: Option<AccountId>,
@@ -589,14 +582,14 @@ impl TrustedNoteElements {
         } else {
             NoteTag::new(123)
         };
-        let metadata = NoteMetadata::new(instructions.target, instructions.note_type, tag);
+        let metadata = NoteMetadata::new(instructions.target, instructions.note_type).with_tag(tag);
         let assets = NoteAssets::new(vec![
             FungibleAsset::new(instructions.asset_in, instructions.amount_in)?.into(),
         ])?;
         Ok(Self {
             assets,
             metadata,
-            inputs: NoteInputs::default(),
+            inputs: NoteStorage::default(),
             target: Some(instructions.target),
             referential_serial_number: instructions.referential_serial_number,
             note_kind: NoteKind::P2ID,
@@ -604,14 +597,18 @@ impl TrustedNoteElements {
     }
 
     pub fn from_swap_instructions(instructions: SwapInstructions) -> Result<Self> {
-        let requested_asset: Word =
-            FungibleAsset::new(instructions.asset_out, instructions.min_amount_out)?.into();
+        let requested_asset: Word = [
+            Felt::new(instructions.min_amount_out),
+            Felt::new(0),
+            instructions.asset_out.suffix(),
+            instructions.asset_out.prefix().as_felt(),
+        ].into();
         let beneficiary = if let Some(beneficiary) = instructions.beneficiary {
             beneficiary
         } else {
             instructions.creator
         };
-        let inputs = NoteInputs::new(vec![
+        let inputs = NoteStorage::new(vec![
             requested_asset[0],
             requested_asset[1],
             requested_asset[2],
@@ -631,8 +628,8 @@ impl TrustedNoteElements {
         let metadata = NoteMetadata::new(
             instructions.creator,
             instructions.note_type,
-            instructions.pool_tag,
-        );
+        )
+        .with_tag(instructions.pool_tag);
         Ok(Self {
             assets,
             metadata,
@@ -644,7 +641,7 @@ impl TrustedNoteElements {
     }
 
     pub fn from_deposit_instructions(instructions: DepositInstructions) -> Result<Self> {
-        let inputs = NoteInputs::new(vec![
+        let inputs = NoteStorage::new(vec![
             Felt::new(instructions.min_lp_amount_out),
             Felt::new(instructions.deadline),
             instructions.p2id_tag.into(),
@@ -660,8 +657,8 @@ impl TrustedNoteElements {
         let metadata = NoteMetadata::new(
             instructions.creator,
             instructions.note_type,
-            instructions.pool_tag,
-        );
+        )
+        .with_tag(instructions.pool_tag);
         Ok(Self {
             assets,
             metadata,
@@ -673,9 +670,13 @@ impl TrustedNoteElements {
     }
 
     pub fn from_withdraw_instructions(instructions: WithdrawInstructions) -> Result<Self> {
-        let asset_out: Word =
-            FungibleAsset::new(instructions.asset_out, instructions.min_amount_out)?.into();
-        let inputs = NoteInputs::new(vec![
+        let asset_out: Word = [
+            Felt::new(instructions.min_amount_out),
+            Felt::new(0),
+            instructions.asset_out.suffix(),
+            instructions.asset_out.prefix().as_felt(),
+        ].into();
+        let inputs = NoteStorage::new(vec![
             asset_out[0],
             asset_out[1],
             asset_out[2],
@@ -693,8 +694,8 @@ impl TrustedNoteElements {
         let metadata = NoteMetadata::new(
             instructions.creator,
             instructions.note_type,
-            instructions.pool_tag,
-        );
+        )
+        .with_tag(instructions.pool_tag);
         Ok(Self {
             assets,
             metadata,

@@ -1,6 +1,6 @@
 use miden::protocol::active_note
 use miden::protocol::output_note
-use miden::core::crypto::hashes::rpo256
+use miden::core::crypto::hashes::poseidon2
 use miden::core::sys
 
 use zoroswap::zoropool
@@ -109,7 +109,7 @@ end
 
 proc store_inputs_to_memory
     # store note inputs into memory starting at address 0
-    push.INPUTS_POINTER exec.active_note::get_inputs
+    push.INPUTS_POINTER exec.active_note::get_storage
     # => [num_inputs, inputs_ptr]
     # make sure the number of inputs is N
     eq.NUMBER_OF_INPUTS assert.err=ERR_DEPOSIT_WRONG_NUMBER_OF_INPUTS
@@ -156,7 +156,7 @@ proc build_p2id_recipient_hash
 
     push.2.4000
     # => [ptr=4000, num_elements=2, SERIAL_SCRIPT_HASH]
-    exec.rpo256::hash_elements
+    exec.poseidon2::hash_elements
     # => [INPUTS_COMMITMENT, SERIAL_SCRIPT_HASH]
     hmerge
     # => [P2ID_RECIPIENT]
@@ -236,7 +236,8 @@ proc execute_DEPOSIT
     #call.zoropool::set_pool0_state
 end
 
-begin
+@note_script
+pub proc main
     exec.store_args_to_memory
     exec.store_inputs_to_memory
     exec.store_asset_in_to_memory

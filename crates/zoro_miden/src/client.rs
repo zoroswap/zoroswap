@@ -15,8 +15,8 @@ use miden_client::{
     note::{Note, NoteScreener, NoteTag, NoteType},
     rpc::{Endpoint, GrpcClient},
     store::{NoteFilter, TransactionFilter},
-    sync::StateSync,
-    transaction::{OutputNote, TransactionId, TransactionRequestBuilder},
+    sync::{StateSync, StateSyncInput},
+    transaction::{TransactionId, TransactionRequestBuilder},
 };
 use miden_client_sqlite_store::{ClientBuilderSqliteExt, SqliteStore};
 use tokio::time::sleep;
@@ -59,7 +59,7 @@ impl MidenClient {
         client.sync_state().await?;
 
         let sqlite_store = Arc::new(SqliteStore::new(store_path).await?);
-        let note_screener = NoteScreener::new(sqlite_store);
+        let note_screener = NoteScreener::new(sqlite_store, rpc_client.clone());
         let state_sync = StateSync::new(rpc_client, Arc::new(note_screener), None);
         Ok(Self {
             client,
@@ -80,38 +80,38 @@ impl MidenClient {
         Ok(())
     }
     pub async fn partial_sync_state(&mut self, account_id: &AccountId) -> Result<()> {
-        // Partial sync
-        let accounts = self
+        let accounts = match self
             .client
-            .get_account_header_by_id(*account_id)
-            .await?
-            .map(|(header, _)| vec![header])
-            .unwrap_or_default();
+            .account_reader(*account_id)
+            .header()
+            .await
+        {
+            Ok((header, _)) => vec![header],
+            Err(_) => vec![],
+        };
         let note_tags = BTreeSet::new();
         let input_notes = vec![];
-        let expected_output_notes = self.client.get_output_notes(NoteFilter::Expected).await?;
+        let output_notes = self.client.get_output_notes(NoteFilter::Expected).await?;
         let uncommitted_transactions = self
             .client
             .get_transactions(TransactionFilter::Uncommitted)
             .await?;
 
-        // Build current partial MMR
-        let current_partial_mmr = self.client.get_current_partial_mmr().await?;
+        let mut current_partial_mmr = self.client.get_current_partial_mmr().await?;
 
-        // Get the sync update from the network
+        let input = StateSyncInput {
+            accounts,
+            note_tags,
+            input_notes,
+            output_notes,
+            uncommitted_transactions,
+        };
+
         let state_sync_update = self
             .state_sync
-            .sync_state(
-                current_partial_mmr,
-                accounts,
-                note_tags,
-                input_notes,
-                expected_output_notes,
-                uncommitted_transactions,
-            )
+            .sync_state(&mut current_partial_mmr, input)
             .await?;
 
-        // Apply received and computed updates to the store
         self.client.apply_state_sync(state_sync_update).await?;
         Ok(())
     }
@@ -301,7 +301,7 @@ impl MidenClient {
     ) -> Result<()> {
         self.client.import_account_by_id(*target_account_id).await?;
         let note_req = TransactionRequestBuilder::new()
-            .own_output_notes(vec![OutputNote::Full(note.note().clone())])
+            .own_output_notes(vec![note.note().clone().into()])
             .build()
             .unwrap();
         let tx_id = self
@@ -334,7 +334,7 @@ pub fn create_library(
     assembler: Assembler,
     library_path: &str,
     source_code: &str,
-) -> Result<miden_assembly::Library, Box<dyn std::error::Error>> {
+) -> Result<Arc<miden_assembly::Library>, Box<dyn std::error::Error>> {
     let source_manager = Arc::new(DefaultSourceManager::default());
     let path = miden_assembly::Path::new(library_path);
     let module =

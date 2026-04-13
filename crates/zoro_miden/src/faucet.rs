@@ -2,14 +2,14 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use miden_client::{
-    ClientError, Felt,
+    Felt,
     account::{
         Account, AccountBuilder, AccountStorageMode, AccountType, component::BasicFungibleFaucet,
     },
     assembly::CodeBuilder,
     asset::TokenSymbol,
-    auth::{AuthFalcon512Rpo, AuthSecretKey},
-    keystore::FilesystemKeyStore,
+    auth::{AuthScheme, AuthSecretKey, AuthSingleSig},
+    keystore::{FilesystemKeyStore, Keystore},
     transaction::TransactionScript,
 };
 use rand::RngCore;
@@ -27,10 +27,10 @@ use crate::client::MidenClient;
 pub async fn create_basic_faucet(
     miden_client: &mut MidenClient,
     keystore: FilesystemKeyStore,
-) -> Result<Account, ClientError> {
+) -> Result<Account> {
     let mut init_seed = [0u8; 32];
     miden_client.client_mut().rng().fill_bytes(&mut init_seed);
-    let key_pair = AuthSecretKey::new_falcon512_rpo_with_rng(miden_client.client_mut().rng());
+    let key_pair = AuthSecretKey::new_falcon512_poseidon2_with_rng(miden_client.client_mut().rng());
     let symbol = TokenSymbol::new("MID")
         .unwrap_or_else(|err| panic!("Failed to create token symbol: {err:?}"));
     let decimals = 8;
@@ -38,14 +38,17 @@ pub async fn create_basic_faucet(
     let builder = AccountBuilder::new(init_seed)
         .account_type(AccountType::FungibleFaucet)
         .storage_mode(AccountStorageMode::Public)
-        .with_auth_component(AuthFalcon512Rpo::new(key_pair.public_key().to_commitment()))
+        .with_auth_component(AuthSingleSig::new(
+            key_pair.public_key().to_commitment(),
+            AuthScheme::Falcon512Poseidon2,
+        ))
         .with_component(BasicFungibleFaucet::new(symbol, decimals, max_supply).unwrap());
     let account = builder.build().unwrap();
     miden_client
         .client_mut()
         .add_account(&account, false)
         .await?;
-    keystore.add_key(&key_pair).unwrap();
+    keystore.add_key(&key_pair, account.id()).await.map_err(|e| anyhow::anyhow!("Failed to add key: {e:?}"))?;
     Ok(account)
 }
 

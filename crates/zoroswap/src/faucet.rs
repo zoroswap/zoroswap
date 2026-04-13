@@ -5,8 +5,8 @@ use miden_client::{
     Felt,
     account::AccountId,
     asset::{Asset, FungibleAsset},
-    crypto::Rpo256,
-    note::{Note, NoteAttachment, NoteType, create_p2id_note},
+    crypto::Poseidon2,
+    note::{Note, NoteAttachment, NoteType, P2idNote},
     transaction::{TransactionRequest, TransactionRequestBuilder, TransactionScript},
 };
 use std::collections::HashMap;
@@ -123,7 +123,7 @@ impl GuardedFaucet {
         client: &mut MidenClient,
     ) -> Result<Note> {
         let asset = FungibleAsset::new(mint_instruction.faucet_id, amount)?;
-        let note = create_p2id_note(
+        let note = P2idNote::create(
             mint_instruction.faucet_id,
             mint_instruction.account_id,
             vec![Asset::Fungible(asset)],
@@ -151,7 +151,7 @@ impl GuardedFaucet {
             note_data.push(Felt::from(note.metadata().tag()));
             note_data.push(Felt::new(amount));
         }
-        let note_data_commitment = Rpo256::hash_elements(&note_data);
+        let note_data_commitment = Poseidon2::hash_elements(&note_data);
         let advice_map = [(note_data_commitment, note_data)];
         let tx_req = TransactionRequestBuilder::new()
             .custom_script(script.clone())

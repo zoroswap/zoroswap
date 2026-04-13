@@ -11,13 +11,14 @@ use miden_client::{
     },
     address::NetworkId,
     asset::Asset,
-    auth::{AuthFalcon512Rpo, AuthSecretKey},
-    keystore::FilesystemKeyStore,
-    note::{NoteRecipient, NoteTag, build_p2id_recipient},
+    auth::{AuthScheme, AuthSecretKey, AuthSingleSig},
+    keystore::{FilesystemKeyStore, Keystore},
+    note::{NoteRecipient, NoteTag},
     rpc::{Endpoint, GrpcClient, NodeRpcClient},
     store::TransactionFilter,
     transaction::{TransactionRequestBuilder, TransactionStatus},
 };
+use miden_standards::note::P2idNoteStorage;
 use rand::RngCore;
 use tracing::{debug, info, warn};
 
@@ -52,11 +53,14 @@ impl MidenAccount {
     pub async fn deploy_new(miden_client: &mut MidenClient, keystore_path: &str) -> Result<Self> {
         let mut init_seed = [0_u8; 32];
         miden_client.client_mut().rng().fill_bytes(&mut init_seed);
-        let key_pair = AuthSecretKey::new_falcon512_rpo_with_rng(miden_client.client_mut().rng());
+        let key_pair = AuthSecretKey::new_ecdsa_k256_keccak();
         let builder = AccountBuilder::new(init_seed)
             .account_type(AccountType::RegularAccountUpdatableCode)
             .storage_mode(AccountStorageMode::Public)
-            .with_auth_component(AuthFalcon512Rpo::new(key_pair.public_key().to_commitment()))
+            .with_auth_component(AuthSingleSig::new(
+                key_pair.public_key().to_commitment(),
+                AuthScheme::EcdsaK256Keccak,
+            ))
             .with_component(BasicWallet);
         let account = builder.build()?;
         miden_client
@@ -64,7 +68,7 @@ impl MidenAccount {
             .add_account(&account, false)
             .await?;
         let keystore = FilesystemKeyStore::new(keystore_path.into())?;
-        keystore.add_key(&key_pair).unwrap();
+        keystore.add_key(&key_pair, account.id()).await.map_err(|e| anyhow!("Failed to add key: {e:?}"))?;
         miden_client.client_mut().sync_state().await?;
 
         let mut acc = Self {
@@ -158,7 +162,7 @@ impl MidenAccount {
         .into();
         debug!("P2ID beneficiary id: {:?}", self.id);
         debug!("P2ID serial num: {:?}", p2id_serial_num);
-        let recipient = build_p2id_recipient(self.id, p2id_serial_num)?;
+        let recipient = P2idNoteStorage::new(self.id).into_recipient(p2id_serial_num);
         debug!("P2ID recipient digest: {:?}", recipient.digest());
         Ok(recipient)
     }

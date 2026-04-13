@@ -11,16 +11,17 @@ use chrono::Utc;
 use miden_client::{
     Felt, Word,
     account::{
-        Account, AccountBuilder, AccountComponent, AccountId, AccountStorageMode, AccountType,
-        StorageMap, StorageSlot, StorageSlotName, component::BasicWallet,
+        Account, AccountBuilder, AccountComponent, AccountId,
+        AccountStorageMode, AccountType, StorageMap, StorageMapKey, StorageSlot, StorageSlotName,
+        component::{AccountComponentMetadata, BasicWallet},
     },
     address::NetworkId,
     asset::AssetVault,
-    auth::{AuthFalcon512Rpo, AuthSecretKey},
-    keystore::FilesystemKeyStore,
+    auth::{AuthScheme, AuthSecretKey, AuthSingleSig},
+    keystore::{FilesystemKeyStore, Keystore},
     note::{Note, NoteDetails, NoteId, NoteRecipient, NoteTag},
     rpc::Endpoint,
-    store::AccountRecordData,
+    
     transaction::{TransactionKernel, TransactionRequestBuilder},
     vm::AdviceMap,
 };
@@ -130,26 +131,26 @@ impl ZoroPool {
                 Felt::new(0),
             ]
             .into();
-            let asset_index = [
+            let asset_index = StorageMapKey::new(Word::from([
                 Felt::new(i as u64),
                 Felt::new(0),
                 Felt::new(0),
                 Felt::new(0),
-            ];
-            let asset_id = [
+            ]));
+            let asset_id = StorageMapKey::new(Word::from([
                 Felt::new(0),
                 Felt::new(0),
                 pool.faucet_id.suffix(),
                 pool.faucet_id.prefix().as_felt(),
-            ];
+            ]));
             assets_mapping
-                .insert(asset_index.into(), asset_id.into())
+                .insert(asset_index, Word::from(asset_id).into())
                 .unwrap_or_else(|err| panic!("Failed to insert asset into mapping: {err:?}"));
             fees_mapping
-                .insert(asset_id.into(), fees)
+                .insert(asset_id, fees)
                 .unwrap_or_else(|err| panic!("Failed to insert fees into mapping: {err:?}"));
             curves_mapping
-                .insert(asset_id.into(), curve)
+                .insert(asset_id, curve)
                 .unwrap_or_else(|err| panic!("Failed to insert curve into mapping: {err:?}"));
         }
 
@@ -162,8 +163,12 @@ impl ZoroPool {
         // Compile the account code into a Library, then create AccountComponent
         let pool_library = create_library(assembler.clone(), "zoroswap::zoropool", &pool_code)
             .map_err(|e| anyhow!("Failed to create pool library: {e}"))?;
+        let pool_metadata = AccountComponentMetadata::new(
+            "zoroswap::zoropool",
+            AccountType::all(),
+        );
         let pool_component = AccountComponent::new(
-            pool_library,
+            (*pool_library).clone(),
             vec![
                 StorageSlot::with_empty_value(n("zoroswap::slot0")),
                 StorageSlot::with_empty_value(n("zoroswap::slot1")),
@@ -179,27 +184,30 @@ impl ZoroPool {
                 StorageSlot::with_empty_value(n("zoroswap::slot11")),
                 StorageSlot::with_empty_value(n("zoroswap::slot12")),
             ],
-        )?
-        .with_supports_all_types();
+            pool_metadata,
+        )?;
 
         // Init seed for the pool contract
         let mut init_seed = [0_u8; 32];
         miden_client.client_mut().rng().fill_bytes(&mut init_seed);
 
-        let key_pair = AuthSecretKey::new_falcon512_rpo_with_rng(miden_client.client_mut().rng());
+        let key_pair = AuthSecretKey::new_falcon512_poseidon2_with_rng(miden_client.client_mut().rng());
 
         // Build the new `Account` with the component
         let pool_contract = AccountBuilder::new(init_seed)
             .account_type(AccountType::RegularAccountUpdatableCode)
             .storage_mode(AccountStorageMode::Public)
             .with_component(pool_component.clone())
-            .with_auth_component(AuthFalcon512Rpo::new(key_pair.public_key().to_commitment()))
+            .with_auth_component(AuthSingleSig::new(
+                key_pair.public_key().to_commitment(),
+                AuthScheme::Falcon512Poseidon2,
+            ))
             .with_component(BasicWallet)
             .build()?;
 
         println!(
             "pool contract commitment hash: {:?}",
-            pool_contract.commitment().to_hex()
+            pool_contract.to_commitment().to_hex()
         );
         println!(
             "contract id: {:?}",
@@ -207,7 +215,7 @@ impl ZoroPool {
         );
 
         let keystore = FilesystemKeyStore::new(keystore_path.into())?;
-        keystore.add_key(&key_pair)?;
+        keystore.add_key(&key_pair, pool_contract.id()).await.map_err(|e| anyhow!("Failed to add key: {e:?}"))?;
         miden_client
             .client_mut()
             .add_account(&pool_contract.clone(), false)
@@ -245,21 +253,13 @@ impl ZoroPool {
             .import_account(&id)
             .await
             .map_err(|e| anyhow!("Error on account update from client: {e}"))?;
-        let record = self
+        let acc = self
             .miden_client
             .client_mut()
             .get_account(id)
             .await
             .map_err(|e| anyhow!("Account {id} not found in client: {e:?}"))?
             .ok_or(anyhow!("Account {id} not found in client"))?;
-        let acc = match record.account_data() {
-            AccountRecordData::Full(a) => Ok(a),
-            _ => Err(anyhow!(
-                "Expected full account data for {}",
-                self.miden_account.id().to_hex()
-            )),
-        }?
-        .clone();
         self.miden_account.set_account(acc.clone());
         for pool in self.liquidity_pools.iter() {
             let (settings, balances, lp_total_supply) =
@@ -298,19 +298,19 @@ impl ZoroPool {
         let pool_fees = storage.get_map_item(&fees_slot, asset_address)?;
 
         let balances = PoolBalances {
-            reserve_with_slippage: U256::from(pool_balances_raw[1].as_int()),
-            reserve: U256::from(pool_balances_raw[2].as_int()),
-            total_liabilities: U256::from(pool_balances_raw[3].as_int()),
+            reserve_with_slippage: U256::from(pool_balances_raw[1].as_canonical_u64()),
+            reserve: U256::from(pool_balances_raw[2].as_canonical_u64()),
+            total_liabilities: U256::from(pool_balances_raw[3].as_canonical_u64()),
         };
         let settings = PoolSettings {
-            beta: I256::from_str(&pool_curve[0].as_int().to_string())?,
-            c: I256::from_str(&pool_curve[1].as_int().to_string())?,
-            swap_fee: U256::from(pool_fees[0].as_int()),
-            backstop_fee: U256::from(pool_fees[1].as_int()),
-            protocol_fee: U256::from(pool_fees[2].as_int()),
+            beta: I256::from_str(&pool_curve[0].as_canonical_u64().to_string())?,
+            c: I256::from_str(&pool_curve[1].as_canonical_u64().to_string())?,
+            swap_fee: U256::from(pool_fees[0].as_canonical_u64()),
+            backstop_fee: U256::from(pool_fees[1].as_canonical_u64()),
+            protocol_fee: U256::from(pool_fees[2].as_canonical_u64()),
         };
         let total_supply_raw = storage.get_map_item(&lp_supply_slot, asset_address)?;
-        let lp_total_supply = total_supply_raw[0].as_int();
+        let lp_total_supply = total_supply_raw[0].as_canonical_u64();
 
         Ok((settings, balances, lp_total_supply))
     }
