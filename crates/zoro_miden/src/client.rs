@@ -6,10 +6,14 @@ use miden_assembly::{
     ast::{Module, ModuleKind},
 };
 use miden_client::{
-    Client, DebugMode,
-    account::{Account, AccountId},
+    Client, DebugMode, Felt,
+    account::{
+        Account, AccountBuilder, AccountId, AccountStorageMode, AccountType,
+        component::BasicFungibleFaucet,
+    },
     address::NetworkId,
-    asset::FungibleAsset,
+    asset::{FungibleAsset, TokenSymbol},
+    auth::{AuthFalcon512Rpo, AuthSecretKey},
     builder::ClientBuilder,
     keystore::FilesystemKeyStore,
     note::{Note, NoteScreener, NoteTag, NoteType},
@@ -19,11 +23,15 @@ use miden_client::{
     transaction::{OutputNote, TransactionId, TransactionRequestBuilder},
 };
 use miden_client_sqlite_store::{ClientBuilderSqliteExt, SqliteStore};
+use rand::RngCore;
 use tokio::time::sleep;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
-use crate::note::{NoteKind, TrustedNote};
+use crate::{
+    account::MidenAccount,
+    note::{NoteKind, TrustedNote},
+};
 
 pub struct MidenClient {
     client: Client<FilesystemKeyStore>,
@@ -317,6 +325,46 @@ impl MidenClient {
             "View transaction on MidenScan: https://testnet.midenscan.com/tx/{}",
             tx.to_hex()
         );
+    }
+
+    pub async fn deploy_new_faucet(
+        &mut self,
+        keystore_path: &str,
+        symbol: &str,
+        decimals: u8,
+        max_supply: u64,
+    ) -> Result<MidenAccount> {
+        let mut init_seed = [0u8; 32];
+        let keystore: FilesystemKeyStore = FilesystemKeyStore::new(keystore_path.into())
+            .map_err(|err| panic!("Failed to create keystore: {err:?}"))?;
+        let key_pair = AuthSecretKey::new_falcon512_rpo_with_rng(self.client_mut().rng());
+        self.client_mut().rng().fill_bytes(&mut init_seed);
+        let builder = AccountBuilder::new(init_seed)
+            .account_type(AccountType::FungibleFaucet)
+            .storage_mode(AccountStorageMode::Public)
+            .with_auth_component(AuthFalcon512Rpo::new(key_pair.public_key().to_commitment()))
+            .with_component(
+                BasicFungibleFaucet::new(
+                    TokenSymbol::new(symbol)?,
+                    decimals,
+                    Felt::new(max_supply),
+                )
+                .unwrap_or_else(|err| panic!("Failed to create BasicFungibleFaucet: {err:?}")),
+            );
+        let faucet_account = builder
+            .build()
+            .unwrap_or_else(|err| panic!("Failed to build faucet account: {err:?}"));
+        self.client_mut().add_account(&faucet_account, true).await?;
+        keystore
+            .add_key(&key_pair)
+            .unwrap_or_else(|err| panic!("Failed to add key to keystore: {err:?}"));
+        let transaction_request = TransactionRequestBuilder::new().build()?;
+        let _tx_id = self
+            .client_mut()
+            .submit_new_transaction(faucet_account.id(), transaction_request)
+            .await?;
+        self.sync_state().await?;
+        Ok(MidenAccount::new(faucet_account.id(), Some(faucet_account)))
     }
 }
 

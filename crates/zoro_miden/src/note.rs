@@ -708,29 +708,14 @@ impl TrustedNoteElements {
 
 #[cfg(test)]
 mod tests {
+    use crate::test_utils::{self, TestUtils};
+
     use super::*;
 
-    static ASSET_0: AccountId = AccountId::from_hex("0xb426893b06df5b20722f2a5a972e77").unwrap();
-    static ASSET_1: AccountId = AccountId::from_hex("0xf796cc5adcdc72204dd6e09c6efa8d").unwrap();
-    static ACCOUNT_0: AccountId = AccountId::from_hex("0xdee04be624bda540181afd93c38cfe").unwrap();
-    static ACCOUNT_1: AccountId = AccountId::from_hex("0xab4c08500e37dd4034820281195d08").unwrap();
-
-    const SWAP_INSTRUCTIONS: SwapInstructions = SwapInstructions {
-        asset_in: ASSET_0,
-        amount_in: 100_000,
-        asset_out: ASSET_1,
-        min_amount_out: 100_000,
-        creator: ACCOUNT_0,
-        beneficiary: None,
-        note_type: NoteType::Public,
-        deadline: 0,
-        p2id_tag: NoteTag::from(ACCOUNT_0),
-        pool_tag: NoteTag::from(ACCOUNT_1),
-    };
-
     #[test]
-    fn test_wrong_instructions_to_elements_swap() {
-        TrustedNote::new(NoteInstructions::Swap(SwapInstructions {
+    fn test_wrong_instructions_to_elements_swap() -> Result<()> {
+        let test_utils = TestUtils::from_cache();
+        let res = TrustedNote::new(NoteInstructions::Swap(SwapInstructions {
             asset_in: (),
             amount_in: (),
             asset_out: (),
@@ -741,7 +726,8 @@ mod tests {
             deadline: (),
             p2id_tag: (),
             pool_tag: (),
-        }))
+        }));
+        assert!(res.is_err(), "Should throw an error.");
     }
 
     #[test]
