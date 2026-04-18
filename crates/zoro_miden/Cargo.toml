@@ -22,6 +22,7 @@ tracing = "0.1"
 uuid = { version = "1.0", features = ["serde", "v4"] }
 zoro_curve_base = { path = "../zoro_curve_base", default-features = false }
 zoro_curve_local = { package = "zoro_curve", path = "../../../zoro-curve", optional = true }
+toml = "1.1.2"
 
 [features]
 default = ["zoro_curve_base/dummy-curve"]
