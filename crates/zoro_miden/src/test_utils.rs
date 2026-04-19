@@ -7,8 +7,14 @@ use rand::{Rng, distr::Alphabetic};
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 use tracing_subscriber::EnvFilter;
+use uuid::Uuid;
+use walkdir::WalkDir;
 
-use crate::{account::MidenAccount, client::MidenClient, pool::LiquidityPoolConfig};
+use crate::{
+    account::MidenAccount,
+    client::MidenClient,
+    pool::{LiquidityPoolConfig, ZoroPool},
+};
 
 // TODO: Move actual config module here perhaps, this is the same as `RawLiquidityPoolConfig`
 #[derive(Deserialize, Serialize, Debug)]
@@ -50,47 +56,62 @@ pub struct TestFaucetMeta {
     pub max_supply: u64,
     pub decimals: u8,
 }
-#[derive(Debug, Clone)]
-pub struct TestFaucet {
-    pub miden_account: MidenAccount,
-    pub meta: TestFaucetMeta,
-}
-impl TestFaucet {
-    pub fn to_liquidity_pool_config(&self) -> LiquidityPoolConfig {
-        LiquidityPoolConfig {
-            name: format!("Test pool {}", &self.meta.symbol).leak(),
-            symbol: self.meta.symbol.clone().leak(),
-            decimals: self.meta.decimals,
-            faucet_id: *self.miden_account.id(),
-            oracle_id: "missing",
-        }
-    }
-}
-
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TestFaucetRaw {
+    pub id: Uuid,
     pub miden_account: String,
     pub meta: TestFaucetMeta,
 }
 #[derive(Debug, Clone)]
+pub struct TestFaucet {
+    pub id: Uuid,
+    pub miden_account: MidenAccount,
+    pub meta: TestFaucetMeta,
+}
+impl From<&TestFaucet> for LiquidityPoolConfig {
+    fn from(value: &TestFaucet) -> Self {
+        LiquidityPoolConfig {
+            name: format!("Test pool {}", &value.meta.symbol).leak(),
+            symbol: value.meta.symbol.clone().leak(),
+            decimals: value.meta.decimals,
+            faucet_id: *value.miden_account.id(),
+            oracle_id: "missing",
+        }
+    }
+}
+#[derive(Debug, Clone)]
 pub struct TestPool {
+    pub id: Uuid,
     pub miden_account: MidenAccount,
     pub pool_configs: Vec<LiquidityPoolConfig>,
 }
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TestPoolRaw {
+    pub id: Uuid,
     pub miden_account: String,
     pub pool_configs: Vec<TestRawLiquidityPoolConfig>,
 }
+
+#[derive(Debug, Clone)]
+pub struct TestAccount {
+    pub id: Uuid,
+    pub miden_account: MidenAccount,
+}
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TestAccountRaw {
+    pub id: Uuid,
+    pub miden_account: String,
+}
+
 #[derive(Deserialize, Serialize, Debug)]
 struct TestCache {
-    pub accounts: Vec<String>,
+    pub accounts: Vec<TestAccountRaw>,
     pub faucets: Vec<TestFaucetRaw>,
     pub pools: Vec<TestPoolRaw>,
 }
 
 pub struct TestUtils {
-    cached_accounts: Vec<MidenAccount>,
+    cached_accounts: Vec<TestAccount>,
     cached_faucets: Vec<TestFaucet>,
     cached_pools: Vec<TestPool>,
     miden_client: MidenClient,
@@ -117,12 +138,15 @@ impl TestUtils {
 
     pub async fn from_cache() -> Result<Self> {
         Self::init_env_and_tracing().await?;
-        let cached = load_cached_accounts_from_file()?;
-        let cached_accounts: Vec<MidenAccount> = cached
+        let cached = load_test_cache_from_files()?;
+        let cached_accounts: Vec<TestAccount> = cached
             .accounts
             .iter()
-            .filter_map(|string_id| match AccountId::from_hex(string_id) {
-                Ok(acc_id) => Some(MidenAccount::new(acc_id, None)),
+            .filter_map(|acc| match AccountId::from_hex(&acc.miden_account) {
+                Ok(acc_id) => Some(TestAccount {
+                    id: acc.id,
+                    miden_account: MidenAccount::new(acc_id, None),
+                }),
                 Err(e) => {
                     warn!("Error on cached account: {e:?}");
                     None
@@ -135,6 +159,7 @@ impl TestUtils {
             .filter_map(
                 |faucet_raw| match AccountId::from_hex(&faucet_raw.miden_account) {
                     Ok(acc_id) => Some(TestFaucet {
+                        id: faucet_raw.id,
                         miden_account: MidenAccount::new(acc_id, None),
                         meta: faucet_raw.meta.clone(),
                     }),
@@ -151,6 +176,7 @@ impl TestUtils {
             .filter_map(
                 |pool_raw| match AccountId::from_hex(&pool_raw.miden_account) {
                     Ok(acc_id) => Some(TestPool {
+                        id: pool_raw.id,
                         miden_account: MidenAccount::new(acc_id, None),
                         pool_configs: pool_raw
                             .pool_configs
@@ -186,9 +212,6 @@ impl TestUtils {
             miden_endpoint,
         })
     }
-    pub fn save_cached_accounts(&self) -> Result<()> {
-        save_cached_accounts_to_file(&self.to_raw_format())
-    }
     pub async fn add_cached_accounts(&mut self, n: usize) -> Result<()> {
         info!("Deploying {n} new accounts.");
         let keystore_path = self
@@ -200,9 +223,12 @@ impl TestUtils {
         for _ in 0..n {
             let acc =
                 MidenAccount::deploy_new(&mut self.miden_client, &keystore_path.clone()).await?;
-            self.cached_accounts.push(acc);
+            self.cached_accounts.push(TestAccount {
+                id: Uuid::new_v4(),
+                miden_account: acc,
+            });
         }
-        self.save_cached_accounts()?;
+        save_cached_accounts_to_files(&self.cached_accounts)?;
         Ok(())
     }
     pub async fn add_cached_faucets(&mut self, n: usize) -> Result<()> {
@@ -222,43 +248,40 @@ impl TestUtils {
                 )
                 .await?;
             self.cached_faucets.push(TestFaucet {
+                id: Uuid::new_v4(),
                 miden_account: acc,
                 meta,
             });
         }
-        self.save_cached_accounts()?;
+        save_cached_faucets_to_files(&self.cached_faucets)?;
         Ok(())
     }
-    fn to_raw_format(&self) -> TestCache {
-        TestCache {
-            accounts: self
-                .cached_accounts
-                .iter()
-                .map(|a| a.id().to_hex())
-                .collect(),
-            faucets: self
-                .cached_faucets
-                .iter()
-                .map(|f| TestFaucetRaw {
-                    miden_account: f.miden_account.id().to_hex(),
-                    meta: f.meta.clone(),
-                })
-                .collect(),
-            pools: self
-                .cached_pools
-                .iter()
-                .map(|p| TestPoolRaw {
-                    miden_account: p.miden_account.id().to_hex(),
-                    pool_configs: p
-                        .pool_configs
-                        .iter()
-                        .map(TestRawLiquidityPoolConfig::from)
-                        .collect(),
-                })
-                .collect(),
+    pub async fn add_cached_pools(&mut self, n: usize) -> Result<()> {
+        info!("Deploying {n} new pools.");
+        let faucets = &self.get_faucets(n * 2).await?[..];
+        for i in 0..n {
+            let faucet0 = faucets[i].clone();
+            let faucet1 = faucets[i + 1].clone();
+            let new_pool = ZoroPool::new_deployment(
+                vec![(&faucet0).into(), (&faucet1).into()],
+                self.miden_endpoint(),
+                self.miden_client()
+                    .keystore_path()
+                    .to_str()
+                    .ok_or(anyhow!("Missing keystore path in client"))?,
+                "testing_stores",
+            )
+            .await?;
+            self.cached_pools.push(TestPool {
+                id: Uuid::new_v4(),
+                miden_account: new_pool.miden_account().clone(),
+                pool_configs: vec![(&faucet0).into(), (&faucet1).into()],
+            })
         }
+        save_cached_pools_to_files(&self.cached_pools)?;
+        Ok(())
     }
-    pub async fn get_accounts(&mut self, n: usize) -> Result<Vec<MidenAccount>> {
+    pub async fn get_accounts(&mut self, n: usize) -> Result<Vec<TestAccount>> {
         if self.cached_accounts.len() < n {
             self.add_cached_accounts(n - self.cached_accounts.len())
                 .await?;
@@ -274,6 +297,14 @@ impl TestUtils {
         let accounts = &self.cached_faucets[..n];
         Ok(accounts.to_vec())
     }
+    pub async fn get_pools(&mut self, n: usize) -> Result<Vec<TestPool>> {
+        if self.cached_faucets.len() < n {
+            self.add_cached_pools(n - self.cached_faucets.len()).await?;
+        }
+        println!("Len {}, {n}", self.cached_pools.len());
+        let accounts = &self.cached_pools[..n];
+        Ok(accounts.to_vec())
+    }
     pub async fn get_two_accounts_two_faucets(
         &mut self,
     ) -> Result<((MidenAccount, MidenAccount), (TestFaucet, TestFaucet))> {
@@ -285,59 +316,174 @@ impl TestUtils {
         let (Some(faucet0), Some(faucet1)) = (faucets.next(), faucets.next()) else {
             return Err(anyhow!("Failed getting faucets"));
         };
-        Ok(((acc0, acc1), (faucet0, faucet1)))
+        Ok(((acc0.miden_account, acc1.miden_account), (faucet0, faucet1)))
     }
     pub fn miden_endpoint(&self) -> Endpoint {
         self.miden_endpoint.clone()
     }
 }
 
-pub fn clean_cache_store() -> Result<()> {
+fn load_test_cache_from_files() -> Result<TestCache> {
+    let accounts = load_cached_accounts_from_files()?;
+    let faucets = load_cached_faucets_from_files()?;
+    let pools = load_cached_pools_from_files()?;
+    Ok(TestCache {
+        accounts,
+        faucets,
+        pools,
+    })
+}
+
+fn load_cached_accounts_from_files() -> Result<Vec<TestAccountRaw>> {
+    let manifest_dir: &str = env!("CARGO_MANIFEST_DIR");
+    let path: PathBuf = [manifest_dir, "testing_stores"].iter().collect();
+    let res = WalkDir::new(path)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| {
+            let metadata = e.metadata().unwrap();
+            metadata.is_file()
+                && (e.file_name().to_os_string().to_str())
+                    .unwrap()
+                    .starts_with("account_")
+        })
+        .filter_map(|f| {
+            if let Ok(file) = std::fs::read_to_string(f.path())
+                && let Ok(acc) = toml::from_str::<TestAccountRaw>(&file)
+            {
+                Some(acc)
+            } else {
+                None
+            }
+        })
+        .collect();
+    Ok(res)
+}
+
+fn load_cached_faucets_from_files() -> Result<Vec<TestFaucetRaw>> {
+    let manifest_dir: &str = env!("CARGO_MANIFEST_DIR");
+    let path: PathBuf = [manifest_dir, "testing_stores"].iter().collect();
+    let res = WalkDir::new(path)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| {
+            let metadata = e.metadata().unwrap();
+            metadata.is_file()
+                && (e.file_name().to_os_string().to_str())
+                    .unwrap()
+                    .starts_with("faucet_")
+        })
+        .filter_map(|f| {
+            if let Ok(file) = std::fs::read_to_string(f.path())
+                && let Ok(acc) = toml::from_str::<TestFaucetRaw>(&file)
+            {
+                Some(acc)
+            } else {
+                None
+            }
+        })
+        .collect();
+    Ok(res)
+}
+
+fn load_cached_pools_from_files() -> Result<Vec<TestPoolRaw>> {
+    let manifest_dir: &str = env!("CARGO_MANIFEST_DIR");
+    let path: PathBuf = [manifest_dir, "testing_stores"].iter().collect();
+    let res = WalkDir::new(path)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| {
+            let metadata = e.metadata().unwrap();
+            metadata.is_file()
+                && (e.file_name().to_os_string().to_str())
+                    .unwrap()
+                    .starts_with("pool_")
+        })
+        .filter_map(|f| {
+            if let Ok(file) = std::fs::read_to_string(f.path())
+                && let Ok(acc) = toml::from_str::<TestPoolRaw>(&file)
+            {
+                Some(acc)
+            } else {
+                None
+            }
+        })
+        .collect();
+    Ok(res)
+}
+
+fn save_cached_accounts_to_files(entities: &Vec<TestAccount>) -> Result<()> {
+    let manifest_dir: &str = env!("CARGO_MANIFEST_DIR");
+    for entity in entities {
+        let filepath: PathBuf = [
+            manifest_dir,
+            "testing_stores",
+            &format!("account_{}", entity.id),
+        ]
+        .iter()
+        .collect();
+        if !std::fs::exists(filepath.clone())? {
+            let raw = TestAccountRaw {
+                id: entity.id,
+                miden_account: entity.miden_account.id().to_hex(),
+            };
+            let toml_str = toml::to_string_pretty(&raw)
+                .map_err(|e| anyhow!("Failed to serialize state: {e}"))?;
+            std::fs::write(filepath, toml_str)?;
+        }
+    }
     Ok(())
 }
 
-fn create_fresh_cache_file() -> Result<TestCache> {
-    let test_cache = TestCache {
-        accounts: vec![],
-        faucets: vec![],
-        pools: vec![],
-    };
-    save_cached_accounts_to_file(&test_cache)?;
-    Ok(test_cache)
-}
-
-fn load_cached_accounts_from_file() -> Result<TestCache> {
+fn save_cached_faucets_to_files(entities: &Vec<TestFaucet>) -> Result<()> {
     let manifest_dir: &str = env!("CARGO_MANIFEST_DIR");
-    let path: PathBuf = [manifest_dir, "testing_stores", "test_cache.toml"]
+    for entity in entities {
+        let filepath: PathBuf = [
+            manifest_dir,
+            "testing_stores",
+            &format!("faucet_{}", entity.id),
+        ]
         .iter()
         .collect();
-    match std::fs::read_to_string(&path) {
-        Ok(s) => {
-            let test_cache = toml::from_str(&s)?;
-            Ok(test_cache)
-        }
-        Err(e) => {
-            info!(
-                "Cached accounts not initialized or corrupt. {path:?}: {e}. Creating a new cache file."
-            );
-            let test_cache = create_fresh_cache_file()?;
-            Ok(test_cache)
+        if !std::fs::exists(filepath.clone())? {
+            let raw = TestFaucetRaw {
+                id: entity.id,
+                miden_account: entity.miden_account.id().to_hex(),
+                meta: entity.meta.clone(),
+            };
+            let toml_str = toml::to_string_pretty(&raw)
+                .map_err(|e| anyhow!("Failed to serialize state: {e}"))?;
+            std::fs::write(filepath, toml_str)?;
         }
     }
+    Ok(())
 }
 
-fn save_cached_accounts_to_file(test_cache: &TestCache) -> Result<()> {
+fn save_cached_pools_to_files(entities: &Vec<TestPool>) -> Result<()> {
     let manifest_dir: &str = env!("CARGO_MANIFEST_DIR");
-    let mut path: PathBuf = [manifest_dir, "testing_stores"].iter().collect();
-    println!("{path:?} exists {:?}", path.exists());
-    if !path.exists() {
-        std::fs::create_dir(&path)?;
+    for entity in entities {
+        let filepath: PathBuf = [
+            manifest_dir,
+            "testing_stores",
+            &format!("pool_{}", entity.id),
+        ]
+        .iter()
+        .collect();
+        if !std::fs::exists(filepath.clone())? {
+            let raw = TestPoolRaw {
+                id: entity.id,
+                miden_account: entity.miden_account.id().to_hex(),
+                pool_configs: entity
+                    .pool_configs
+                    .iter()
+                    .map(TestRawLiquidityPoolConfig::from)
+                    .collect(),
+            };
+            let toml_str = toml::to_string_pretty(&raw)
+                .map_err(|e| anyhow!("Failed to serialize state: {e}"))?;
+            std::fs::write(filepath, toml_str)?;
+        }
     }
-    path.push(PathBuf::from("test_cache.toml"));
-    let toml_str = toml::to_string_pretty(&test_cache)
-        .map_err(|e| anyhow!("Failed to serialize state: {e}"))?;
-    std::fs::write(&path, toml_str).map_err(|e| anyhow!("Failed to write {path:?}: {e}"))?;
-    println!("Saved test state to {path:?}");
     Ok(())
 }
 

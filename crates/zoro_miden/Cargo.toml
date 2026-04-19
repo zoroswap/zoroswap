@@ -4,27 +4,32 @@ version = "0.5.0"
 edition = "2024"
 license = "GPL-3.0-only"
 
+[[bin]]
+name = "generate_test_accounts"
+path = "src/bin/generate_test_accounts.rs"
+
 [dependencies]
 alloy = { workspace = true }
 anyhow = "1.0"
 base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
+dotenv = "0.15.0"
 miden-assembly = { workspace = true }
 miden-client = { workspace = true }
+miden-client-sqlite-store = { workspace = true }
 miden-protocol = { workspace = true }
 miden-standards = { workspace = true }
 miden-tx = { workspace = true }
-miden-client-sqlite-store = { workspace = true }
 rand = { version = "0.9" }
 serde = { version = "1", features = ["derive"] }
 tokio = { version = "1.46", features = ["fs", "macros", "rt-multi-thread"] }
-uuid = { version = "1.0", features = ["serde", "v4"] }
-zoro_curve_base = { path = "../zoro_curve_base", default-features = false }
-zoro_curve_local = { package = "zoro_curve", path = "../../../zoro-curve", optional = true }
 toml = "1.1.2"
-dotenv = "0.15.0"
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+uuid = { version = "1.0", features = ["serde", "v4"] }
+walkdir = "2.5.0"
+zoro_curve_base = { path = "../zoro_curve_base", default-features = false }
+zoro_curve_local = { package = "zoro_curve", path = "../../../zoro-curve", optional = true }
 
 [features]
 default = ["zoro_curve_base/dummy-curve"]

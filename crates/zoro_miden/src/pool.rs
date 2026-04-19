@@ -510,23 +510,21 @@ mod tests {
     #[tokio::test]
     async fn deploying_new_pool() -> Result<()> {
         let mut test_utils = TestUtils::from_cache().await?;
-        let (_, (faucet0, faucet1)) = test_utils.get_two_accounts_two_faucets().await?;
-        ZoroPool::new_deployment(
-            vec![
-                faucet0.to_liquidity_pool_config(),
-                faucet1.to_liquidity_pool_config(),
-            ],
+        test_utils.add_cached_pools(1).await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn create_from_existing_pool() -> Result<()> {
+        let mut test_utils = TestUtils::from_cache().await?;
+        let pool = &test_utils.get_pools(1).await?[..][0];
+        let client = test_utils.miden_client();
+        ZoroPool::new_from_existing_pool(
             test_utils.miden_endpoint(),
-            test_utils
-                .miden_client()
-                .keystore_path()
-                .to_str()
-                .ok_or(anyhow!("Missing keystore path in client"))?,
-            test_utils
-                .miden_client()
-                .store_path()
-                .to_str()
-                .ok_or(anyhow!("Missing store path in client"))?,
+            client.keystore_path().to_str().unwrap(),
+            "testing_stores",
+            pool.miden_account.id(),
+            pool.pool_configs.clone(),
         )
         .await?;
         Ok(())

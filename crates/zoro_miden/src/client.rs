@@ -380,6 +380,14 @@ impl MidenClient {
     }
 }
 
+impl Drop for MidenClient {
+    fn drop(&mut self) {
+        if let Err(e) = std::fs::remove_file(self.store_path()) {
+            warn!("Error deleting store on client drop: {e:?}");
+        }
+    }
+}
+
 // --------------------------------------------------------------------------
 // Assembly Utilities
 // --------------------------------------------------------------------------

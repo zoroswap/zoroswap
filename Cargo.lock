@@ -7417,6 +7417,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
+ "walkdir",
  "zoro_curve",
  "zoro_curve_base",
 ]
