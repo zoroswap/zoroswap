@@ -8,7 +8,41 @@ use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 use tracing_subscriber::EnvFilter;
 
-use crate::{account::MidenAccount, client::MidenClient};
+use crate::{account::MidenAccount, client::MidenClient, pool::LiquidityPoolConfig};
+
+// TODO: Move actual config module here perhaps, this is the same as `RawLiquidityPoolConfig`
+#[derive(Deserialize, Serialize, Debug)]
+pub struct TestRawLiquidityPoolConfig {
+    name: String,
+    symbol: String,
+    decimals: u8,
+    faucet_id: String,
+    oracle_id: String,
+}
+
+impl From<&TestRawLiquidityPoolConfig> for LiquidityPoolConfig {
+    fn from(value: &TestRawLiquidityPoolConfig) -> Self {
+        LiquidityPoolConfig {
+            name: format!("Test pool {}", &value.symbol).leak(),
+            symbol: value.symbol.clone().leak(),
+            decimals: value.decimals,
+            faucet_id: AccountId::from_hex(&value.faucet_id).unwrap(),
+            oracle_id: value.oracle_id.clone().leak(),
+        }
+    }
+}
+
+impl From<&LiquidityPoolConfig> for TestRawLiquidityPoolConfig {
+    fn from(value: &LiquidityPoolConfig) -> Self {
+        Self {
+            name: value.name.to_string(),
+            symbol: value.symbol.to_string(),
+            decimals: value.decimals,
+            faucet_id: value.faucet_id.to_hex(),
+            oracle_id: value.oracle_id.to_string(),
+        }
+    }
+}
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct TestFaucetMeta {
@@ -21,22 +55,46 @@ pub struct TestFaucet {
     pub miden_account: MidenAccount,
     pub meta: TestFaucetMeta,
 }
+impl TestFaucet {
+    pub fn to_liquidity_pool_config(&self) -> LiquidityPoolConfig {
+        LiquidityPoolConfig {
+            name: format!("Test pool {}", &self.meta.symbol).leak(),
+            symbol: self.meta.symbol.clone().leak(),
+            decimals: self.meta.decimals,
+            faucet_id: *self.miden_account.id(),
+            oracle_id: "missing",
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TestFaucetRaw {
     pub miden_account: String,
     pub meta: TestFaucetMeta,
 }
+#[derive(Debug, Clone)]
+pub struct TestPool {
+    pub miden_account: MidenAccount,
+    pub pool_configs: Vec<LiquidityPoolConfig>,
+}
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TestPoolRaw {
+    pub miden_account: String,
+    pub pool_configs: Vec<TestRawLiquidityPoolConfig>,
+}
 #[derive(Deserialize, Serialize, Debug)]
 struct TestCache {
     pub accounts: Vec<String>,
     pub faucets: Vec<TestFaucetRaw>,
+    pub pools: Vec<TestPoolRaw>,
 }
 
 pub struct TestUtils {
     cached_accounts: Vec<MidenAccount>,
     cached_faucets: Vec<TestFaucet>,
+    cached_pools: Vec<TestPool>,
     miden_client: MidenClient,
-    keystore_path: String,
+    miden_endpoint: Endpoint,
 }
 
 impl TestUtils {
@@ -48,6 +106,13 @@ impl TestUtils {
             .try_init();
         dotenv().ok();
         Ok(())
+    }
+
+    pub fn miden_client(&self) -> &MidenClient {
+        &self.miden_client
+    }
+    pub fn miden_client_mut(&mut self) -> &mut MidenClient {
+        &mut self.miden_client
     }
 
     pub async fn from_cache() -> Result<Self> {
@@ -80,6 +145,27 @@ impl TestUtils {
                 },
             )
             .collect();
+        let cached_pools: Vec<TestPool> = cached
+            .pools
+            .iter()
+            .filter_map(
+                |pool_raw| match AccountId::from_hex(&pool_raw.miden_account) {
+                    Ok(acc_id) => Some(TestPool {
+                        miden_account: MidenAccount::new(acc_id, None),
+                        pool_configs: pool_raw
+                            .pool_configs
+                            .iter()
+                            .map(LiquidityPoolConfig::from)
+                            .collect(),
+                    }),
+                    Err(e) => {
+                        warn!("Error on cached faucet: {e:?}");
+                        None
+                    }
+                },
+            )
+            .collect();
+
         let endpoint = std::env::var("MIDEN_NODE_ENDPOINT")
             .map_err(|e| anyhow!("Missing MIDEN_NODE_ENDPOINT in .env file.: {e:?}"))?;
         let keystore_path = "keystore";
@@ -90,12 +176,14 @@ impl TestUtils {
             _ => Endpoint::localhost(),
         };
 
-        let miden_client = MidenClient::new(miden_endpoint, keystore_path, store_path).await?;
+        let miden_client =
+            MidenClient::new(miden_endpoint.clone(), keystore_path, store_path).await?;
         Ok(Self {
             cached_accounts,
             cached_faucets,
+            cached_pools,
             miden_client,
-            keystore_path: keystore_path.to_string(),
+            miden_endpoint,
         })
     }
     pub fn save_cached_accounts(&self) -> Result<()> {
@@ -103,8 +191,15 @@ impl TestUtils {
     }
     pub async fn add_cached_accounts(&mut self, n: usize) -> Result<()> {
         info!("Deploying {n} new accounts.");
+        let keystore_path = self
+            .miden_client
+            .keystore_path()
+            .to_str()
+            .ok_or(anyhow!("Missing keystore path"))?
+            .to_string();
         for _ in 0..n {
-            let acc = MidenAccount::deploy_new(&mut self.miden_client, &self.keystore_path).await?;
+            let acc =
+                MidenAccount::deploy_new(&mut self.miden_client, &keystore_path.clone()).await?;
             self.cached_accounts.push(acc);
         }
         self.save_cached_accounts()?;
@@ -117,7 +212,10 @@ impl TestUtils {
             let acc = self
                 .miden_client
                 .deploy_new_faucet(
-                    &self.keystore_path,
+                    self.miden_client
+                        .keystore_path()
+                        .to_str()
+                        .ok_or(anyhow!("Missing keystore path"))?,
                     &meta.symbol,
                     meta.decimals,
                     meta.max_supply,
@@ -144,6 +242,18 @@ impl TestUtils {
                 .map(|f| TestFaucetRaw {
                     miden_account: f.miden_account.id().to_hex(),
                     meta: f.meta.clone(),
+                })
+                .collect(),
+            pools: self
+                .cached_pools
+                .iter()
+                .map(|p| TestPoolRaw {
+                    miden_account: p.miden_account.id().to_hex(),
+                    pool_configs: p
+                        .pool_configs
+                        .iter()
+                        .map(TestRawLiquidityPoolConfig::from)
+                        .collect(),
                 })
                 .collect(),
         }
@@ -177,6 +287,9 @@ impl TestUtils {
         };
         Ok(((acc0, acc1), (faucet0, faucet1)))
     }
+    pub fn miden_endpoint(&self) -> Endpoint {
+        self.miden_endpoint.clone()
+    }
 }
 
 pub fn clean_cache_store() -> Result<()> {
@@ -187,6 +300,7 @@ fn create_fresh_cache_file() -> Result<TestCache> {
     let test_cache = TestCache {
         accounts: vec![],
         faucets: vec![],
+        pools: vec![],
     };
     save_cached_accounts_to_file(&test_cache)?;
     Ok(test_cache)

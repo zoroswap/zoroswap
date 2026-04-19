@@ -37,6 +37,8 @@ pub struct MidenClient {
     client: Client<FilesystemKeyStore>,
     state_sync: StateSync,
     endpoint: Endpoint,
+    store_path: PathBuf,
+    keystore_path: PathBuf,
 }
 
 impl MidenClient {
@@ -67,12 +69,14 @@ impl MidenClient {
         client.ensure_genesis_in_place().await?;
         client.sync_state().await?;
 
-        let sqlite_store = Arc::new(SqliteStore::new(store_path).await?);
+        let sqlite_store = Arc::new(SqliteStore::new(store_path.clone()).await?);
         let note_screener = NoteScreener::new(sqlite_store);
         let state_sync = StateSync::new(rpc_client, Arc::new(note_screener), None);
         Ok(Self {
             client,
             state_sync,
+            store_path,
+            keystore_path: keystore_path.into(),
             endpoint,
         })
     }
@@ -366,6 +370,13 @@ impl MidenClient {
             .await?;
         self.sync_state().await?;
         Ok(MidenAccount::new(faucet_account.id(), Some(faucet_account)))
+    }
+
+    pub fn keystore_path(&self) -> PathBuf {
+        self.keystore_path.clone()
+    }
+    pub fn store_path(&self) -> PathBuf {
+        self.store_path.clone()
     }
 }
 

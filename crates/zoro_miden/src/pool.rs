@@ -500,3 +500,35 @@ impl ZoroPool {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test_utils::TestUtils;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn deploying_new_pool() -> Result<()> {
+        let mut test_utils = TestUtils::from_cache().await?;
+        let (_, (faucet0, faucet1)) = test_utils.get_two_accounts_two_faucets().await?;
+        ZoroPool::new_deployment(
+            vec![
+                faucet0.to_liquidity_pool_config(),
+                faucet1.to_liquidity_pool_config(),
+            ],
+            test_utils.miden_endpoint(),
+            test_utils
+                .miden_client()
+                .keystore_path()
+                .to_str()
+                .ok_or(anyhow!("Missing keystore path in client"))?,
+            test_utils
+                .miden_client()
+                .store_path()
+                .to_str()
+                .ok_or(anyhow!("Missing store path in client"))?,
+        )
+        .await?;
+        Ok(())
+    }
+}
