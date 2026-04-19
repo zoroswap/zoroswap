@@ -44,7 +44,7 @@ impl MidenClient {
         info!(
             keystore_path = keystore_path,
             store_dir= store_dir,
-            endpoint = ?endpoint,
+            endpoint = ?endpoint.to_network_id().to_string(),
             "Creating a new Miden Client"
         );
         let timeout_ms = 30_000;
@@ -55,7 +55,8 @@ impl MidenClient {
             }),
         );
         let name = format!("{:?}.sqlite3", Uuid::new_v4());
-        let store_path: PathBuf = [store_dir, &name].iter().collect();
+        let manifest_dir = env!("CARGO_MANIFEST_DIR");
+        let store_path: PathBuf = [manifest_dir, store_dir, &name].iter().collect();
         let mut client = ClientBuilder::new()
             .rpc(rpc_client.clone())
             .authenticator(keystore.clone())

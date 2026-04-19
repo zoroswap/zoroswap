@@ -1,10 +1,12 @@
 use std::path::PathBuf;
 
 use anyhow::{Result, anyhow};
+use dotenv::dotenv;
 use miden_client::{account::AccountId, rpc::Endpoint};
 use rand::{Rng, distr::Alphabetic};
 use serde::{Deserialize, Serialize};
-use tracing::warn;
+use tracing::{info, warn};
+use tracing_subscriber::EnvFilter;
 
 use crate::{account::MidenAccount, client::MidenClient};
 
@@ -38,7 +40,18 @@ pub struct TestUtils {
 }
 
 impl TestUtils {
+    pub async fn init_env_and_tracing() -> Result<()> {
+        let filter_layer = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new("info,server=info,miden_client=warn,rusqlite_migration=warn,h2=warn,rustls=warn,hyper=warn"));
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter(filter_layer)
+            .try_init();
+        dotenv().ok();
+        Ok(())
+    }
+
     pub async fn from_cache() -> Result<Self> {
+        Self::init_env_and_tracing().await?;
         let cached = load_cached_accounts_from_file()?;
         let cached_accounts: Vec<MidenAccount> = cached
             .accounts
@@ -69,8 +82,8 @@ impl TestUtils {
             .collect();
         let endpoint = std::env::var("MIDEN_NODE_ENDPOINT")
             .map_err(|e| anyhow!("Missing MIDEN_NODE_ENDPOINT in .env file.: {e:?}"))?;
-        let keystore_path = "keystore/";
-        let store_path = "testing_store/";
+        let keystore_path = "keystore";
+        let store_path = "testing_stores";
         let miden_endpoint = match endpoint.as_str() {
             "testnet" => Endpoint::testnet(),
             "devnet" => Endpoint::devnet(),
@@ -89,6 +102,7 @@ impl TestUtils {
         save_cached_accounts_to_file(&self.to_raw_format())
     }
     pub async fn add_cached_accounts(&mut self, n: usize) -> Result<()> {
+        info!("Deploying {n} new accounts.");
         for _ in 0..n {
             let acc = MidenAccount::deploy_new(&mut self.miden_client, &self.keystore_path).await?;
             self.cached_accounts.push(acc);
@@ -97,6 +111,7 @@ impl TestUtils {
         Ok(())
     }
     pub async fn add_cached_faucets(&mut self, n: usize) -> Result<()> {
+        info!("Deploying {n} new faucets.");
         for _ in 0..n {
             let meta = generate_random_faucet_metadata();
             let acc = self
@@ -108,7 +123,10 @@ impl TestUtils {
                     meta.max_supply,
                 )
                 .await?;
-            self.cached_accounts.push(acc);
+            self.cached_faucets.push(TestFaucet {
+                miden_account: acc,
+                meta,
+            });
         }
         self.save_cached_accounts()?;
         Ok(())
@@ -139,12 +157,25 @@ impl TestUtils {
         Ok(accounts.to_vec())
     }
     pub async fn get_faucets(&mut self, n: usize) -> Result<Vec<TestFaucet>> {
-        if self.cached_accounts.len() < n {
-            self.add_cached_faucets(n - self.cached_accounts.len())
+        if self.cached_faucets.len() < n {
+            self.add_cached_faucets(n - self.cached_faucets.len())
                 .await?;
         }
         let accounts = &self.cached_faucets[..n];
         Ok(accounts.to_vec())
+    }
+    pub async fn get_two_accounts_two_faucets(
+        &mut self,
+    ) -> Result<((MidenAccount, MidenAccount), (TestFaucet, TestFaucet))> {
+        let mut accounts = self.get_accounts(2).await?.into_iter();
+        let mut faucets = self.get_faucets(2).await?.into_iter();
+        let (Some(acc0), Some(acc1)) = (accounts.next(), accounts.next()) else {
+            return Err(anyhow!("Failed getting accounts"));
+        };
+        let (Some(faucet0), Some(faucet1)) = (faucets.next(), faucets.next()) else {
+            return Err(anyhow!("Failed getting faucets"));
+        };
+        Ok(((acc0, acc1), (faucet0, faucet1)))
     }
 }
 
@@ -152,22 +183,43 @@ pub fn clean_cache_store() -> Result<()> {
     Ok(())
 }
 
+fn create_fresh_cache_file() -> Result<TestCache> {
+    let test_cache = TestCache {
+        accounts: vec![],
+        faucets: vec![],
+    };
+    save_cached_accounts_to_file(&test_cache)?;
+    Ok(test_cache)
+}
+
 fn load_cached_accounts_from_file() -> Result<TestCache> {
     let manifest_dir: &str = env!("CARGO_MANIFEST_DIR");
     let path: PathBuf = [manifest_dir, "testing_stores", "test_cache.toml"]
         .iter()
         .collect();
-    let s = std::fs::read_to_string(&path)
-        .map_err(|e| anyhow!("Error reading cached accounts. {path:?}: {e}"))?;
-    let test_cache = toml::from_str(&s)?;
-    Ok(test_cache)
+    match std::fs::read_to_string(&path) {
+        Ok(s) => {
+            let test_cache = toml::from_str(&s)?;
+            Ok(test_cache)
+        }
+        Err(e) => {
+            info!(
+                "Cached accounts not initialized or corrupt. {path:?}: {e}. Creating a new cache file."
+            );
+            let test_cache = create_fresh_cache_file()?;
+            Ok(test_cache)
+        }
+    }
 }
 
 fn save_cached_accounts_to_file(test_cache: &TestCache) -> Result<()> {
     let manifest_dir: &str = env!("CARGO_MANIFEST_DIR");
-    let path: PathBuf = [manifest_dir, "testing_stores", "test_cache.toml"]
-        .iter()
-        .collect();
+    let mut path: PathBuf = [manifest_dir, "testing_stores"].iter().collect();
+    println!("{path:?} exists {:?}", path.exists());
+    if !path.exists() {
+        std::fs::create_dir(&path)?;
+    }
+    path.push(PathBuf::from("test_cache.toml"));
     let toml_str = toml::to_string_pretty(&test_cache)
         .map_err(|e| anyhow!("Failed to serialize state: {e}"))?;
     std::fs::write(&path, toml_str).map_err(|e| anyhow!("Failed to write {path:?}: {e}"))?;
@@ -177,13 +229,14 @@ fn save_cached_accounts_to_file(test_cache: &TestCache) -> Result<()> {
 
 fn generate_random_faucet_metadata() -> TestFaucetMeta {
     let mut rng = rand::rng();
+    let symbol: String = rand::rng()
+        .sample_iter(&Alphabetic)
+        .take(6)
+        .map(char::from)
+        .collect();
     TestFaucetMeta {
         decimals: rng.random_range(0..12),
         max_supply: rng.random_range(10_000_000..5_000_000_000),
-        symbol: rand::rng()
-            .sample_iter(&Alphabetic)
-            .take(6)
-            .map(char::from)
-            .collect(),
+        symbol: symbol.to_ascii_uppercase(),
     }
 }
