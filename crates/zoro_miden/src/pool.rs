@@ -11,8 +11,8 @@ use chrono::Utc;
 use miden_client::{
     Felt, Word,
     account::{
-        Account, AccountBuilder, AccountComponent, AccountId,
-        AccountStorageMode, AccountType, StorageMap, StorageMapKey, StorageSlot, StorageSlotName,
+        Account, AccountBuilder, AccountComponent, AccountId, AccountStorageMode, AccountType,
+        StorageMap, StorageMapKey, StorageSlot, StorageSlotName,
         component::{AccountComponentMetadata, BasicWallet},
     },
     address::NetworkId,
@@ -21,7 +21,6 @@ use miden_client::{
     keystore::{FilesystemKeyStore, Keystore},
     note::{Note, NoteDetails, NoteId, NoteRecipient, NoteTag},
     rpc::Endpoint,
-    
     transaction::{TransactionKernel, TransactionRequestBuilder},
     vm::AdviceMap,
 };
@@ -96,13 +95,11 @@ impl ZoroPool {
         let masm_path: PathBuf = [manifest_dir, "masm", "accounts", "zoropool.masm"]
             .iter()
             .collect();
-        let mut miden_client =
+        let mut miden_client: MidenClient =
             MidenClient::new(endpoint.clone(), keystore_path, store_path).await?;
         let pool_reader_path = Path::new(&masm_path);
         let pool_code = std::fs::read_to_string(pool_reader_path)
             .unwrap_or_else(|err| panic!("unable to read from {pool_reader_path:?}: {err}"));
-
-        let assembler = TransactionKernel::assembler();
 
         let mut assets_mapping = StorageMap::new();
         let mut curves_mapping = StorageMap::new();
@@ -161,14 +158,16 @@ impl ZoroPool {
         let user_deposits_mapping = StorageSlot::with_empty_map(n("zoroswap::user_deposits"));
 
         // Compile the account code into a Library, then create AccountComponent
-        let pool_library = create_library(assembler.clone(), "zoroswap::zoropool", &pool_code)
-            .map_err(|e| anyhow!("Failed to create pool library: {e}"))?;
-        let pool_metadata = AccountComponentMetadata::new(
-            "zoroswap::zoropool",
-            AccountType::all(),
-        );
+        // let assembler = TransactionKernel::assembler();
+        // let pool_library = create_library(assembler.clone(), "zoroswap::zoropool", &pool_code)
+        //     .map_err(|e| anyhow!("Failed to create pool library: {e}"))?;
+        let code_builder = miden_client.client_mut().code_builder();
+        let pool_library = code_builder.compile_component_code("zoroswap::zoropool", &pool_code)?;
+        let pool_metadata = AccountComponentMetadata::new("zoroswap::zoropool", AccountType::all());
+
         let pool_component = AccountComponent::new(
-            (*pool_library).clone(),
+            //(*pool_library).clone(),
+            pool_library,
             vec![
                 StorageSlot::with_empty_value(n("zoroswap::slot0")),
                 StorageSlot::with_empty_value(n("zoroswap::slot1")),
@@ -186,12 +185,12 @@ impl ZoroPool {
             ],
             pool_metadata,
         )?;
-
         // Init seed for the pool contract
         let mut init_seed = [0_u8; 32];
         miden_client.client_mut().rng().fill_bytes(&mut init_seed);
 
-        let key_pair = AuthSecretKey::new_falcon512_poseidon2_with_rng(miden_client.client_mut().rng());
+        let key_pair =
+            AuthSecretKey::new_falcon512_poseidon2_with_rng(miden_client.client_mut().rng());
 
         // Build the new `Account` with the component
         let pool_contract = AccountBuilder::new(init_seed)
@@ -215,7 +214,10 @@ impl ZoroPool {
         );
 
         let keystore = FilesystemKeyStore::new(keystore_path.into())?;
-        keystore.add_key(&key_pair, pool_contract.id()).await.map_err(|e| anyhow!("Failed to add key: {e:?}"))?;
+        keystore
+            .add_key(&key_pair, pool_contract.id())
+            .await
+            .map_err(|e| anyhow!("Failed to add key: {e:?}"))?;
         miden_client
             .client_mut()
             .add_account(&pool_contract.clone(), false)
