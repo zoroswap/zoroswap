@@ -56,16 +56,19 @@ async fn e2e_private_deposit_withdraw() -> Result<()> {
     let max_slippage = 0.005; // 0.5 %
     let min_lp_amount_out = ((amount_in as f64) * (1.0 - max_slippage)) as u64;
 
-    let deposit_note = TrustedNote::new(NoteInstructions::Deposit(DepositInstructions {
-        asset_in: pool.faucet_id,
-        amount_in,
-        min_lp_amount_out,
-        creator: *account.id(),
-        note_type: NoteType::Private,
-        deadline: Utc::now().timestamp_millis() as u64 + 120_000,
-        p2id_tag: NoteTag::with_account_target(*account.id()),
-        pool_tag: NoteTag::with_account_target(config.pool_account_id),
-    }))?;
+    let deposit_note = TrustedNote::new(
+        NoteInstructions::Deposit(DepositInstructions {
+            asset_in: pool.faucet_id,
+            amount_in,
+            min_lp_amount_out,
+            creator: *account.id(),
+            note_type: NoteType::Private,
+            deadline: Utc::now().timestamp_millis() as u64 + 120_000,
+            p2id_tag: NoteTag::with_account_target(*account.id()),
+            pool_tag: NoteTag::with_account_target(config.pool_account_id),
+        }),
+        miden_client.client_mut().code_builder(),
+    )?;
 
     miden_client
         .send_note(account.id(), &config.pool_account_id, deposit_note.clone())
@@ -101,16 +104,19 @@ async fn e2e_private_deposit_withdraw() -> Result<()> {
     let min_asset_amount_out = (amount_to_withdraw as f64) * (1.0 - max_slippage);
     let min_asset_amount_out = min_asset_amount_out as u64;
 
-    let withdraw_note = TrustedNote::new(NoteInstructions::Withdraw(WithdrawInstructions {
-        asset_out: pool.faucet_id,
-        lp_amount_in: amount_to_withdraw,
-        min_amount_out: min_asset_amount_out,
-        creator: *account.id(),
-        note_type: NoteType::Private,
-        p2id_tag: NoteTag::with_account_target(*account.id()),
-        pool_tag: NoteTag::with_account_target(config.pool_account_id),
-        deadline: Utc::now().timestamp_millis() as u64 + 120_000,
-    }))?;
+    let withdraw_note = TrustedNote::new(
+        NoteInstructions::Withdraw(WithdrawInstructions {
+            asset_out: pool.faucet_id,
+            lp_amount_in: amount_to_withdraw,
+            min_amount_out: min_asset_amount_out,
+            creator: *account.id(),
+            note_type: NoteType::Private,
+            p2id_tag: NoteTag::with_account_target(*account.id()),
+            pool_tag: NoteTag::with_account_target(config.pool_account_id),
+            deadline: Utc::now().timestamp_millis() as u64 + 120_000,
+        }),
+        miden_client.client_mut().code_builder(),
+    )?;
 
     miden_client
         .send_note(account.id(), &config.pool_account_id, withdraw_note.clone())

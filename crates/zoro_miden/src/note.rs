@@ -4,17 +4,14 @@ use anyhow::{Result, anyhow};
 use base64::{Engine as _, engine::general_purpose};
 use chrono::{TimeZone, Utc};
 use miden_client::{
-    Felt, Word,
+    Deserializable, Felt, Serializable, Word,
     account::AccountId,
     address::NetworkId,
     assembly::CodeBuilder,
     asset::{Asset, FungibleAsset},
-    note::{
-        Note, NoteAssets, NoteMetadata, NoteRecipient, NoteStorage, NoteTag, NoteType,
-    },
+    note::{Note, NoteAssets, NoteMetadata, NoteRecipient, NoteStorage, NoteTag, NoteType},
     store::InputNoteRecord,
     transaction::TransactionKernel,
-    Deserializable, Serializable,
 };
 use miden_standards::note::{P2idNoteStorage, StandardNote};
 use rand::{Rng, SeedableRng, rngs::StdRng};
@@ -59,12 +56,12 @@ pub struct TrustedNote {
 }
 
 impl TrustedNote {
-    pub fn new(note_instructions: NoteInstructions) -> Result<Self> {
+    pub fn new(note_instructions: NoteInstructions, code_builder: CodeBuilder) -> Result<Self> {
         let note_elements: TrustedNoteElements = note_instructions.try_into()?;
         match note_elements.note_kind {
             NoteKind::P2ID => Self::new_p2id(note_elements),
             NoteKind::Deposit | NoteKind::Withdraw | NoteKind::Swap => {
-                Self::new_zoro_note(note_elements)
+                Self::new_zoro_note(note_elements, code_builder)
             }
         }
     }
@@ -96,7 +93,10 @@ impl TrustedNote {
         })
     }
 
-    fn new_zoro_note(note_elements: TrustedNoteElements) -> Result<Self> {
+    fn new_zoro_note(
+        note_elements: TrustedNoteElements,
+        code_builder: CodeBuilder,
+    ) -> Result<Self> {
         let manifest_dir = env!("CARGO_MANIFEST_DIR");
         let assembler = TransactionKernel::assembler().with_warnings_as_errors(true);
         let note_path = PathBuf::from_iter(&[
@@ -110,10 +110,13 @@ impl TrustedNote {
             .map_err(|e| anyhow!("Error parsing note code at path {note_path:?}: {e:?}"))?;
         let pool_code = read_to_string(&pool_path)
             .map_err(|e| anyhow!("Error parsing pool code at path {pool_path:?}: {e:?}"))?;
-        let pool_component_lib =
-            create_library(assembler.clone(), "zoroswap::zoropool", &pool_code)
-                .map_err(|e| anyhow!("{e:?}"))?;
-        let note_script = CodeBuilder::new()
+        // let pool_component_lib =
+        //     create_library(assembler.clone(), "zoroswap::zoropool", &pool_code)
+        //         .map_err(|e| anyhow!("{e:?}"))?;
+        let pool_component_lib = code_builder
+            .clone()
+            .compile_component_code("zoroswap::zoropool", &pool_code)?;
+        let note_script = code_builder
             .with_dynamically_linked_library(&pool_component_lib)?
             .compile_note_script(note_code)?;
         let serial_number = Self::random_word()?;
@@ -190,7 +193,7 @@ impl TrustedNote {
             target,
             referential_serial_number,
             note_type: NoteType::Public,
-        }))?;
+        }), CodeBuilder::new())?;
         Ok(p2id_note)
     }
     pub fn note(&self) -> &Note {
@@ -482,7 +485,8 @@ impl TryFrom<TrustedNote> for NoteInstructions {
             NoteKind::Withdraw => {
                 let vals = note.note().storage().items();
                 let requested_asset_out_id = AccountId::try_from_elements(vals[2], vals[3])?;
-                let asset_out = FungibleAsset::new(requested_asset_out_id, vals[0].as_canonical_u64())?;
+                let asset_out =
+                    FungibleAsset::new(requested_asset_out_id, vals[0].as_canonical_u64())?;
                 let lp_withdraw_amount: u64 = vals[5].as_canonical_u64();
                 let deadline: u64 = vals[6].as_canonical_u64();
                 let p2id_tag: u64 = vals[7].as_canonical_u64();
@@ -517,16 +521,17 @@ impl TryFrom<TrustedNote> for NoteInstructions {
                 let requested: &[Felt] = vals
                     .get(..4)
                     .ok_or(anyhow!("note has fewer than 4 inputs"))?;
-                let requested_asset_out_id = AccountId::try_from_elements(requested[2], requested[3])?;
-                let asset_out = FungibleAsset::new(requested_asset_out_id, requested[0].as_canonical_u64())?;
+                let requested_asset_out_id =
+                    AccountId::try_from_elements(requested[2], requested[3])?;
+                let asset_out =
+                    FungibleAsset::new(requested_asset_out_id, requested[0].as_canonical_u64())?;
                 let deadline: u64 = vals[4].as_canonical_u64();
                 let p2id_tag: u64 = vals[5].as_canonical_u64();
                 let beneficiary_suffix = vals[8];
                 let beneficiary_prefix = vals[9];
-                let beneficiary_id = AccountId::try_from_elements(beneficiary_suffix, beneficiary_prefix)
-                    .map_err(|_| anyhow!(
-                        "Couldn't parse beneficiary_id from order note"
-                    ))?;
+                let beneficiary_id =
+                    AccountId::try_from_elements(beneficiary_suffix, beneficiary_prefix)
+                        .map_err(|_| anyhow!("Couldn't parse beneficiary_id from order note"))?;
                 let creator_suffix = vals[10];
                 let creator_prefix = vals[11];
                 let creator_id = AccountId::try_from_elements(creator_suffix, creator_prefix)
@@ -602,7 +607,8 @@ impl TrustedNoteElements {
             Felt::new(0),
             instructions.asset_out.suffix(),
             instructions.asset_out.prefix().as_felt(),
-        ].into();
+        ]
+        .into();
         let beneficiary = if let Some(beneficiary) = instructions.beneficiary {
             beneficiary
         } else {
@@ -625,11 +631,8 @@ impl TrustedNoteElements {
         let assets = NoteAssets::new(vec![
             FungibleAsset::new(instructions.asset_in, instructions.amount_in)?.into(),
         ])?;
-        let metadata = NoteMetadata::new(
-            instructions.creator,
-            instructions.note_type,
-        )
-        .with_tag(instructions.pool_tag);
+        let metadata = NoteMetadata::new(instructions.creator, instructions.note_type)
+            .with_tag(instructions.pool_tag);
         Ok(Self {
             assets,
             metadata,
@@ -654,11 +657,8 @@ impl TrustedNoteElements {
         let assets = NoteAssets::new(vec![
             FungibleAsset::new(instructions.asset_in, instructions.amount_in)?.into(),
         ])?;
-        let metadata = NoteMetadata::new(
-            instructions.creator,
-            instructions.note_type,
-        )
-        .with_tag(instructions.pool_tag);
+        let metadata = NoteMetadata::new(instructions.creator, instructions.note_type)
+            .with_tag(instructions.pool_tag);
         Ok(Self {
             assets,
             metadata,
@@ -675,7 +675,8 @@ impl TrustedNoteElements {
             Felt::new(0),
             instructions.asset_out.suffix(),
             instructions.asset_out.prefix().as_felt(),
-        ].into();
+        ]
+        .into();
         let inputs = NoteStorage::new(vec![
             asset_out[0],
             asset_out[1],
@@ -691,11 +692,8 @@ impl TrustedNoteElements {
             instructions.creator.prefix().into(),
         ])?;
         let assets = NoteAssets::default();
-        let metadata = NoteMetadata::new(
-            instructions.creator,
-            instructions.note_type,
-        )
-        .with_tag(instructions.pool_tag);
+        let metadata = NoteMetadata::new(instructions.creator, instructions.note_type)
+            .with_tag(instructions.pool_tag);
         Ok(Self {
             assets,
             metadata,

@@ -87,16 +87,19 @@ async fn main() -> Result<()> {
         println!("liq pool: {:?}", pool.name);
         let max_slippage = 0.5; // 0.5 %
         let min_lp_amount_out = ((amount as f64) * (1.0 - max_slippage)) as u64;
-        let deposit_note = TrustedNote::new(NoteInstructions::Deposit(DepositInstructions {
-            asset_in: pool.faucet_id,
-            amount_in: amount,
-            min_lp_amount_out,
-            creator: *lp_account.id(),
-            note_type: NoteType::Private,
-            deadline: (Utc::now().timestamp_millis() + 120_000) as u64,
-            p2id_tag: lp_account.tag(),
-            pool_tag: NoteTag::with_account_target(*zoro_pool.miden_account().id()),
-        }))?;
+        let deposit_note = TrustedNote::new(
+            NoteInstructions::Deposit(DepositInstructions {
+                asset_in: pool.faucet_id,
+                amount_in: amount,
+                min_lp_amount_out,
+                creator: *lp_account.id(),
+                note_type: NoteType::Private,
+                deadline: (Utc::now().timestamp_millis() + 120_000) as u64,
+                p2id_tag: lp_account.tag(),
+                pool_tag: NoteTag::with_account_target(*zoro_pool.miden_account().id()),
+            }),
+            miden_client.client_mut().code_builder(),
+        )?;
         miden_client
             .send_note(
                 lp_account.id(),

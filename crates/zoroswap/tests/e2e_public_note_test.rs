@@ -64,18 +64,21 @@ async fn e2e_public_note() -> Result<()> {
     let min_amount_out =
         ((pool0_price as f64) / (pool1_price as f64)) * (amount_in as f64) * (1.0 - max_slippage);
     let min_amount_out = min_amount_out as u64;
-    let note = TrustedNote::new(NoteInstructions::Swap(SwapInstructions {
-        asset_in: pool0.faucet_id,
-        amount_in,
-        asset_out: pool1.faucet_id,
-        min_amount_out,
-        creator: *account.id(),
-        beneficiary: None,
-        note_type: NoteType::Public,
-        deadline: Utc::now().timestamp_millis() as u64 + 120_000,
-        p2id_tag: NoteTag::with_account_target(*account.id()),
-        pool_tag: NoteTag::with_account_target(config.pool_account_id),
-    }))?;
+    let note = TrustedNote::new(
+        NoteInstructions::Swap(SwapInstructions {
+            asset_in: pool0.faucet_id,
+            amount_in,
+            asset_out: pool1.faucet_id,
+            min_amount_out,
+            creator: *account.id(),
+            beneficiary: None,
+            note_type: NoteType::Public,
+            deadline: Utc::now().timestamp_millis() as u64 + 120_000,
+            p2id_tag: NoteTag::with_account_target(*account.id()),
+            pool_tag: NoteTag::with_account_target(config.pool_account_id),
+        }),
+        miden_client.client_mut().code_builder(),
+    )?;
 
     miden_client
         .send_note(account.id(), zoro_pool.miden_account().id(), note.clone())
