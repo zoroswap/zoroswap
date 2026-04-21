@@ -263,7 +263,7 @@ impl MidenClient {
             account_id.to_bech32(self.endpoint.to_network_id())
         );
         self.sync_state().await?;
-        self.client.import_account_by_id(faucet_id).await?;
+        self.import_account(&faucet_id).await?;
         let fungible_asset = FungibleAsset::new(faucet_id, amount)?;
         let transaction_request = TransactionRequestBuilder::new().build_mint_fungible_asset(
             fungible_asset,
@@ -312,7 +312,7 @@ impl MidenClient {
         target_account_id: &AccountId,
         note: TrustedNote,
     ) -> Result<()> {
-        self.client.import_account_by_id(*target_account_id).await?;
+        self.import_account(target_account_id).await?;
         let note_req = TransactionRequestBuilder::new()
             .own_output_notes(vec![OutputNote::Full(note.note().clone())])
             .build()

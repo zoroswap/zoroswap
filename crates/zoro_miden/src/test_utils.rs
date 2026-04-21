@@ -1,6 +1,7 @@
-use std::path::PathBuf;
+use std::{collections::HashMap, path::PathBuf, time::Duration};
 
 use anyhow::{Result, anyhow};
+use chrono::Utc;
 use dotenv::dotenv;
 use miden_client::{account::AccountId, rpc::Endpoint};
 use rand::{Rng, distr::Alphabetic};
@@ -13,6 +14,7 @@ use walkdir::WalkDir;
 use crate::{
     account::MidenAccount,
     client::MidenClient,
+    note::{DepositInstructions, NoteInstructions, TrustedNote},
     pool::{LiquidityPoolConfig, ZoroPool},
 };
 
@@ -68,6 +70,19 @@ pub struct TestFaucet {
     pub miden_account: MidenAccount,
     pub meta: TestFaucetMeta,
 }
+impl TryFrom<&TestFaucetRaw> for TestFaucet {
+    type Error = anyhow::Error;
+    fn try_from(value: &TestFaucetRaw) -> std::result::Result<Self, Self::Error> {
+        match AccountId::from_hex(&value.miden_account) {
+            Ok(acc_id) => Ok(Self {
+                id: value.id,
+                miden_account: MidenAccount::new(acc_id, None),
+                meta: value.meta.clone(),
+            }),
+            Err(e) => Err(anyhow!("Error on cached faucet: {e:?}")),
+        }
+    }
+}
 impl From<&TestFaucet> for LiquidityPoolConfig {
     fn from(value: &TestFaucet) -> Self {
         LiquidityPoolConfig {
@@ -83,12 +98,14 @@ impl From<&TestFaucet> for LiquidityPoolConfig {
 pub struct TestPool {
     pub id: Uuid,
     pub miden_account: MidenAccount,
+    pub faucets: Vec<TestFaucet>,
     pub pool_configs: Vec<LiquidityPoolConfig>,
 }
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TestPoolRaw {
     pub id: Uuid,
     pub miden_account: String,
+    pub faucets: Vec<Uuid>,
     pub pool_configs: Vec<TestRawLiquidityPoolConfig>,
 }
 
@@ -108,6 +125,11 @@ struct TestCache {
     pub accounts: Vec<TestAccountRaw>,
     pub faucets: Vec<TestFaucetRaw>,
     pub pools: Vec<TestPoolRaw>,
+}
+
+pub struct PoolWithMeta {
+    pub zoro_pool: ZoroPool,
+    pub test_pool: TestPool,
 }
 
 pub struct TestUtils {
@@ -156,34 +178,35 @@ impl TestUtils {
         let cached_faucets: Vec<TestFaucet> = cached
             .faucets
             .iter()
-            .filter_map(
-                |faucet_raw| match AccountId::from_hex(&faucet_raw.miden_account) {
-                    Ok(acc_id) => Some(TestFaucet {
-                        id: faucet_raw.id,
-                        miden_account: MidenAccount::new(acc_id, None),
-                        meta: faucet_raw.meta.clone(),
-                    }),
-                    Err(e) => {
-                        warn!("Error on cached faucet: {e:?}");
-                        None
-                    }
-                },
-            )
+            .map(TestFaucet::try_from)
+            .filter_map(Result::ok)
             .collect();
         let cached_pools: Vec<TestPool> = cached
             .pools
             .iter()
             .filter_map(
                 |pool_raw| match AccountId::from_hex(&pool_raw.miden_account) {
-                    Ok(acc_id) => Some(TestPool {
-                        id: pool_raw.id,
-                        miden_account: MidenAccount::new(acc_id, None),
-                        pool_configs: pool_raw
-                            .pool_configs
+                    Ok(acc_id) => {
+                        let faucets: Vec<TestFaucetRaw> = pool_raw
+                            .faucets
                             .iter()
-                            .map(LiquidityPoolConfig::from)
-                            .collect(),
-                    }),
+                            .map(|uuid| load_faucet_by_uuid(*uuid).unwrap())
+                            .collect();
+                        Some(TestPool {
+                            id: pool_raw.id,
+                            miden_account: MidenAccount::new(acc_id, None),
+                            faucets: faucets
+                                .iter()
+                                .map(TestFaucet::try_from)
+                                .filter_map(Result::ok)
+                                .collect(),
+                            pool_configs: pool_raw
+                                .pool_configs
+                                .iter()
+                                .map(LiquidityPoolConfig::from)
+                                .collect(),
+                        })
+                    }
                     Err(e) => {
                         warn!("Error on cached faucet: {e:?}");
                         None
@@ -256,9 +279,10 @@ impl TestUtils {
         save_cached_faucets_to_files(&self.cached_faucets)?;
         Ok(())
     }
-    pub async fn add_cached_pools(&mut self, n: usize) -> Result<()> {
+    pub async fn add_cached_pools(&mut self, n: usize) -> Result<Vec<TestPool>> {
         info!("Deploying {n} new pools.");
         let faucets = &self.get_faucets(n * 2).await?[..];
+        let pools = Vec::new();
         for i in 0..n {
             let faucet0 = faucets[i].clone();
             let faucet1 = faucets[i + 1].clone();
@@ -275,18 +299,52 @@ impl TestUtils {
             self.cached_pools.push(TestPool {
                 id: Uuid::new_v4(),
                 miden_account: new_pool.miden_account().clone(),
+                faucets: vec![faucet0.clone(), faucet1.clone()],
                 pool_configs: vec![(&faucet0).into(), (&faucet1).into()],
             })
         }
         save_cached_pools_to_files(&self.cached_pools)?;
-        Ok(())
+        Ok(pools)
     }
     pub async fn get_accounts(&mut self, n: usize) -> Result<Vec<TestAccount>> {
         if self.cached_accounts.len() < n {
             self.add_cached_accounts(n - self.cached_accounts.len())
                 .await?;
         }
-        let accounts = &self.cached_accounts[..n];
+        let acc_len = self.cached_accounts.len();
+        let accounts = &self.cached_accounts[acc_len - n..].to_vec();
+        for acc in accounts.iter() {
+            self.miden_client_mut()
+                .import_account(acc.miden_account.id())
+                .await?;
+        }
+        Ok(accounts.to_vec())
+    }
+    pub async fn get_funded_accounts(
+        &mut self,
+        n: usize,
+        desired_minimal_amounts: Vec<(AccountId, u64, u64)>,
+    ) -> Result<Vec<TestAccount>> {
+        info!("[get_funded_accounts] {n} {desired_minimal_amounts:?}");
+        let mut accounts = self.get_accounts(n).await?;
+        for acc in accounts.iter_mut() {
+            for (faucet_id, min_amount, mint_amount) in &desired_minimal_amounts {
+                if acc.miden_account.get_balance(faucet_id).await? < *min_amount {
+                    info!(
+                        "[get_funded_accounts] minting for acc {}",
+                        acc.miden_account.id().to_hex()
+                    );
+                    self.miden_client_mut()
+                        .mint_asset(*faucet_id, *acc.miden_account.id(), *mint_amount)
+                        .await?;
+                    info!(
+                        "[get_funded_accounts] minted {mint_amount} for acc {}",
+                        acc.miden_account.id().to_hex()
+                    );
+                }
+            }
+        }
+        info!("Funded accounts ready.");
         Ok(accounts.to_vec())
     }
     pub async fn get_faucets(&mut self, n: usize) -> Result<Vec<TestFaucet>> {
@@ -301,9 +359,68 @@ impl TestUtils {
         if self.cached_faucets.len() < n {
             self.add_cached_pools(n - self.cached_faucets.len()).await?;
         }
-        println!("Len {}, {n}", self.cached_pools.len());
         let accounts = &self.cached_pools[..n];
         Ok(accounts.to_vec())
+    }
+    pub async fn get_funded_pools(&mut self, n: usize) -> Result<Vec<PoolWithMeta>> {
+        let mut pools = self.get_pools(n).await?;
+        let keystore_path = self.miden_client().keystore_path();
+        let res = Vec::new();
+        for pool in pools.iter_mut() {
+            let mut zoro_pool = ZoroPool::new_from_existing_pool(
+                self.miden_endpoint(),
+                keystore_path.to_str().unwrap(),
+                "testing_stores",
+                pool.miden_account.id(),
+                pool.pool_configs.clone(),
+            )
+            .await?;
+            for (liq_config, test_faucet) in pool.pool_configs.iter().zip(&pool.faucets) {
+                if zoro_pool
+                    .pool_states()
+                    .get(&liq_config.faucet_id)
+                    .unwrap()
+                    .balances()
+                    .reserve
+                    .eq(&0)
+                {
+                    info!("Minting to pool");
+                    let mint_amount = test_faucet.meta.max_supply / 10;
+                    let acc = &self
+                        .get_funded_accounts(
+                            n,
+                            vec![(liq_config.faucet_id, mint_amount, mint_amount)],
+                        )
+                        .await?[..][0];
+                    self.miden_client_mut()
+                        .mint_asset(liq_config.faucet_id, *acc.miden_account.id(), mint_amount)
+                        .await?;
+                    let deposit_note =
+                        TrustedNote::new(NoteInstructions::Deposit(DepositInstructions {
+                            asset_in: liq_config.faucet_id,
+                            amount_in: mint_amount,
+                            min_lp_amount_out: mint_amount - 100,
+                            creator: *acc.miden_account.id(),
+                            note_type: miden_client::note::NoteType::Public,
+                            deadline: Utc::now().timestamp_millis() as u64,
+                            p2id_tag: acc.miden_account.tag(),
+                            pool_tag: pool.miden_account.tag(),
+                        }))?;
+                    self.miden_client_mut()
+                        .send_note(
+                            acc.miden_account.id(),
+                            pool.miden_account.id(),
+                            deposit_note.clone(),
+                        )
+                        .await?;
+                    zoro_pool
+                        .execute_notes(vec![deposit_note], HashMap::default())
+                        .await?;
+                    info!("Successfully deposited into new pool.");
+                };
+            }
+        }
+        Ok(res)
     }
     pub async fn get_two_accounts_two_faucets(
         &mut self,
@@ -473,6 +590,7 @@ fn save_cached_pools_to_files(entities: &Vec<TestPool>) -> Result<()> {
             let raw = TestPoolRaw {
                 id: entity.id,
                 miden_account: entity.miden_account.id().to_hex(),
+                faucets: entity.faucets.iter().map(|f| f.id).collect(),
                 pool_configs: entity
                     .pool_configs
                     .iter()
@@ -498,5 +616,19 @@ fn generate_random_faucet_metadata() -> TestFaucetMeta {
         decimals: rng.random_range(0..12),
         max_supply: rng.random_range(10_000_000..5_000_000_000),
         symbol: symbol.to_ascii_uppercase(),
+    }
+}
+
+fn load_faucet_by_uuid(uuid: Uuid) -> Result<TestFaucetRaw> {
+    let manifest_dir: &str = env!("CARGO_MANIFEST_DIR");
+    let path: PathBuf = [manifest_dir, "testing_stores", &format!("faucet_{}", uuid)]
+        .iter()
+        .collect();
+    if let Ok(file) = std::fs::read_to_string(path)
+        && let Ok(faucet) = toml::from_str::<TestFaucetRaw>(&file)
+    {
+        Ok(faucet)
+    } else {
+        Err(anyhow!("Error reading faucet"))
     }
 }
