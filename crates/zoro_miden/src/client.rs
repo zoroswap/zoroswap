@@ -244,22 +244,15 @@ impl MidenClient {
             faucet_id.to_bech32(self.endpoint.to_network_id()),
             account_id.to_bech32(self.endpoint.to_network_id())
         );
-        info!("Step - sync");
         self.sync_state().await?;
-        info!("Step - import acc");
-
         self.client.import_account_by_id(faucet_id).await?;
-
         let fungible_asset = FungibleAsset::new(faucet_id, amount)?;
-        info!("Step - tx building");
-
         let transaction_request = TransactionRequestBuilder::new().build_mint_fungible_asset(
             fungible_asset,
             account_id,
             NoteType::Public,
             self.client.rng(),
         )?;
-        info!("Step - tx submit");
         let tx_id = self
             .client
             .submit_new_transaction(faucet_id, transaction_request)
