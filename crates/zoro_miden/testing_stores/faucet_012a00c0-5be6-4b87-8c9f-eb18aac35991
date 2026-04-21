@@ -1,7 +1,0 @@
-id = "012a00c0-5be6-4b87-8c9f-eb18aac35991"
-miden_account = "0xe91ce34768fbc02062a20d41068c5f"
-
-[meta]
-symbol = "CUHGXA"
-max_supply = 4214791675
-decimals = 3
