@@ -4,7 +4,8 @@ use anyhow::Result;
 use miden_client::{
     Felt,
     account::{
-        Account, AccountBuilder, AccountStorageMode, AccountType, component::BasicFungibleFaucet,
+        Account, AccountBuilder, AccountStorageMode, AccountType,
+        component::{AuthControlled, BasicFungibleFaucet},
     },
     assembly::CodeBuilder,
     asset::TokenSymbol,
@@ -42,13 +43,18 @@ pub async fn create_basic_faucet(
             key_pair.public_key().to_commitment(),
             AuthScheme::Falcon512Poseidon2,
         ))
-        .with_component(BasicFungibleFaucet::new(symbol, decimals, max_supply).unwrap());
+        .with_component(BasicFungibleFaucet::new(symbol, decimals, max_supply).unwrap())
+        .with_component(AuthControlled::allow_all());
+
     let account = builder.build().unwrap();
     miden_client
         .client_mut()
         .add_account(&account, false)
         .await?;
-    keystore.add_key(&key_pair, account.id()).await.map_err(|e| anyhow::anyhow!("Failed to add key: {e:?}"))?;
+    keystore
+        .add_key(&key_pair, account.id())
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to add key: {e:?}"))?;
     Ok(account)
 }
 

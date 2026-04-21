@@ -1,0 +1,7 @@
+id = "d1e37c6a-b592-4694-855c-fce19545fa00"
+miden_account = "0x8f464e5c3ab1ef20416c09c54a2653"
+
+[meta]
+symbol = "XUEIDO"
+max_supply = 2670784375
+decimals = 2

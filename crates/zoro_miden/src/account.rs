@@ -68,7 +68,10 @@ impl MidenAccount {
             .add_account(&account, false)
             .await?;
         let keystore = FilesystemKeyStore::new(keystore_path.into())?;
-        keystore.add_key(&key_pair, account.id()).await.map_err(|e| anyhow!("Failed to add key: {e:?}"))?;
+        keystore
+            .add_key(&key_pair, account.id())
+            .await
+            .map_err(|e| anyhow!("Failed to add key: {e:?}"))?;
         miden_client.client_mut().sync_state().await?;
 
         let mut acc = Self {

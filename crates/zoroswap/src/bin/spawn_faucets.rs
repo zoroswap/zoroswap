@@ -5,7 +5,7 @@ use clap::Parser;
 use dotenv::dotenv;
 use miden_client::{
     Felt,
-    account::{AccountBuilder, AccountStorageMode, AccountType},
+    account::{AccountBuilder, AccountStorageMode, AccountType, component::AuthControlled},
     asset::TokenSymbol,
     auth::{AuthScheme, AuthSecretKey, AuthSingleSig},
     keystore::{FilesystemKeyStore, Keystore},
@@ -101,7 +101,8 @@ async fn main() -> Result<()> {
             .with_component(
                 BasicFungibleFaucet::new(symbol, decimals, max_supply)
                     .unwrap_or_else(|err| panic!("Failed to create BasicFungibleFaucet: {err:?}")),
-            );
+            )
+            .with_component(AuthControlled::allow_all());
 
         let faucet_account = builder
             .build()
