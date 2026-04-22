@@ -143,7 +143,7 @@ pub struct TestUtils {
 impl TestUtils {
     pub async fn init_env_and_tracing() -> Result<()> {
         let filter_layer = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info,server=info,miden_client=warn,rusqlite_migration=warn,h2=warn,rustls=warn,hyper=warn"));
+        .unwrap_or_else(|_| EnvFilter::new("info,server=info,miden_client=warn,rusqlite_migration=warn,h2=warn,rustls=warn,hyper=warn,miden_prover=warn"));
         let _ = tracing_subscriber::fmt()
             .with_env_filter(filter_layer)
             .try_init();
@@ -365,7 +365,7 @@ impl TestUtils {
     pub async fn get_funded_pools(&mut self, n: usize) -> Result<Vec<PoolWithMeta>> {
         let mut pools = self.get_pools(n).await?;
         let keystore_path = self.miden_client().keystore_path();
-        let res = Vec::new();
+        let mut res = Vec::new();
         for pool in pools.iter_mut() {
             let mut zoro_pool = ZoroPool::new_from_existing_pool(
                 self.miden_endpoint(),
@@ -384,7 +384,7 @@ impl TestUtils {
                     .reserve
                     .eq(&0)
                 {
-                    info!("Minting to pool");
+                    info!("Initial deposit to pool");
                     let mint_amount = test_faucet.meta.max_supply / 10;
                     let acc = &self
                         .get_funded_accounts(
@@ -402,7 +402,7 @@ impl TestUtils {
                             min_lp_amount_out: mint_amount - 100,
                             creator: *acc.miden_account.id(),
                             note_type: miden_client::note::NoteType::Public,
-                            deadline: Utc::now().timestamp_millis() as u64,
+                            deadline: Utc::now().timestamp_millis() as u64 + 120_000,
                             p2id_tag: acc.miden_account.tag(),
                             pool_tag: pool.miden_account.tag(),
                         }))?;
@@ -419,6 +419,10 @@ impl TestUtils {
                     info!("Successfully deposited into new pool.");
                 };
             }
+            res.push(PoolWithMeta {
+                zoro_pool,
+                test_pool: pool.clone(),
+            });
         }
         Ok(res)
     }

@@ -85,7 +85,9 @@ impl MidenClient {
         Ok(())
     }
     pub async fn import_account(&mut self, account_id: &AccountId) -> Result<()> {
-        if let Err(e) = self.client.import_account_by_id(*account_id).await {
+        if let None = self.client.get_account(*account_id).await?
+            && let Err(e) = self.client.import_account_by_id(*account_id).await
+        {
             warn!("Error importing an account into client {e:?}");
         } else {
             self.client.sync_state().await?;

@@ -80,7 +80,7 @@ async fn executing_swap() -> Result<()> {
         creator: *user.miden_account.id(),
         beneficiary: None,
         note_type: miden_client::note::NoteType::Public,
-        deadline: Utc::now().timestamp_millis() as u64,
+        deadline: Utc::now().timestamp_millis() as u64 + 120_000,
         p2id_tag: user.miden_account.tag(),
         pool_tag: test_pool.miden_account.tag(),
     }))?;
