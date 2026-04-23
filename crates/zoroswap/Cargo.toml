@@ -47,8 +47,6 @@ tokio-stream = "0.1"
 toml = "0.9.4"
 tower = "0.5.2"
 tower-http = { version = "0.6.6", features = ["cors", "fs"] }
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 url = "2.5.4"
 uuid = { version = "1.0", features = ["serde", "v4"] }
 zoro_curve_base = { path = "../zoro_curve_base", default-features = false }
@@ -58,6 +56,8 @@ zoro_curve_base = { path = "../zoro_curve_base", default-features = false }
 # folder relative to this directory.
 zoro_curve_local = { package = "zoro_curve", path = "../../../zoro-curve", optional = true }
 zoro_miden = { path = "../zoro_miden" }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
 
 [features]
 default = ["zoro_curve_base/dummy-curve"]

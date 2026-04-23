@@ -3,18 +3,9 @@ use std::{env, fs};
 use anyhow::{Result, anyhow};
 use clap::Parser;
 use dotenv::dotenv;
-use miden_client::{
-    Felt,
-    account::{AccountBuilder, AccountStorageMode, AccountType, component::AuthControlled},
-    asset::TokenSymbol,
-    auth::{AuthScheme, AuthSecretKey, AuthSingleSig},
-    keystore::{FilesystemKeyStore, Keystore},
-    rpc::Endpoint,
-    transaction::TransactionRequestBuilder,
-};
-use miden_standards::account::faucets::BasicFungibleFaucet;
-use rand::RngCore;
+use miden_client::rpc::Endpoint;
 use serde::Deserialize;
+use tracing::info;
 use tracing_subscriber::EnvFilter;
 use zoro_miden::client::MidenClient;
 
@@ -73,73 +64,20 @@ async fn main() -> Result<()> {
         MidenClient::new(miden_endpoint.clone(), &args.keystore_path, "stores/").await?;
 
     miden_client.sync_state().await?;
-    let keystore: FilesystemKeyStore = FilesystemKeyStore::new(args.keystore_path.into())
-        .unwrap_or_else(|err| panic!("Failed to create keystore: {err:?}"));
-
-    println!("\nDeploying a new fungible faucet.");
     // Generate key pair
-    let key_pair = AuthSecretKey::new_falcon512_poseidon2_with_rng(miden_client.client_mut().rng());
     for faucet in faucets {
-        // Faucet parameters
-        let symbol = TokenSymbol::new(&faucet.symbol)
-            .unwrap_or_else(|err| panic!("Failed to create token symbol: {err:?}"));
-        let decimals = faucet.decimals;
-        let max_supply = Felt::new(faucet.max_supply);
-
-        // Faucet seed
-        let mut init_seed = [0u8; 32];
-        miden_client.client_mut().rng().fill_bytes(&mut init_seed);
-
-        // Build the account
-        let builder = AccountBuilder::new(init_seed)
-            .account_type(AccountType::FungibleFaucet)
-            .storage_mode(AccountStorageMode::Public)
-            .with_auth_component(AuthSingleSig::new(
-                key_pair.public_key().to_commitment(),
-                AuthScheme::Falcon512Poseidon2,
-            ))
-            .with_component(
-                BasicFungibleFaucet::new(symbol, decimals, max_supply)
-                    .unwrap_or_else(|err| panic!("Failed to create BasicFungibleFaucet: {err:?}")),
-            )
-            .with_component(AuthControlled::allow_all());
-
-        let faucet_account = builder
-            .build()
-            .unwrap_or_else(|err| panic!("Failed to build faucet account: {err:?}"));
-
-        // Add the faucet to the client
+        info!(symbol =? faucet.symbol, decimals=faucet.decimals, max_supply=faucet.max_supply, "\nDeploying a new fungible faucet.");
         miden_client
-            .client_mut()
-            .add_account(&faucet_account, true)
+            .deploy_new_faucet(
+                &args.keystore_path,
+                &faucet.symbol,
+                faucet.decimals,
+                faucet.max_supply,
+            )
             .await?;
-
-        // Add the key pair to the keystore
-        keystore.add_key(&key_pair, faucet_account.id()).await?;
-
-        println!(
-            "Faucet account ID ({}): {:?}",
-            faucet.symbol,
-            faucet_account
-                .id()
-                .to_bech32(miden_endpoint.to_network_id())
-        );
-
-        // Deploy faucet to node by submitting a transaction
-        println!("Deploying faucet {}.", faucet.symbol);
-        let transaction_request = TransactionRequestBuilder::new().build()?;
-        let _tx_id = miden_client
-            .client_mut()
-            .submit_new_transaction(faucet_account.id(), transaction_request)
-            .await?;
-
-        println!("Faucet {} successfully deployed.", faucet.symbol);
-
-        // Sync state from chain to client
-        miden_client.sync_state().await?;
     }
 
-    println!("All faucets deployed successfully.");
+    info!("All faucets deployed successfully.");
 
     Ok(())
 }

@@ -11,5 +11,7 @@ miden-core = "0.22.1"
 miden-protocol = { version = "0.14.4", default-features = false, features = [
   "testing",
 ] }
-miden-standards = { version = "0.14.4", default-features = false }
 miden-tx = "0.14.4"
+miden-standards = "0.14.4"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

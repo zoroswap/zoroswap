@@ -11,3 +11,5 @@ store.sqlite3-wal
 store.sqlite3-shm
 stores/*
 testing_stores/*
+crates/zoro_miden/testing_stores/*
+crates/zoro_miden/keystore/*

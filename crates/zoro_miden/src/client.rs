@@ -6,12 +6,16 @@ use miden_assembly::{
     ast::{Module, ModuleKind},
 };
 use miden_client::{
-    Client, DebugMode,
-    account::{Account, AccountId},
+    Client, DebugMode, Felt,
+    account::{
+        Account, AccountBuilder, AccountId, AccountStorageMode, AccountType,
+        component::{AuthControlled, BasicFungibleFaucet},
+    },
     address::NetworkId,
-    asset::FungibleAsset,
+    asset::{FungibleAsset, TokenSymbol},
+    auth::{AuthScheme, AuthSecretKey, AuthSingleSig},
     builder::ClientBuilder,
-    keystore::FilesystemKeyStore,
+    keystore::{FilesystemKeyStore, Keystore},
     note::{Note, NoteScreener, NoteTag, NoteType},
     rpc::{Endpoint, GrpcClient},
     store::{NoteFilter, TransactionFilter},
@@ -19,16 +23,22 @@ use miden_client::{
     transaction::{TransactionId, TransactionRequestBuilder},
 };
 use miden_client_sqlite_store::{ClientBuilderSqliteExt, SqliteStore};
+use rand::RngCore;
 use tokio::time::sleep;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
-use crate::note::{NoteKind, TrustedNote};
+use crate::{
+    account::MidenAccount,
+    note::{NoteKind, TrustedNote},
+};
 
 pub struct MidenClient {
     client: Client<FilesystemKeyStore>,
     state_sync: StateSync,
     endpoint: Endpoint,
+    store_path: PathBuf,
+    keystore_path: PathBuf,
 }
 
 impl MidenClient {
@@ -36,7 +46,7 @@ impl MidenClient {
         info!(
             keystore_path = keystore_path,
             store_dir= store_dir,
-            endpoint = ?endpoint,
+            endpoint = ?endpoint.to_network_id().to_string(),
             "Creating a new Miden Client"
         );
         let timeout_ms = 30_000;
@@ -47,7 +57,8 @@ impl MidenClient {
             }),
         );
         let name = format!("{:?}.sqlite3", Uuid::new_v4());
-        let store_path: PathBuf = [store_dir, &name].iter().collect();
+        let manifest_dir = env!("CARGO_MANIFEST_DIR");
+        let store_path: PathBuf = [manifest_dir, store_dir, &name].iter().collect();
         let mut client = ClientBuilder::new()
             .rpc(rpc_client.clone())
             .authenticator(keystore.clone())
@@ -58,12 +69,19 @@ impl MidenClient {
         client.ensure_genesis_in_place().await?;
         client.sync_state().await?;
 
-        let sqlite_store = Arc::new(SqliteStore::new(store_path).await?);
-        let note_screener = NoteScreener::new(sqlite_store, rpc_client.clone());
-        let state_sync = StateSync::new(rpc_client, Arc::new(note_screener), None);
+        let sqlite_store = Arc::new(SqliteStore::new(store_path.clone()).await?);
+        let note_screener = NoteScreener::new(sqlite_store.clone(), rpc_client.clone());
+        let state_sync = StateSync::new(
+            rpc_client,
+            Some(sqlite_store),
+            Arc::new(note_screener),
+            None,
+        );
         Ok(Self {
             client,
             state_sync,
+            store_path,
+            keystore_path: keystore_path.into(),
             endpoint,
         })
     }
@@ -72,7 +90,9 @@ impl MidenClient {
         Ok(())
     }
     pub async fn import_account(&mut self, account_id: &AccountId) -> Result<()> {
-        if let Err(e) = self.client.import_account_by_id(*account_id).await {
+        if let None = self.client.get_account(*account_id).await?
+            && let Err(e) = self.client.import_account_by_id(*account_id).await
+        {
             warn!("Error importing an account into client {e:?}");
         } else {
             self.client.sync_state().await?;
@@ -245,7 +265,7 @@ impl MidenClient {
             account_id.to_bech32(self.endpoint.to_network_id())
         );
         self.sync_state().await?;
-        self.client.import_account_by_id(faucet_id).await?;
+        self.import_account(&faucet_id).await?;
         let fungible_asset = FungibleAsset::new(faucet_id, amount)?;
         let transaction_request = TransactionRequestBuilder::new().build_mint_fungible_asset(
             fungible_asset,
@@ -294,7 +314,7 @@ impl MidenClient {
         target_account_id: &AccountId,
         note: TrustedNote,
     ) -> Result<()> {
-        self.client.import_account_by_id(*target_account_id).await?;
+        self.import_account(target_account_id).await?;
         let note_req = TransactionRequestBuilder::new()
             .own_output_notes(vec![note.note().clone().into()])
             .build()
@@ -312,6 +332,63 @@ impl MidenClient {
             "View transaction on MidenScan: https://testnet.midenscan.com/tx/{}",
             tx.to_hex()
         );
+    }
+
+    pub async fn deploy_new_faucet(
+        &mut self,
+        keystore_path: &str,
+        symbol: &str,
+        decimals: u8,
+        max_supply: u64,
+    ) -> Result<MidenAccount> {
+        let mut init_seed = [0u8; 32];
+        let keystore: FilesystemKeyStore = FilesystemKeyStore::new(keystore_path.into())
+            .map_err(|err| panic!("Failed to create keystore: {err:?}"))?;
+        let key_pair = AuthSecretKey::new_falcon512_poseidon2_with_rng(self.client_mut().rng());
+        self.client_mut().rng().fill_bytes(&mut init_seed);
+        let builder = AccountBuilder::new(init_seed)
+            .account_type(AccountType::FungibleFaucet)
+            .storage_mode(AccountStorageMode::Public)
+            .with_auth_component(AuthSingleSig::new(
+                key_pair.public_key().to_commitment(),
+                AuthScheme::Falcon512Poseidon2,
+            ))
+            .with_component(AuthControlled::allow_all())
+            .with_component(
+                BasicFungibleFaucet::new(
+                    TokenSymbol::new(symbol)?,
+                    decimals,
+                    Felt::new(max_supply),
+                )
+                .unwrap_or_else(|err| panic!("Failed to create BasicFungibleFaucet: {err:?}")),
+            );
+        let faucet_account = builder
+            .build()
+            .unwrap_or_else(|err| panic!("Failed to build faucet account: {err:?}"));
+        self.client_mut().add_account(&faucet_account, true).await?;
+        keystore.add_key(&key_pair, faucet_account.id()).await?;
+        let transaction_request = TransactionRequestBuilder::new().build()?;
+        let _tx_id = self
+            .client_mut()
+            .submit_new_transaction(faucet_account.id(), transaction_request)
+            .await?;
+        self.sync_state().await?;
+        Ok(MidenAccount::new(faucet_account.id(), Some(faucet_account)))
+    }
+
+    pub fn keystore_path(&self) -> PathBuf {
+        self.keystore_path.clone()
+    }
+    pub fn store_path(&self) -> PathBuf {
+        self.store_path.clone()
+    }
+}
+
+impl Drop for MidenClient {
+    fn drop(&mut self) {
+        if let Err(e) = std::fs::remove_file(self.store_path()) {
+            warn!("Error deleting store on client drop: {e:?}");
+        }
     }
 }
 
