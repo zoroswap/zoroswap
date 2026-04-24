@@ -34,16 +34,19 @@ async fn executing_deposit() -> Result<()> {
         .await?;
     let user = user.first().unwrap();
     let user_id = *user.miden_account.id();
-    let deposit_note = TrustedNote::new(NoteInstructions::Deposit(DepositInstructions {
-        asset_in: pool_config.faucet_id,
-        amount_in: amount,
-        min_lp_amount_out: amount - 100,
-        creator: user_id,
-        note_type: miden_client::note::NoteType::Public,
-        deadline: Utc::now().timestamp_millis() as u64,
-        p2id_tag: user.miden_account.tag(),
-        pool_tag: pool.miden_account.tag(),
-    }))?;
+    let deposit_note = TrustedNote::new(
+        NoteInstructions::Deposit(DepositInstructions {
+            asset_in: pool_config.faucet_id,
+            amount_in: amount,
+            min_lp_amount_out: amount - 100,
+            creator: user_id,
+            note_type: miden_client::note::NoteType::Public,
+            deadline: Utc::now().timestamp_millis() as u64,
+            p2id_tag: user.miden_account.tag(),
+            pool_tag: pool.miden_account.tag(),
+        }),
+        test_utils.miden_client().client().code_builder(),
+    )?;
     test_utils
         .miden_client_mut()
         .send_note(&user_id, pool.miden_account.id(), deposit_note.clone())
@@ -74,18 +77,21 @@ async fn executing_swap() -> Result<()> {
     let mut prices: HashMap<AccountId, PriceData> = HashMap::with_capacity(2);
     prices.insert(pool_config_token0.faucet_id, PriceData::new_at_now(1));
     prices.insert(pool_config_token1.faucet_id, PriceData::new_at_now(1));
-    let note = TrustedNote::new(NoteInstructions::Swap(SwapInstructions {
-        asset_in: pool_config_token0.faucet_id,
-        amount_in: amount,
-        asset_out: pool_config_token1.faucet_id,
-        min_amount_out: amount / 2,
-        creator: *user.miden_account.id(),
-        beneficiary: None,
-        note_type: miden_client::note::NoteType::Public,
-        deadline: Utc::now().timestamp_millis() as u64 + 120_000,
-        p2id_tag: user.miden_account.tag(),
-        pool_tag: test_pool.miden_account.tag(),
-    }))?;
+    let note = TrustedNote::new(
+        NoteInstructions::Swap(SwapInstructions {
+            asset_in: pool_config_token0.faucet_id,
+            amount_in: amount,
+            asset_out: pool_config_token1.faucet_id,
+            min_amount_out: amount / 2,
+            creator: *user.miden_account.id(),
+            beneficiary: None,
+            note_type: miden_client::note::NoteType::Public,
+            deadline: Utc::now().timestamp_millis() as u64 + 120_000,
+            p2id_tag: user.miden_account.tag(),
+            pool_tag: test_pool.miden_account.tag(),
+        }),
+        test_utils.miden_client().client().code_builder(),
+    )?;
     test_utils
         .miden_client_mut()
         .send_note(&user_id, test_pool.miden_account.id(), note.clone())
@@ -115,16 +121,19 @@ async fn executing_deposit_withdraw() -> Result<()> {
     let mut prices: HashMap<AccountId, PriceData> = HashMap::with_capacity(2);
     prices.insert(pool_config_token0.faucet_id, PriceData::new_at_now(1));
 
-    let deposit_note = TrustedNote::new(NoteInstructions::Deposit(DepositInstructions {
-        asset_in: pool_config_token0.faucet_id,
-        amount_in: amount,
-        min_lp_amount_out: amount - 100,
-        creator: user_id,
-        note_type: miden_client::note::NoteType::Public,
-        deadline: Utc::now().timestamp_millis() as u64,
-        p2id_tag: user.miden_account.tag(),
-        pool_tag: zoro_pool.miden_account().tag(),
-    }))?;
+    let deposit_note = TrustedNote::new(
+        NoteInstructions::Deposit(DepositInstructions {
+            asset_in: pool_config_token0.faucet_id,
+            amount_in: amount,
+            min_lp_amount_out: amount - 100,
+            creator: user_id,
+            note_type: miden_client::note::NoteType::Public,
+            deadline: Utc::now().timestamp_millis() as u64,
+            p2id_tag: user.miden_account.tag(),
+            pool_tag: zoro_pool.miden_account().tag(),
+        }),
+        test_utils.miden_client().client().code_builder(),
+    )?;
     test_utils
         .miden_client_mut()
         .send_note(
@@ -139,16 +148,19 @@ async fn executing_deposit_withdraw() -> Result<()> {
         .await?;
     info!("--- Deposit executed");
 
-    let note = TrustedNote::new(NoteInstructions::Withdraw(WithdrawInstructions {
-        lp_amount_in: amount,
-        asset_out: pool_config_token0.faucet_id,
-        min_amount_out: amount / 2,
-        creator: *user.miden_account.id(),
-        note_type: miden_client::note::NoteType::Public,
-        deadline: Utc::now().timestamp_millis() as u64 + 120_000,
-        p2id_tag: user.miden_account.tag(),
-        pool_tag: test_pool.miden_account.tag(),
-    }))?;
+    let note = TrustedNote::new(
+        NoteInstructions::Withdraw(WithdrawInstructions {
+            lp_amount_in: amount,
+            asset_out: pool_config_token0.faucet_id,
+            min_amount_out: amount / 2,
+            creator: *user.miden_account.id(),
+            note_type: miden_client::note::NoteType::Public,
+            deadline: Utc::now().timestamp_millis() as u64 + 120_000,
+            p2id_tag: user.miden_account.tag(),
+            pool_tag: test_pool.miden_account.tag(),
+        }),
+        test_utils.miden_client().client().code_builder(),
+    )?;
     test_utils
         .miden_client_mut()
         .send_note(&user_id, test_pool.miden_account.id(), note.clone())
