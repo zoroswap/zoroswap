@@ -21,16 +21,13 @@ async fn e2e_private_note() -> Result<()> {
         .init();
 
     println!("\n\t[STEP 0] Init client and config\n");
-    let store_dir = "../../testing_stores";
-    // let _ = std::fs::remove_file(store_dir);
     let E2ETestSetup {
         config,
         client: mut miden_client,
-        keystore: _,
         mut zoro_pool,
         prices,
-    } = E2ETestSetup::new(store_dir).await?;
-    let mut account = MidenAccount::deploy_new(&mut miden_client, config.keystore_path).await?;
+    } = E2ETestSetup::new().await?;
+    let mut account = MidenAccount::deploy_new(&mut miden_client).await?;
     let pool0 = config.liquidity_pools[0];
     let pool1 = config.liquidity_pools[1];
 

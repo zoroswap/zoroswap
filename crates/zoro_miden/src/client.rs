@@ -42,23 +42,32 @@ pub struct MidenClient {
 }
 
 impl MidenClient {
-    pub async fn new(endpoint: Endpoint, keystore_path: &str, store_dir: &str) -> Result<Self> {
+    pub async fn new(endpoint: Endpoint, keystore_dir: &str, store_dir: &str) -> Result<Self> {
+        let timeout_ms = 30_000;
+        let rpc_client = Arc::new(GrpcClient::new(&endpoint, timeout_ms));
+        let manifest_dir = env!("CARGO_MANIFEST_DIR");
+        let store_path: PathBuf = [manifest_dir, store_dir].iter().collect();
+        let keystore_path: PathBuf = [manifest_dir, keystore_dir].iter().collect();
+
+        std::fs::create_dir_all(store_path.clone())?;
+        std::fs::create_dir_all(keystore_path.clone())?;
+
+        let name = format!("{:?}.sqlite3", Uuid::new_v4());
+        let store_path = store_path.join(name);
+
+        let keystore = Arc::new(
+            FilesystemKeyStore::new(keystore_path.clone()).unwrap_or_else(|err| {
+                panic!("Failed to create keystore at {:?}: {err:?}", keystore_path)
+            }),
+        );
+
         info!(
-            keystore_path = keystore_path,
-            store_dir= store_dir,
+            keystore_path = ?keystore_path,
+            store_path= ?store_path,
             endpoint = ?endpoint.to_network_id().to_string(),
             "Creating a new Miden Client"
         );
-        let timeout_ms = 30_000;
-        let rpc_client = Arc::new(GrpcClient::new(&endpoint, timeout_ms));
-        let keystore = Arc::new(
-            FilesystemKeyStore::new(keystore_path.into()).unwrap_or_else(|err| {
-                panic!("Failed to create keystore at {}: {err:?}", keystore_path)
-            }),
-        );
-        let name = format!("{:?}.sqlite3", Uuid::new_v4());
-        let manifest_dir = env!("CARGO_MANIFEST_DIR");
-        let store_path: PathBuf = [manifest_dir, store_dir, &name].iter().collect();
+
         let mut client = ClientBuilder::new()
             .rpc(rpc_client.clone())
             .authenticator(keystore.clone())
@@ -81,7 +90,7 @@ impl MidenClient {
             client,
             state_sync,
             store_path,
-            keystore_path: keystore_path.into(),
+            keystore_path,
             endpoint,
         })
     }
@@ -336,13 +345,12 @@ impl MidenClient {
 
     pub async fn deploy_new_faucet(
         &mut self,
-        keystore_path: &str,
         symbol: &str,
         decimals: u8,
         max_supply: u64,
     ) -> Result<MidenAccount> {
         let mut init_seed = [0u8; 32];
-        let keystore: FilesystemKeyStore = FilesystemKeyStore::new(keystore_path.into())
+        let keystore: FilesystemKeyStore = FilesystemKeyStore::new(self.keystore_path())
             .map_err(|err| panic!("Failed to create keystore: {err:?}"))?;
         let key_pair = AuthSecretKey::new_falcon512_poseidon2_with_rng(self.client_mut().rng());
         self.client_mut().rng().fill_bytes(&mut init_seed);

@@ -32,12 +32,8 @@ impl NotesListener {
         );
 
         let config = self.state.config();
-        let mut miden_client = MidenClient::new(
-            config.miden_endpoint,
-            config.keystore_path,
-            config.store_dir,
-        )
-        .await?;
+        let mut miden_client =
+            MidenClient::new(config.miden_endpoint, "keystore", "stores").await?;
         miden_client
             .add_note_tag(NoteTag::with_account_target(config.pool_account_id))
             .await?;

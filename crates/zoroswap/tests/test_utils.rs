@@ -12,34 +12,28 @@ use zoroswap::{Config, get_oracle_prices, oracle_sse::PriceMetadata};
 pub struct E2ETestSetup {
     pub config: Config,
     pub client: MidenClient,
-    pub keystore: FilesystemKeyStore,
     pub zoro_pool: ZoroPool,
     pub prices: HashMap<AccountId, PriceData>,
 }
 
 impl E2ETestSetup {
-    pub async fn new(store_dir: &str) -> Result<Self> {
+    pub async fn new() -> Result<Self> {
         dotenv::dotenv().ok();
 
-        let config = Config::from_config_file("../../config.toml", "../../keystore", store_dir)?;
+        let config = Config::from_config_file("../../config.toml")?;
 
         assert!(
             config.liquidity_pools.len() > 1,
             "Less than 2 liquidity pools configured"
         );
 
-        let mut client = MidenClient::new(
-            config.miden_endpoint.clone(),
-            config.keystore_path,
-            config.store_dir,
-        )
-        .await?;
-        let keystore = FilesystemKeyStore::new(config.keystore_path.into())?;
+        let mut client =
+            MidenClient::new(config.miden_endpoint.clone(), "keystore", "testing_stores").await?;
         client.sync_state().await?;
         let zoro_pool = ZoroPool::new_from_existing_pool(
             config.miden_endpoint.clone(),
-            config.keystore_path,
-            config.store_dir,
+            "keystore",
+            "testing_stores",
             &config.pool_account_id,
             config.liquidity_pools.clone(),
         )
@@ -89,7 +83,6 @@ impl E2ETestSetup {
         Ok(E2ETestSetup {
             config,
             client,
-            keystore,
             zoro_pool,
             prices,
         })
@@ -127,28 +120,4 @@ pub fn extract_oracle_price(
         ))?
         .price
         .price)
-}
-
-/// Build the 12-element input vector expected by the ZOROSWAP note script.
-pub fn build_zoroswap_inputs(
-    requested_asset_word: Word,
-    deadline: u64,
-    p2id_tag: NoteTag,
-    beneficiary_id: AccountId,
-    sender_id: AccountId,
-) -> Vec<Felt> {
-    vec![
-        requested_asset_word[0],
-        requested_asset_word[1],
-        requested_asset_word[2],
-        requested_asset_word[3],
-        Felt::new(deadline),
-        p2id_tag.into(),
-        Felt::new(0), // padding (unused by note script)
-        Felt::new(0), // padding (unused by note script)
-        beneficiary_id.suffix(),
-        beneficiary_id.prefix().into(),
-        sender_id.suffix(),
-        sender_id.prefix().into(),
-    ]
 }

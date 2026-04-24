@@ -237,15 +237,8 @@ impl TestUtils {
     }
     pub async fn add_cached_accounts(&mut self, n: usize) -> Result<()> {
         info!("Deploying {n} new accounts.");
-        let keystore_path = self
-            .miden_client
-            .keystore_path()
-            .to_str()
-            .ok_or(anyhow!("Missing keystore path"))?
-            .to_string();
         for _ in 0..n {
-            let acc =
-                MidenAccount::deploy_new(&mut self.miden_client, &keystore_path.clone()).await?;
+            let acc = MidenAccount::deploy_new(&mut self.miden_client).await?;
             self.cached_accounts.push(TestAccount {
                 id: Uuid::new_v4(),
                 miden_account: acc,
@@ -260,15 +253,7 @@ impl TestUtils {
             let meta = generate_random_faucet_metadata();
             let acc = self
                 .miden_client
-                .deploy_new_faucet(
-                    self.miden_client
-                        .keystore_path()
-                        .to_str()
-                        .ok_or(anyhow!("Missing keystore path"))?,
-                    &meta.symbol,
-                    meta.decimals,
-                    meta.max_supply,
-                )
+                .deploy_new_faucet(&meta.symbol, meta.decimals, meta.max_supply)
                 .await?;
             self.cached_faucets.push(TestFaucet {
                 id: Uuid::new_v4(),

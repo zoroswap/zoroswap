@@ -77,16 +77,10 @@ pub struct Config {
     pub liquidity_pools: Vec<LiquidityPoolConfig>,
     pub amm_tick_interval: u64,
     pub network_id: NetworkId,
-    pub keystore_path: &'static str,
-    pub store_dir: &'static str,
 }
 
 impl Config {
-    pub fn from_config_file(
-        config_path: &str,
-        keystore_path: &str,
-        store_dir: &str,
-    ) -> Result<Self> {
+    pub fn from_config_file(config_path: &str) -> Result<Self> {
         let contents = fs::read_to_string(config_path)
             .map_err(|e| anyhow!("Error opening {config_path}: {e}"))?;
         let parsed: RawConfig = toml::from_str(&contents)?;
@@ -103,8 +97,6 @@ impl Config {
             .expect("Missing AMM_TICK_INTERVAL_MILLIS in .env file.")
             .parse()
             .expect("AMM_TICK_INTERVAL_MILLIS is not a valid u64");
-        let keystore_path = Box::new(keystore_path.to_string()).leak();
-        let store_dir = Box::new(store_dir.to_string()).leak();
         let miden_endpoint = match miden_endpoint.as_str() {
             "testnet" => Endpoint::testnet(),
             "devnet" => Endpoint::devnet(),
@@ -120,8 +112,6 @@ impl Config {
             miden_endpoint,
             server_url,
             amm_tick_interval,
-            keystore_path,
-            store_dir,
         };
         Ok(config)
     }

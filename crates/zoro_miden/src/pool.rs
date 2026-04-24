@@ -59,8 +59,8 @@ impl ZoroPool {
 
     pub async fn new_from_existing_pool(
         endpoint: Endpoint,
-        keystore_path: &str,
-        store_path: &str,
+        keystore_dir: &str,
+        store_dir: &str,
         pool_account_id: &AccountId,
         liquidity_pools: Vec<LiquidityPoolConfig>,
     ) -> Result<Self> {
@@ -70,7 +70,7 @@ impl ZoroPool {
             NoteTag::with_account_target(*pool_account_id)
         );
         let miden_account = MidenAccount::new(*pool_account_id, None);
-        let miden_client = MidenClient::new(endpoint.clone(), keystore_path, store_path).await?;
+        let miden_client = MidenClient::new(endpoint.clone(), keystore_dir, store_dir).await?;
         let mut zoro_pool = Self {
             miden_client,
             miden_account,
@@ -86,15 +86,15 @@ impl ZoroPool {
     pub async fn new_deployment(
         liquidity_pools: Vec<LiquidityPoolConfig>,
         endpoint: Endpoint,
-        keystore_path: &str,
-        store_path: &str,
+        keystore_dir: &str,
+        store_dir: &str,
     ) -> Result<Self> {
         let manifest_dir = env!("CARGO_MANIFEST_DIR");
         let masm_path: PathBuf = [manifest_dir, "masm", "accounts", "zoropool.masm"]
             .iter()
             .collect();
         let mut miden_client: MidenClient =
-            MidenClient::new(endpoint.clone(), keystore_path, store_path).await?;
+            MidenClient::new(endpoint.clone(), keystore_dir, store_dir).await?;
         let pool_reader_path = Path::new(&masm_path);
         let pool_code = std::fs::read_to_string(pool_reader_path)
             .unwrap_or_else(|err| panic!("unable to read from {pool_reader_path:?}: {err}"));
@@ -139,7 +139,7 @@ impl ZoroPool {
                 pool.faucet_id.prefix().as_felt(),
             ]));
             assets_mapping
-                .insert(asset_index, Word::from(asset_id).into())
+                .insert(asset_index, Word::from(asset_id))
                 .unwrap_or_else(|err| panic!("Failed to insert asset into mapping: {err:?}"));
             fees_mapping
                 .insert(asset_id, fees)
@@ -211,7 +211,7 @@ impl ZoroPool {
             pool_contract.id().to_bech32(endpoint.to_network_id())
         );
 
-        let keystore = FilesystemKeyStore::new(keystore_path.into())?;
+        let keystore = FilesystemKeyStore::new(miden_client.keystore_path())?;
         keystore
             .add_key(&key_pair, pool_contract.id())
             .await

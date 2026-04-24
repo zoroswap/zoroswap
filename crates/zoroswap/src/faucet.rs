@@ -41,12 +41,8 @@ impl GuardedFaucet {
     }
 
     pub async fn start(&mut self) -> Result<()> {
-        let mut client = MidenClient::new(
-            self.config.miden_endpoint.clone(),
-            self.config.keystore_path,
-            self.config.store_dir,
-        )
-        .await?;
+        let mut client =
+            MidenClient::new(self.config.miden_endpoint.clone(), "keystore", "stores").await?;
         let limit = 30;
         let amount = 10000000;
         let mut instructions = Vec::with_capacity(limit);

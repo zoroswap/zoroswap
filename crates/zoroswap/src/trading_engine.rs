@@ -38,8 +38,8 @@ impl TradingEngine {
         let mut cycle = 0_u128;
         let mut zoro_pool = ZoroPool::new_from_existing_pool(
             config.miden_endpoint.clone(),
-            config.keystore_path,
-            config.store_dir,
+            "keystore",
+            "stores",
             &self.pool_account_id,
             config.liquidity_pools,
         )

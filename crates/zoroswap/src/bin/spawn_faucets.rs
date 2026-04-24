@@ -29,8 +29,8 @@ struct Args {
     faucets_config: String,
 
     /// Path to the keystore directory
-    #[arg(short, long, default_value = "./keystore")]
-    keystore_path: String,
+    #[arg(short, long, default_value = "keystore")]
+    keystore_dir: String,
 }
 
 #[tokio::main]
@@ -61,19 +61,14 @@ async fn main() -> Result<()> {
     };
 
     let mut miden_client =
-        MidenClient::new(miden_endpoint.clone(), &args.keystore_path, "stores/").await?;
+        MidenClient::new(miden_endpoint.clone(), &args.keystore_dir, "stores").await?;
 
     miden_client.sync_state().await?;
     // Generate key pair
     for faucet in faucets {
         info!(symbol =? faucet.symbol, decimals=faucet.decimals, max_supply=faucet.max_supply, "\nDeploying a new fungible faucet.");
         miden_client
-            .deploy_new_faucet(
-                &args.keystore_path,
-                &faucet.symbol,
-                faucet.decimals,
-                faucet.max_supply,
-            )
+            .deploy_new_faucet(&faucet.symbol, faucet.decimals, faucet.max_supply)
             .await?;
     }
 

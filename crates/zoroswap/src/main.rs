@@ -64,8 +64,7 @@ fn main() {
         info!("Deleting old sqlite3 store");
         delete_client_store(&args.store_dir).await;
 
-        let config = Config::from_config_file(&args.config, &args.keystore_path, &args.store_dir)
-            .map_err(|e| e.to_string())?;
+        let config = Config::from_config_file(&args.config).map_err(|e| e.to_string())?;
         info!(
             "[INFO] Pool information\n\n\tpool_id: {}",
             config.pool_account_id.to_bech32(config.network_id.clone()),

@@ -49,7 +49,7 @@ async fn main() -> Result<()> {
     dotenv().ok();
 
     // Initialize client
-    let config = Config::from_config_file(&args.config, &args.keystore_path, &args.store_dir)?;
+    let config = Config::from_config_file(&args.config)?;
     let endpoint = config.miden_endpoint;
     let mut miden_client =
         MidenClient::new(endpoint.clone(), &args.keystore_path, &args.store_dir).await?;
@@ -60,8 +60,8 @@ async fn main() -> Result<()> {
     let mut zoro_pool = ZoroPool::new_deployment(
         config.liquidity_pools.clone(),
         endpoint.clone(),
-        config.keystore_path,
-        config.store_dir,
+        "keystore",
+        "stores",
     )
     .await?;
     let acc = zoro_pool.miden_account_mut().account().await?;
@@ -69,7 +69,7 @@ async fn main() -> Result<()> {
 
     println!("\n[STEP 2] Mint tokens from faucet to lp account");
     let amount = 1000000000;
-    let lp_account = MidenAccount::deploy_new(&mut miden_client, config.keystore_path).await?;
+    let lp_account = MidenAccount::deploy_new(&mut miden_client).await?;
     for pool in config.liquidity_pools.iter() {
         miden_client.import_account(&pool.faucet_id).await?;
         let amount = amount * 10_u64.pow(pool.decimals as u32);

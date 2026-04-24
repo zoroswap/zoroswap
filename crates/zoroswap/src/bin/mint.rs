@@ -18,11 +18,11 @@ struct Args {
     config: String,
 
     /// Path to the keystore directory
-    #[arg(short, long, default_value = "./keystore")]
-    keystore_path: String,
+    #[arg(short, long, default_value = "keystore")]
+    keystore_dir: String,
 
     /// Path to the SQLite store file
-    #[arg(short, long, default_value = "./stores")]
+    #[arg(short, long, default_value = "stores")]
     store_dir: String,
 
     /// target id
@@ -53,10 +53,10 @@ async fn main() -> Result<()> {
     dotenv().ok();
 
     // Initialize client
-    let config = Config::from_config_file(&args.config, &args.keystore_path, &args.store_dir)?;
+    let config = Config::from_config_file(&args.config)?;
     let endpoint = config.miden_endpoint;
     let mut miden_client =
-        MidenClient::new(endpoint.clone(), &args.keystore_path, &args.store_dir).await?;
+        MidenClient::new(endpoint.clone(), &args.keystore_dir, &args.store_dir).await?;
 
     miden_client.sync_state().await?;
     let faucet_id = AccountId::from_bech32(&args.faucet)?;
