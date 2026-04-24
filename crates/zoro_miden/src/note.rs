@@ -700,13 +700,6 @@ impl TrustedNoteElements {
     }
 
     pub fn from_withdraw_instructions(instructions: WithdrawInstructions) -> Result<Self> {
-        let asset_out: Word = [
-            Felt::new(instructions.min_amount_out),
-            Felt::new(0),
-            instructions.asset_out.suffix(),
-            instructions.asset_out.prefix().as_felt(),
-        ]
-        .into();
         if instructions.lp_amount_in.eq(&0) {
             return Err(anyhow!("Lp Amount in is zero"));
         }
