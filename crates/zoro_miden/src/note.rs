@@ -13,6 +13,7 @@ use miden_client::{
     store::InputNoteRecord,
     transaction::TransactionKernel,
 };
+use miden_protocol::note::NoteScript;
 use miden_standards::note::{P2idNoteStorage, StandardNote};
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use tracing::info;
@@ -92,33 +93,37 @@ impl TrustedNote {
             created_at: Utc::now().timestamp_millis(),
         })
     }
-
-    fn new_zoro_note(
-        note_elements: TrustedNoteElements,
-        code_builder: CodeBuilder,
-    ) -> Result<Self> {
+    pub fn get_note_script(code_builder: CodeBuilder, note_file_name: &str) -> Result<NoteScript> {
         let manifest_dir = env!("CARGO_MANIFEST_DIR");
-        let assembler = TransactionKernel::assembler().with_warnings_as_errors(true);
-        let note_path = PathBuf::from_iter(&[
-            manifest_dir,
-            "masm",
-            "notes",
-            note_elements.note_kind.masm_name(),
-        ]);
+        let note_path = PathBuf::from_iter(&[manifest_dir, "masm", "notes", note_file_name]);
         let pool_path = PathBuf::from_iter(&[manifest_dir, "masm", "accounts", "zoropool.masm"]);
         let note_code = read_to_string(&note_path)
             .map_err(|e| anyhow!("Error parsing note code at path {note_path:?}: {e:?}"))?;
         let pool_code = read_to_string(&pool_path)
             .map_err(|e| anyhow!("Error parsing pool code at path {pool_path:?}: {e:?}"))?;
-        // let pool_component_lib =
-        //     create_library(assembler.clone(), "zoroswap::zoropool", &pool_code)
-        //         .map_err(|e| anyhow!("{e:?}"))?;
+
         let pool_component_lib = code_builder
             .clone()
             .compile_component_code("zoroswap::zoropool", &pool_code)?;
-        let note_script = code_builder
-            .with_dynamically_linked_library(&pool_component_lib)?
-            .compile_note_script(note_code)?;
+
+        let assembler =
+            TransactionKernel::assembler_with_source_manager(code_builder.source_manager().clone())
+                .with_warnings_as_errors(true)
+                .with_static_library(&pool_component_lib)
+                .map_err(|e| anyhow!("Failed to link pool library: {:?}", e))?;
+
+        let note_library = assembler
+            .assemble_library([note_code])
+            .map_err(|e| anyhow!("Failed to assemble note library: {:?}", e))?;
+        NoteScript::from_library(&note_library)
+            .map_err(|e| anyhow!("Failed to create note script from note library: {:?}", e))
+    }
+
+    fn new_zoro_note(
+        note_elements: TrustedNoteElements,
+        code_builder: CodeBuilder,
+    ) -> Result<Self> {
+        let note_script = Self::get_note_script(code_builder, note_elements.note_kind.masm_name())?;
         let serial_number = Self::random_word()?;
         let recipient = NoteRecipient::new(serial_number, note_script, note_elements.inputs);
         let note = Note::new(note_elements.assets, note_elements.metadata, recipient);
