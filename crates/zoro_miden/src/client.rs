@@ -380,6 +380,11 @@ impl MidenClient {
             .client_mut()
             .submit_new_transaction(faucet_account.id(), transaction_request)
             .await?;
+        println!(
+            "Faucet account ID ({}): {:?}",
+            symbol,
+            faucet_account.id().to_bech32(self.endpoint.to_network_id())
+        );
         self.sync_state().await?;
         Ok(MidenAccount::new(faucet_account.id(), Some(faucet_account)))
     }
