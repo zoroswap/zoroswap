@@ -1,6 +1,6 @@
 use std::{collections::BTreeSet, fs, path::PathBuf, sync::Arc, time::Duration};
 
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use miden_assembly::{
     Assembler, DefaultSourceManager,
     ast::{Module, ModuleKind},
@@ -39,6 +39,8 @@ pub struct MidenClient {
     endpoint: Endpoint,
     store_path: PathBuf,
     keystore_path: PathBuf,
+    store_dir: String,
+    keystore_dir: String,
 }
 
 impl MidenClient {
@@ -49,8 +51,10 @@ impl MidenClient {
         let store_path: PathBuf = [manifest_dir, store_dir].iter().collect();
         let keystore_path: PathBuf = [manifest_dir, keystore_dir].iter().collect();
 
-        std::fs::create_dir_all(store_path.clone())?;
-        std::fs::create_dir_all(keystore_path.clone())?;
+        std::fs::create_dir_all(store_path.clone())
+            .map_err(|e| anyhow!("Error creating new store dir for miden client: {:?}", e))?;
+        std::fs::create_dir_all(keystore_path.clone())
+            .map_err(|e| anyhow!("Error creating new keystore dir for miden client: {:?}", e))?;
 
         let name = format!("{:?}.sqlite3", Uuid::new_v4());
         let store_path = store_path.join(name);
@@ -91,6 +95,8 @@ impl MidenClient {
             state_sync,
             store_path,
             keystore_path,
+            store_dir: store_dir.into(),
+            keystore_dir: keystore_dir.into(),
             endpoint,
         })
     }
@@ -389,6 +395,12 @@ impl MidenClient {
         Ok(MidenAccount::new(faucet_account.id(), Some(faucet_account)))
     }
 
+    pub fn keystore_dir(&self) -> String {
+        self.keystore_dir.clone()
+    }
+    pub fn store_dir(&self) -> String {
+        self.store_dir.clone()
+    }
     pub fn keystore_path(&self) -> PathBuf {
         self.keystore_path.clone()
     }

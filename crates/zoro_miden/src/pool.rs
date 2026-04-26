@@ -523,8 +523,8 @@ mod tests {
         let client = test_utils.miden_client();
         ZoroPool::new_from_existing_pool(
             test_utils.miden_endpoint(),
-            client.keystore_path().to_str().unwrap(),
-            "testing_stores",
+            &client.keystore_dir(),
+            &client.store_dir(),
             pool.miden_account.id(),
             pool.pool_configs.clone(),
         )

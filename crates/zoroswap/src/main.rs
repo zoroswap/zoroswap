@@ -40,12 +40,8 @@ struct Args {
     #[arg(short, long, default_value = "./crates/zoroswap/masm")]
     masm_path: String,
 
-    /// Path to the keystore directory
-    #[arg(short, long, default_value = "./keystore")]
-    keystore_path: String,
-
     /// Path to the SQLite store file
-    #[arg(short, long, default_value = "./stores")]
+    #[arg(short, long, default_value = "stores")]
     store_dir: String,
 }
 

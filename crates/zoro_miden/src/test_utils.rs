@@ -349,13 +349,12 @@ impl TestUtils {
     }
     pub async fn get_funded_pools(&mut self, n: usize) -> Result<Vec<PoolWithMeta>> {
         let mut pools = self.get_pools(n).await?;
-        let keystore_path = self.miden_client().keystore_path();
         let mut res = Vec::new();
         for pool in pools.iter_mut() {
             let mut zoro_pool = ZoroPool::new_from_existing_pool(
                 self.miden_endpoint(),
-                keystore_path.to_str().unwrap(),
-                "testing_stores",
+                &self.miden_client().keystore_dir(),
+                &self.miden_client().store_dir(),
                 pool.miden_account.id(),
                 pool.pool_configs.clone(),
             )
@@ -521,6 +520,7 @@ fn load_cached_pools_from_files() -> Result<Vec<TestPoolRaw>> {
 }
 
 fn save_cached_accounts_to_files(entities: &Vec<TestAccount>) -> Result<()> {
+    info!("Caching {} accounts to files", entities.len());
     let manifest_dir: &str = env!("CARGO_MANIFEST_DIR");
     for entity in entities {
         let filepath: PathBuf = [
@@ -544,6 +544,7 @@ fn save_cached_accounts_to_files(entities: &Vec<TestAccount>) -> Result<()> {
 }
 
 fn save_cached_faucets_to_files(entities: &Vec<TestFaucet>) -> Result<()> {
+    info!("Caching {} faucets to files", entities.len());
     let manifest_dir: &str = env!("CARGO_MANIFEST_DIR");
     for entity in entities {
         let filepath: PathBuf = [
@@ -568,6 +569,7 @@ fn save_cached_faucets_to_files(entities: &Vec<TestFaucet>) -> Result<()> {
 }
 
 fn save_cached_pools_to_files(entities: &Vec<TestPool>) -> Result<()> {
+    info!("Caching {} pools to files", entities.len());
     let manifest_dir: &str = env!("CARGO_MANIFEST_DIR");
     for entity in entities {
         let filepath: PathBuf = [

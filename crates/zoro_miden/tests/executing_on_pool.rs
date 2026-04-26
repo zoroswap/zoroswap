@@ -19,11 +19,10 @@ async fn executing_deposit() -> Result<()> {
     let pool = test_utils.get_pools(1).await?;
     let pool = pool.first().unwrap();
     let pool_config = pool.pool_configs[..][0];
-    let keystore_path = test_utils.miden_client().keystore_path();
     let mut zoro_pool = ZoroPool::new_from_existing_pool(
         test_utils.miden_endpoint(),
-        keystore_path.to_str().unwrap(),
-        "testing_stores",
+        &test_utils.miden_client().keystore_dir(),
+        &test_utils.miden_client().store_dir(),
         pool.miden_account.id(),
         pool.pool_configs.clone(),
     )

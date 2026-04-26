@@ -32,8 +32,8 @@ impl E2ETestSetup {
         client.sync_state().await?;
         let zoro_pool = ZoroPool::new_from_existing_pool(
             config.miden_endpoint.clone(),
-            "keystore",
-            "testing_stores",
+            &client.keystore_dir(),
+            &client.store_dir(),
             &config.pool_account_id,
             config.liquidity_pools.clone(),
         )
