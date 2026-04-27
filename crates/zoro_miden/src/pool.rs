@@ -443,7 +443,8 @@ impl ZoroPool {
             .await
             .map_err(|e| {
                 error!(
-                    error = ?e,
+                    // error = ?e,
+                    error = e.to_string(),
                     pool_id = %self.miden_account.id().to_hex(),
                     input_notes = len_input_notes,
                     advice_map = len_advice_map,
