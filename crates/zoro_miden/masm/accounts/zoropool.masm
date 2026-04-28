@@ -235,21 +235,18 @@ end
 #!
 #! Invocation: call
 pub proc receive_asset
-    #debug.stack.1
+    debug.stack.8
     exec.expand_asset
+    debug.stack.8
     # => [ASSET_KEY, ASSET_VALUE,  reserve_with_slippage, liabilities, 0, pad(8)]
-    #debug.stack.2
-    debug.stack.3
     exec.native_account::add_asset
-    debug.stack.4
-    #debug.stack.3
+    debug.stack.8
     # => [ASSET_KEY, ASSET_VALUE', reserve, reserve_with_slippage, liabilities, 0, pad(8)]
     exec.compress_asset
-    #debug.stack.4
+    debug.stack.8
     # => [ASSET, reserve, reserve_with_slippage, liabilities, 0, pad(8)]
-    procref.validate_and_update_state mem_storew_be.DYNAMIC_PROC_ADDR dropw push.DYNAMIC_PROC_ADDR
+    procref.validate_and_update_state reversew mem_storew_be.DYNAMIC_PROC_ADDR dropw push.DYNAMIC_PROC_ADDR
     dynexec
-    #debug.stack.5
     # => [pad(16)]
 end
 
@@ -320,14 +317,11 @@ end
 #! Outputs: [share_amount]
 #!
 pub proc deposit
-    debug.stack.1
+    debug.stack.8
     mem_storew_be.DEPOSIT_ASSET_LOC
-    debug.stack.2
     exec.receive_asset
-    debug.stack.3
     padw mem_loadw_be.DEPOSIT_ASSET_LOC
     # => [ASSET, beneficiary_suffix, beneficiary_prefix, lp_amount_out]
-    #debug.stack.2
     exec.get_user_deposit_key
     # => [KEY, lp_amount_out]
     mem_storew_be.DEPOSIT_KEY_LOC
