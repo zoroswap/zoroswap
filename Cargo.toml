@@ -20,6 +20,10 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 incremental = true
 codegen-units = 16
 
+[profile.dev.package.miden-client]
+opt-level = 3
+debug-assertions = false
+
 [profile.release]
 lto = true
 panic = "abort"
