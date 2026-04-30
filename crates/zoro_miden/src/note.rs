@@ -18,7 +18,7 @@ use miden_standards::note::{P2idNoteStorage, StandardNote};
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use tracing::info;
 
-use crate::client::create_library;
+use crate::{asset_utils::asset_to_word, client::create_library};
 
 static NOTE_ROOTS: OnceLock<NoteRoots> = OnceLock::new();
 
@@ -622,13 +622,10 @@ impl TrustedNoteElements {
         if instructions.deadline.eq(&0) {
             return Err(anyhow!("Deadline is zero"));
         }
-        let requested_asset: Word = [
-            Felt::new(instructions.min_amount_out),
-            Felt::new(0),
-            instructions.asset_out.suffix(),
-            instructions.asset_out.prefix().as_felt(),
-        ]
-        .into();
+        let requested_asset = asset_to_word(FungibleAsset::new(
+            instructions.asset_out,
+            instructions.min_amount_out,
+        )?);
         let beneficiary = if let Some(beneficiary) = instructions.beneficiary {
             beneficiary
         } else {
@@ -709,14 +706,10 @@ impl TrustedNoteElements {
         if instructions.deadline.eq(&0) {
             return Err(anyhow!("Deadline is zero"));
         }
-        let asset_out: Word = [
-            Felt::new(instructions.min_amount_out),
-            Felt::new(0),
-            instructions.asset_out.suffix(),
-            instructions.asset_out.prefix().as_felt(),
-        ]
-        .into();
-
+        let asset_out = asset_to_word(FungibleAsset::new(
+            instructions.asset_out,
+            instructions.min_amount_out,
+        )?);
         let inputs = NoteStorage::new(vec![
             asset_out[0],
             asset_out[1],
