@@ -22,6 +22,7 @@ use crate::{
     asset_utils::{asset_to_word, word_to_asset},
     client::create_library,
 };
+use crate::assembly_utils::{create_library_with_assembler, link_all_libraries};
 
 static NOTE_ROOTS: OnceLock<NoteRoots> = OnceLock::new();
 
@@ -99,27 +100,14 @@ impl TrustedNote {
     pub fn get_note_script(code_builder: CodeBuilder, note_file_name: &str) -> Result<NoteScript> {
         let manifest_dir = env!("CARGO_MANIFEST_DIR");
         let note_path = PathBuf::from_iter(&[manifest_dir, "masm", "notes", note_file_name]);
-        let pool_path = PathBuf::from_iter(&[manifest_dir, "masm", "accounts", "zoropool.masm"]);
+        // let pool_path = PathBuf::from_iter(&[manifest_dir, "masm", "accounts", "zoropool.masm"]);
         let note_code = read_to_string(&note_path)
             .map_err(|e| anyhow!("Error parsing note code at path {note_path:?}: {e:?}"))?;
-        let pool_code = read_to_string(&pool_path)
-            .map_err(|e| anyhow!("Error parsing pool code at path {pool_path:?}: {e:?}"))?;
 
-        let pool_component_lib = code_builder
-            .clone()
-            .compile_component_code("zoroswap::zoropool", &pool_code)?;
-
-        let assembler =
-            TransactionKernel::assembler_with_source_manager(code_builder.source_manager().clone())
-                .with_warnings_as_errors(true)
-                .with_static_library(&pool_component_lib)
-                .map_err(|e| anyhow!("Failed to link pool library: {:?}", e))?;
-
-        let note_library = assembler
-            .assemble_library([note_code])
-            .map_err(|e| anyhow!("Failed to assemble note library: {:?}", e))?;
-        NoteScript::from_library(&note_library)
-            .map_err(|e| anyhow!("Failed to create note script from note library: {:?}", e))
+        let code_builder = link_all_libraries(code_builder.clone())?;
+        code_builder
+            .compile_note_script(note_code)
+            .map_err(|e| anyhow!("Failed to compile note script: {:?}", e))
     }
 
     fn new_zoro_note(
@@ -282,7 +270,7 @@ pub fn get_script_root_for_local_script(masm_name: &str) -> Result<Word> {
     let pool_code = std::fs::read_to_string(&pool_code_path)
         .unwrap_or_else(|err| panic!("Error reading {}: {}", pool_code_path.display(), err));
     let pool_component_lib =
-        create_library(assembler.clone(), "zoroswap::zoropool", &pool_code).unwrap();
+        create_library_with_assembler(assembler.clone(), "zoroswap::zoropool", &pool_code).unwrap();
     let note_script = CodeBuilder::new()
         .with_dynamically_linked_library(&pool_component_lib)
         .unwrap()
