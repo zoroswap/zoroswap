@@ -3,7 +3,7 @@ use std::{collections::HashMap, path::PathBuf};
 use anyhow::{Result, anyhow};
 use chrono::Utc;
 use dotenv::dotenv;
-use miden_client::{account::AccountId, rpc::Endpoint};
+use miden_client::{account::AccountId, asset::FungibleAsset, rpc::Endpoint};
 use rand::{Rng, distr::Alphabetic};
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
@@ -381,8 +381,7 @@ impl TestUtils {
                         .await?;
                     let deposit_note = TrustedNote::new(
                         NoteInstructions::Deposit(DepositInstructions {
-                            asset_in: liq_config.faucet_id,
-                            amount_in: mint_amount,
+                            asset_in: FungibleAsset::new(liq_config.faucet_id, mint_amount)?,
                             min_lp_amount_out: mint_amount - 100,
                             creator: *acc.miden_account.id(),
                             note_type: miden_client::note::NoteType::Public,

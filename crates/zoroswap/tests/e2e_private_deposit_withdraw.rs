@@ -2,6 +2,7 @@ mod test_utils;
 
 use anyhow::Result;
 use chrono::Utc;
+use miden_client::asset::FungibleAsset;
 use miden_client::note::{NoteTag, NoteType};
 use std::time::Duration;
 use test_utils::*;
@@ -56,8 +57,7 @@ async fn e2e_private_deposit_withdraw() -> Result<()> {
 
     let deposit_note = TrustedNote::new(
         NoteInstructions::Deposit(DepositInstructions {
-            asset_in: pool.faucet_id,
-            amount_in,
+            asset_in: FungibleAsset::new(pool.faucet_id, amount_in)?,
             min_lp_amount_out,
             creator: *account.id(),
             note_type: NoteType::Private,
@@ -104,9 +104,8 @@ async fn e2e_private_deposit_withdraw() -> Result<()> {
 
     let withdraw_note = TrustedNote::new(
         NoteInstructions::Withdraw(WithdrawInstructions {
-            asset_out: pool.faucet_id,
+            min_asset_out: FungibleAsset::new(pool.faucet_id, min_asset_amount_out)?,
             lp_amount_in: amount_to_withdraw,
-            min_amount_out: min_asset_amount_out,
             creator: *account.id(),
             note_type: NoteType::Private,
             p2id_tag: NoteTag::with_account_target(*account.id()),
