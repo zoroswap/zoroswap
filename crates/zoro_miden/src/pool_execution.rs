@@ -41,7 +41,7 @@ pub enum ExecutionResult {
 
 impl PoolExecution {
     pub fn new(
-        note: TrustedNote,
+        note: &TrustedNote,
         pool_states: &HashMap<AccountId, PoolState>,
         prices: &HashMap<AccountId, PriceData>,
     ) -> Result<Self> {

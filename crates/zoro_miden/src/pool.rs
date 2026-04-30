@@ -17,11 +17,12 @@ use miden_client::{
     asset::AssetVault,
     auth::{AuthScheme, AuthSecretKey, AuthSingleSig},
     keystore::{FilesystemKeyStore, Keystore},
-    note::{NoteId, NoteTag},
+    note::{Note, NoteId, NoteTag},
     rpc::Endpoint,
     transaction::TransactionRequestBuilder,
     vm::AdviceMap,
 };
+use miden_tx::NoteConsumptionInfo;
 use rand::RngCore;
 use tokio::time::sleep;
 use tracing::{error, info, warn};
@@ -346,18 +347,34 @@ impl ZoroPool {
         let mut expected_future_notes = Vec::with_capacity(notes.len());
         let mut expected_output_recipients = Vec::with_capacity(notes.len());
         let mut pool_states = self.pool_states.clone();
+        let note_screener = self.miden_client.client().note_screener();
+        let raw_notes: Vec<Note> = notes.iter().map(|n| n.note().clone()).collect();
+        let NoteConsumptionInfo { successful, failed } = note_screener
+            .check_notes_consumability(*self.miden_account.id(), raw_notes)
+            .await?;
+        let successful_notes_ids: Vec<NoteId> = successful.iter().map(|n| n.id()).collect();
+        let successful_notes = notes
+            .iter()
+            .filter(|n| successful_notes_ids.contains(&n.note().id()));
 
-        // self.print_pool_states();
-        // self.miden_account
-        //     .print_vault(self.endpoint.to_network_id())
-        //     .await?;
+        if !failed.is_empty() {
+            let ids = failed
+                .iter()
+                .map(|n| format!("{}, ", n.note.id().to_hex()))
+                .collect::<Vec<String>>()
+                .join(", ");
+            warn!(
+                "{} notes cant be consumed. Their ids are: {}",
+                failed.len(),
+                ids
+            );
+        }
 
         let mut results: Vec<(NoteId, ExecutionResult)> = Vec::with_capacity(notes.len());
-        for note in notes {
+        for note in successful_notes {
             let note_id = note.note().id();
             let execution_details = PoolExecution::new(note, &pool_states, &prices)?;
             execution_details.print_execution_details(self.endpoint.to_network_id());
-            let local_simulation_clone = execution_details.clone();
             let PoolExecution {
                 advice_map_value,
                 input_note,
@@ -381,46 +398,21 @@ impl ZoroPool {
                     .import_account(&counterparty_account)
                     .await?;
             }
-            // Simulate execution first to avoid poisoned notes
-            match self.simulate_note_execution(&local_simulation_clone).await {
-                Err(e) => warn!(
-                    id = note_id.to_hex(),
-                    error = ?e,
-                    note_id = note_id.to_hex(),
-                    "Rejected in the simulation"
-                ),
-                Ok(tx_result) => {
-                    // let proven_tx = self
-                    //     .miden_client
-                    //     .client_mut()
-                    //     .prove_transaction(&tx_result)
-                    //     .await?;
-                    // let tx_id = proven_tx.id();
-                    // let block_num = self
-                    //     .miden_client
-                    //     .client_mut()
-                    //     .submit_proven_transaction(proven_tx, &tx_result)
-                    //     .await?;
-                    // info!(note_id = note_id.to_hex(), time_elapsed = ?start.elapsed(), "Processed note");
-                    // MidenClient::print_transaction_info(&tx_id);
-                    // Add to execution
-                    if let Some(advice_map_value) = advice_map_value {
-                        advice_map.insert(advice_map_value.0, advice_map_value.1);
-                    };
-                    if let Some(input_note) = input_note {
-                        input_notes.push(input_note);
-                    };
-                    if let Some(expected_future_note) = expected_future_note {
-                        expected_future_notes.push(expected_future_note);
-                    };
-                    if let Some(expected_output_recipient) = expected_output_recipient {
-                        expected_output_recipients.push(expected_output_recipient);
-                    };
-                    if let Some(new_pool_states) = new_pool_states {
-                        pool_states = new_pool_states
-                    };
-                }
-            }
+            if let Some(advice_map_value) = advice_map_value {
+                advice_map.insert(advice_map_value.0, advice_map_value.1);
+            };
+            if let Some(input_note) = input_note {
+                input_notes.push(input_note);
+            };
+            if let Some(expected_future_note) = expected_future_note {
+                expected_future_notes.push(expected_future_note);
+            };
+            if let Some(expected_output_recipient) = expected_output_recipient {
+                expected_output_recipients.push(expected_output_recipient);
+            };
+            if let Some(new_pool_states) = new_pool_states {
+                pool_states = new_pool_states
+            };
             results.push((note_id, result));
         }
         let start = Instant::now();
@@ -441,7 +433,7 @@ impl ZoroPool {
             .submit_new_transaction(*self.miden_account.id(), consume_req)
             // .execute_transaction(*self.miden_account.id(), consume_req)
             .await
-            .map_err(|e| {
+            .inspect_err(|e| {
                 error!(
                     // error = ?e,
                     error = e.to_string(),
@@ -452,7 +444,6 @@ impl ZoroPool {
                     expected_output_recipients = len_output_recipients,
                     "Failed to submit batch transaction",
                 );
-                e
             })?;
         info!(len_notes = len_input_notes, time_elapsed= ?start.elapsed(), "Executed notes");
         MidenClient::print_transaction_info(&tx_id);
@@ -460,47 +451,6 @@ impl ZoroPool {
         self.pool_states = pool_states;
         self.print_pool_states();
         Ok(results)
-    }
-
-    async fn simulate_note_execution(&mut self, execution_details: &PoolExecution) -> Result<()> {
-        let PoolExecution {
-            advice_map_value,
-            input_note,
-            expected_future_note,
-            expected_output_recipient,
-            new_pool_states: _,
-            counterparty_account: _,
-            result: _,
-        } = execution_details;
-        // let mut consume_req = TransactionRequestBuilder::new();
-
-        // if let Some(advice_map_value) = advice_map_value {
-        //     let mut advice_map = AdviceMap::default();
-        //     advice_map.insert(advice_map_value.0, advice_map_value.clone().1);
-        //     consume_req = consume_req.extend_advice_map(advice_map);
-        // };
-        // if let Some(input_note) = input_note {
-        //     consume_req = consume_req.input_notes(vec![input_note.clone()]);
-        // };
-        // if let Some(expected_future_note) = expected_future_note {
-        //     consume_req = consume_req.expected_future_notes(vec![expected_future_note.clone()]);
-        // };
-        // if let Some(expected_output_recipient) = expected_output_recipient {
-        //     consume_req =
-        //         consume_req.expected_output_recipients(vec![expected_output_recipient.clone()]);
-        // };
-
-        // let tx = consume_req
-        //     .build()
-        //     .map_err(|e| anyhow::anyhow!("Failed to build batch transaction request: {}", e))?;
-        // let tx_result = self
-        //     .miden_client
-        //     .client_mut()
-        //     .execute_transaction(*self.miden_account.id(), tx)
-        //     .await?;
-
-        // Ok(tx_result)
-        Ok(())
     }
 }
 
