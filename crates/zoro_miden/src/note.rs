@@ -18,11 +18,8 @@ use miden_standards::note::{P2idNoteStorage, StandardNote};
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use tracing::info;
 
-use crate::{
-    asset_utils::{asset_to_word, word_to_asset},
-    client::create_library,
-};
 use crate::assembly_utils::{create_library_with_assembler, link_all_libraries};
+use crate::asset_utils::{asset_to_word, word_to_asset};
 
 static NOTE_ROOTS: OnceLock<NoteRoots> = OnceLock::new();
 
