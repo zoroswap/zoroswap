@@ -4,6 +4,7 @@ use clap::Parser;
 use dotenv::dotenv;
 use miden_client::{
     account::AccountId,
+    asset::FungibleAsset,
     note::{NoteTag, NoteType},
 };
 use tracing_subscriber::EnvFilter;

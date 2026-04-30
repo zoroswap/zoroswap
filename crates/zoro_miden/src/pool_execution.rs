@@ -52,19 +52,19 @@ impl PoolExecution {
             NoteInstructions::Deposit(instructions) => {
                 let past_deadline = now > instructions.deadline as i64;
                 let mut pool_state = *pool_states
-                    .get(&instructions.asset_in)
+                    .get(&instructions.asset_in.faucet_id())
                     .ok_or(anyhow!("Trying to execute deposit for an unknown asset."))?;
                 if !past_deadline
-                    && let Ok((lp_amount, new_lp_total_supply, new_pool_balances)) =
-                        pool_state.get_deposit_lp_amount_out(U256::from(instructions.amount_in))
+                    && let Ok((lp_amount, new_lp_total_supply, new_pool_balances)) = pool_state
+                        .get_deposit_lp_amount_out(U256::from(instructions.asset_in.amount()))
                 {
                     pool_state.update_state(new_pool_balances, new_lp_total_supply);
-                    new_pool_states.insert(instructions.asset_in, pool_state);
+                    new_pool_states.insert(instructions.asset_in.faucet_id(), pool_state);
                     Ok(PoolExecution {
                         advice_map_value: None,
                         input_note: Some((
                             note.note().clone(),
-                            Some(pool_state.to_lp_note_args(instructions.amount_in)), // amount 0 will reject the deposit in masm
+                            Some(pool_state.to_lp_note_args(instructions.asset_in.amount())), // amount 0 will reject the deposit in masm
                         )),
                         expected_future_note: None,
                         new_pool_states: Some(new_pool_states),
@@ -77,7 +77,6 @@ impl PoolExecution {
                     let p2id = TrustedNote::build_p2id(
                         instructions.creator,
                         instructions.asset_in,
-                        instructions.amount_in,
                         Some(note.serial_number()),
                     )?;
                     Ok(PoolExecution {
@@ -103,22 +102,23 @@ impl PoolExecution {
             }
             NoteInstructions::Withdraw(instructions) => {
                 let past_deadline = now > instructions.deadline as i64;
-                let mut pool_state = *pool_states.get(&instructions.asset_out).ok_or(anyhow!(
-                    "Trying to execute withdrawal for an unknown asset."
-                ))?;
+                let mut pool_state = *pool_states
+                    .get(&instructions.min_asset_out.faucet_id())
+                    .ok_or(anyhow!(
+                        "Trying to execute withdrawal for an unknown asset."
+                    ))?;
                 if !past_deadline
                     && let Ok((amount_out, new_lp_total_supply, new_pool_balances)) = pool_state
                         .get_withdraw_asset_amount_out(U256::from(instructions.lp_amount_in))
-                    && amount_out >= instructions.min_amount_out
+                    && amount_out >= instructions.min_asset_out.amount()
                 {
                     let p2id = TrustedNote::build_p2id(
                         instructions.creator,
-                        instructions.asset_out,
-                        amount_out.to::<u64>(),
+                        instructions.min_asset_out,
                         Some(note.serial_number()),
                     )?;
                     pool_state.update_state(new_pool_balances, new_lp_total_supply);
-                    new_pool_states.insert(instructions.asset_out, pool_state);
+                    new_pool_states.insert(instructions.min_asset_out.faucet_id(), pool_state);
                     Ok(PoolExecution {
                         advice_map_value: None,
                         input_note: Some((
@@ -148,17 +148,17 @@ impl PoolExecution {
             NoteInstructions::Swap(instructions) => {
                 let past_deadline = now > instructions.deadline as i64;
                 let mut pool_state_base = *new_pool_states
-                    .get_mut(&instructions.asset_in)
+                    .get_mut(&instructions.asset_in.faucet_id())
                     .ok_or(anyhow!("Trying to execute swap for an unknown asset."))?;
                 let mut pool_state_quote = *new_pool_states
-                    .get_mut(&instructions.asset_out)
+                    .get_mut(&instructions.min_asset_out.faucet_id())
                     .ok_or(anyhow!("Trying to execute swap for an unknown asset."))?;
                 let base_price = prices
-                    .get(&instructions.asset_in)
+                    .get(&instructions.asset_in.faucet_id())
                     .ok_or(anyhow!("No price for asset {}", instructions.asset_in))?;
                 let quote_price = prices
-                    .get(&instructions.asset_out)
-                    .ok_or(anyhow!("No price for asset {}", instructions.asset_out))?;
+                    .get(&instructions.min_asset_out.faucet_id())
+                    .ok_or(anyhow!("No price for asset {}", instructions.min_asset_out))?;
                 let price = base_price.quote_with(quote_price.price);
                 let (p2id, amount_out, result, counterparty_account) = if !past_deadline
                     && let Ok((amount_out, new_base_pool_balances, new_quote_pool_balances)) =
@@ -167,10 +167,10 @@ impl PoolExecution {
                             &pool_state_quote,
                             U256::from(pool_state_base.metadata().asset_decimals),
                             U256::from(pool_state_quote.metadata().asset_decimals),
-                            U256::from(instructions.amount_in),
+                            U256::from(instructions.asset_in.amount()),
                             price,
                         )
-                    && amount_out >= instructions.min_amount_out
+                    && amount_out >= instructions.min_asset_out.amount()
                 {
                     let beneficiary = if let Some(beneficiary) = instructions.beneficiary {
                         beneficiary
@@ -179,14 +179,14 @@ impl PoolExecution {
                     };
                     let p2id = TrustedNote::build_p2id(
                         beneficiary,
-                        instructions.asset_out,
-                        amount_out.to::<u64>(),
+                        instructions.asset_in,
                         Some(note.serial_number()),
                     )?;
                     pool_state_base.update_balances(new_base_pool_balances);
                     pool_state_quote.update_balances(new_quote_pool_balances);
-                    new_pool_states.insert(instructions.asset_in, pool_state_base);
-                    new_pool_states.insert(instructions.asset_out, pool_state_quote);
+                    new_pool_states.insert(instructions.asset_in.faucet_id(), pool_state_base);
+                    new_pool_states
+                        .insert(instructions.min_asset_out.faucet_id(), pool_state_quote);
                     (
                         p2id,
                         amount_out.to::<u64>(),
@@ -197,7 +197,6 @@ impl PoolExecution {
                     let p2id = TrustedNote::build_p2id(
                         instructions.creator,
                         instructions.asset_in,
-                        instructions.amount_in,
                         Some(note.serial_number()),
                     )?;
                     let result = if past_deadline {
@@ -207,7 +206,7 @@ impl PoolExecution {
                     };
                     (
                         p2id,
-                        instructions.amount_in,
+                        instructions.asset_in.amount(),
                         result,
                         Some(instructions.creator),
                     )

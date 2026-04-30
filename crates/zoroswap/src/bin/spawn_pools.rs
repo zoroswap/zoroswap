@@ -2,7 +2,10 @@ use anyhow::Result;
 use chrono::Utc;
 use clap::Parser;
 use dotenv::dotenv;
-use miden_client::note::{NoteTag, NoteType};
+use miden_client::{
+    asset::FungibleAsset,
+    note::{NoteTag, NoteType},
+};
 use std::collections::HashMap;
 use tracing_subscriber::EnvFilter;
 use zoro_miden::{
