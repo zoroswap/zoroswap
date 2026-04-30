@@ -4,6 +4,9 @@ use miden::protocol::output_note
 use miden::protocol::asset
 use miden::core::sys
 
+use zoro_miden::lib::asset_utils::compress_asset
+use zoro_miden::lib::asset_utils::expand_asset
+
 
 #! CONSTANTS
 const MAX_COVERAGE_RATIO = 0x0002 # 200%
@@ -560,28 +563,28 @@ proc address_from_asset
     swap.2 drop
 end
 
-#! Inputs: [ASSET] = [asset_account_prefix, asset_account_suffix, callback_enabled, amount]
-#! Outputs: [ASSET_KEY, ASSET_VALUE]
-pub proc expand_asset(asset: word)
-    #debug.stack.2
-    # => [asset_account_prefix, asset_account_suffix, callback_enabled, amount]
-    swap
-    # => [suffix, prefix, callback_enabled, amount]
-    movup.2
-    # => [callback_on, suffix, prefix, amount]
-    #debug.stack.3
-    exec.asset::create_fungible_asset
-    #debug.stack.4
-    # => [ASSET_KEY, ASSET_VALUE]
-    exec.sys::truncate_stack
-end
-
-#! Inputs: [ASSET_KEY, ASSET_VALUE]
-#! Outputs: [ASSET] = [id_prefix, id_suffix, callback_enabled, amount]
-pub proc compress_asset(asset_key: word, asset_value: word) -> (word)
-    # => [id_suffix, id_prefix, id_prefix <<8, cb_on, amount, 0,0,0]
-    swap.2 drop
-    # => [id_prefix, id_suffix, , cb_on, amount, 0,0,0]
-
-    exec.sys::truncate_stack
-end
+##! Inputs: [ASSET] = [asset_account_prefix, asset_account_suffix, callback_enabled, amount]
+##! Outputs: [ASSET_KEY, ASSET_VALUE]
+#pub proc expand_asset(asset: word)
+#    #debug.stack.2
+#    # => [asset_account_prefix, asset_account_suffix, callback_enabled, amount]
+#    swap
+#    # => [suffix, prefix, callback_enabled, amount]
+#    movup.2
+#    # => [callback_on, suffix, prefix, amount]
+#    #debug.stack.3
+#    exec.asset::create_fungible_asset
+#    #debug.stack.4
+#    # => [ASSET_KEY, ASSET_VALUE]
+#    exec.sys::truncate_stack
+#end
+#
+##! Inputs: [ASSET_KEY, ASSET_VALUE]
+##! Outputs: [ASSET] = [id_prefix, id_suffix, callback_enabled, amount]
+#pub proc compress_asset(asset_key: word, asset_value: word) -> (word)
+#    # => [id_suffix, id_prefix, id_prefix <<8, cb_on, amount, 0,0,0]
+#    swap.2 drop
+#    # => [id_prefix, id_suffix, , cb_on, amount, 0,0,0]
+#
+#    exec.sys::truncate_stack
+#end

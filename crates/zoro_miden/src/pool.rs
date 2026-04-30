@@ -28,6 +28,7 @@ use tracing::{error, info, warn};
 
 use crate::{
     account::MidenAccount,
+    assembly_utils::{link_asset_utils, read_masm_file},
     client::MidenClient,
     note::TrustedNote,
     pool_execution::{ExecutionResult, PoolExecution},
@@ -89,15 +90,11 @@ impl ZoroPool {
         keystore_dir: &str,
         store_dir: &str,
     ) -> Result<Self> {
-        let manifest_dir = env!("CARGO_MANIFEST_DIR");
-        let masm_path: PathBuf = [manifest_dir, "masm", "accounts", "zoropool.masm"]
-            .iter()
-            .collect();
         let mut miden_client: MidenClient =
             MidenClient::new(endpoint.clone(), keystore_dir, store_dir).await?;
-        let pool_reader_path = Path::new(&masm_path);
-        let pool_code = std::fs::read_to_string(pool_reader_path)
-            .unwrap_or_else(|err| panic!("unable to read from {pool_reader_path:?}: {err}"));
+
+        let pool_code = read_masm_file(&["accounts", "zoropool.masm"])
+            .map_err(|e| anyhow!("Failed to read zoropool.masm: {e:?}"))?;
 
         let mut assets_mapping = StorageMap::new();
         let mut curves_mapping = StorageMap::new();
@@ -155,11 +152,7 @@ impl ZoroPool {
         let pool_states_mapping = StorageSlot::with_empty_map(n("zoroswap::pool_state"));
         let user_deposits_mapping = StorageSlot::with_empty_map(n("zoroswap::user_deposits"));
 
-        // Compile the account code into a Library, then create AccountComponent
-        // let assembler = TransactionKernel::assembler();
-        // let pool_library = create_library(assembler.clone(), "zoroswap::zoropool", &pool_code)
-        //     .map_err(|e| anyhow!("Failed to create pool library: {e}"))?;
-        let code_builder = miden_client.client_mut().code_builder();
+        let code_builder = link_asset_utils(miden_client.client_mut().code_builder())?;
         let pool_library = code_builder.compile_component_code("zoroswap::zoropool", &pool_code)?;
         let pool_metadata = AccountComponentMetadata::new("zoroswap::zoropool", AccountType::all());
 

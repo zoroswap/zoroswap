@@ -18,10 +18,7 @@ use miden_standards::note::{P2idNoteStorage, StandardNote};
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use tracing::info;
 
-use crate::{
-    assembly_utils::{link_all_libraries, read_masm_file},
-    client::create_library,
-};
+use crate::assembly_utils::{create_library_with_assembler, link_all_libraries};
 
 static NOTE_ROOTS: OnceLock<NoteRoots> = OnceLock::new();
 
@@ -271,7 +268,7 @@ pub fn get_script_root_for_local_script(masm_name: &str) -> Result<Word> {
     let pool_code = std::fs::read_to_string(&pool_code_path)
         .unwrap_or_else(|err| panic!("Error reading {}: {}", pool_code_path.display(), err));
     let pool_component_lib =
-        create_library(assembler.clone(), "zoroswap::zoropool", &pool_code).unwrap();
+        create_library_with_assembler(assembler.clone(), "zoroswap::zoropool", &pool_code).unwrap();
     let note_script = CodeBuilder::new()
         .with_dynamically_linked_library(&pool_component_lib)
         .unwrap()

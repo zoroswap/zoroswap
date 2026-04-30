@@ -1,10 +1,7 @@
 use std::{collections::BTreeSet, fs, path::PathBuf, sync::Arc, time::Duration};
 
 use anyhow::{Result, anyhow};
-use miden_assembly::{
-    Assembler, DefaultSourceManager,
-    ast::{Module, ModuleKind},
-};
+
 use miden_client::{
     Client, DebugMode, Felt,
     account::{
@@ -420,25 +417,6 @@ impl Drop for MidenClient {
 // --------------------------------------------------------------------------
 // Assembly Utilities
 // --------------------------------------------------------------------------
-
-/// Creates a Miden assembly library from source code.
-///
-/// # Arguments
-/// * `assembler`: The assembler instance to use
-/// * `library_path`: Path identifier for the library
-/// * `source_code`: MASM source code
-pub fn create_library(
-    assembler: Assembler,
-    library_path: &str,
-    source_code: &str,
-) -> Result<Arc<miden_assembly::Library>, Box<dyn std::error::Error>> {
-    let source_manager = Arc::new(DefaultSourceManager::default());
-    let path = miden_assembly::Path::new(library_path);
-    let module =
-        Module::parser(ModuleKind::Library).parse_str(path, source_code, source_manager)?;
-    let library = assembler.clone().assemble_library([module])?;
-    Ok(library)
-}
 
 pub fn print_library_exports(masm_lib: &miden_assembly::Library) {
     println!("+++++Masm lib exports:");
