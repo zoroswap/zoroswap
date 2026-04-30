@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use anyhow::Result;
 use chrono::Utc;
-use miden_client::account::AccountId;
+use miden_client::{account::AccountId, asset::FungibleAsset};
 use tracing::info;
 use zoro_miden::{
     note::{

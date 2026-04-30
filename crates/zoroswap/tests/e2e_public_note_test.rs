@@ -2,6 +2,7 @@ mod test_utils;
 
 use anyhow::Result;
 use chrono::Utc;
+use miden_client::asset::FungibleAsset;
 use miden_client::note::{NoteTag, NoteType};
 use test_utils::*;
 use tracing::info;
