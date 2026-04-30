@@ -18,7 +18,10 @@ use miden_standards::note::{P2idNoteStorage, StandardNote};
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use tracing::info;
 
-use crate::{asset_utils::asset_to_word, client::create_library};
+use crate::{
+    asset_utils::{asset_to_word, word_to_asset},
+    client::create_library,
+};
 
 static NOTE_ROOTS: OnceLock<NoteRoots> = OnceLock::new();
 
@@ -483,9 +486,7 @@ impl TryFrom<TrustedNote> for NoteInstructions {
             }
             NoteKind::Withdraw => {
                 let vals = note.note().storage().items();
-                let requested_asset_out_id = AccountId::try_from_elements(vals[2], vals[3])?;
-                let min_asset_out =
-                    FungibleAsset::new(requested_asset_out_id, vals[0].as_canonical_u64())?;
+                let min_asset_out = word_to_asset(Word::new(vals[..4].try_into()?))?;
                 let lp_withdraw_amount: u64 = vals[5].as_canonical_u64();
                 let deadline: u64 = vals[6].as_canonical_u64();
                 let p2id_tag: u64 = vals[7].as_canonical_u64();
@@ -516,13 +517,7 @@ impl TryFrom<TrustedNote> for NoteInstructions {
                 }
                 let asset_in = asset_in.unwrap_fungible();
                 let vals: &[Felt] = note.note().storage().items();
-                let requested: &[Felt] = vals
-                    .get(..4)
-                    .ok_or(anyhow!("note has fewer than 4 inputs"))?;
-                let requested_asset_out_id =
-                    AccountId::try_from_elements(requested[2], requested[3])?;
-                let min_asset_out =
-                    FungibleAsset::new(requested_asset_out_id, requested[0].as_canonical_u64())?;
+                let min_asset_out = word_to_asset(Word::new(vals[..4].try_into()?))?;
                 let deadline: u64 = vals[4].as_canonical_u64();
                 let p2id_tag: u64 = vals[5].as_canonical_u64();
                 let beneficiary_suffix = vals[8];
@@ -612,17 +607,17 @@ impl TrustedNoteElements {
         if instructions.deadline.eq(&0) {
             return Err(anyhow!("Deadline is zero"));
         }
-        let requested_asset = asset_to_word(instructions.min_asset_out);
+        let min_asset_out = asset_to_word(instructions.min_asset_out);
         let beneficiary = if let Some(beneficiary) = instructions.beneficiary {
             beneficiary
         } else {
             instructions.creator
         };
         let inputs = NoteStorage::new(vec![
-            requested_asset[0],
-            requested_asset[1],
-            requested_asset[2],
-            requested_asset[3],
+            min_asset_out[0],
+            min_asset_out[1],
+            min_asset_out[2],
+            min_asset_out[3],
             Felt::new(instructions.deadline),
             instructions.p2id_tag.into(),
             Felt::new(0),
@@ -689,12 +684,12 @@ impl TrustedNoteElements {
         if instructions.deadline.eq(&0) {
             return Err(anyhow!("Deadline is zero"));
         }
-        let asset_out = asset_to_word(instructions.min_asset_out.into());
+        let min_asset_out = asset_to_word(instructions.min_asset_out.into());
         let inputs = NoteStorage::new(vec![
-            asset_out[0],
-            asset_out[1],
-            asset_out[2],
-            asset_out[3],
+            min_asset_out[0],
+            min_asset_out[1],
+            min_asset_out[2],
+            min_asset_out[3],
             Felt::new(0),
             Felt::new(instructions.lp_amount_in),
             Felt::new(instructions.deadline),
