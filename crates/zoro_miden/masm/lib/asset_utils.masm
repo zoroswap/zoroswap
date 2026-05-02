@@ -1,11 +1,9 @@
 use miden::protocol::asset
 use miden::core::sys
 
-#! Inputs: [ASSET] = [asset_account_prefix, asset_account_suffix, callback_enabled, amount]
+#! Inputs: [ASSET] = [asset_account_suffix, asset_account_prefix, callback_enabled, amount]
 #! Outputs: [ASSET_KEY, ASSET_VALUE]
 pub proc expand_asset(asset: word)
-    swap
-    # => [suffix, prefix, cb_on, amount]
     movup.2
     # => [cb_on, suffix, prefix, amount]
     exec.asset::create_fungible_asset
@@ -14,26 +12,25 @@ pub proc expand_asset(asset: word)
 end
 
 #! Inputs: [ASSET_KEY, ASSET_VALUE]
-#! Outputs: [ASSET] = [id_prefix, id_suffix, callback_enabled, amount]
-@locals(2)
+#! Outputs: [ASSET] = [id_suffix, id_prefix, callback_enabled, amount]
+@locals(1)
 pub proc compress_asset(asset_key: word, asset_value: word) -> (word)
-    # loc.0: faucet_id_prefix
-    # loc.1: fauect_id_suffix
+    # loc.0: faucet_id_suffix
     exec.asset::key_to_faucet_id
     # => [fauect_id_suffix, faucet_id_prefix, ASSET_KEY, ASSET_VAL]
-    loc_store.1 loc_store.0
+    loc_store.0 drop
     # => [ASSET_KEY, ASSET_VAL]
     drop drop 
     # => [faucet_id_suffix << 8 | cb_on, faucet_id_prefix, ASSET_VAL]
     ### are callbacks enabled? true if 
-    loc_load.1 
+    loc_load.0
     # => [fauect_id_suffix, faucet_id_suffix << 8 | cb_on, faucet_id_prefix, ASSET_VAL]
     neq
     # => [cb_on, faucet_id_prefix, ASSET_VAL]
-    loc_load.1 
-    # => [fauect_id_suffix, cb_on, faucet_id_prefix, ASSET_VAL]
-    movup.2
-    # => [faucet_id_prefix, fauect_id_suffix, cb_on, value, 0, 0, 0]
+    swap
+    # => [prefix, cb_on, value, 0, 0, 0]
+    loc_load.0  
+    # => [prefix, suffix, cb_on, value, 0, 0, 0]
    
     movup.4 drop movup.4 drop movup.4 drop
 end
