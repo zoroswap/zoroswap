@@ -347,6 +347,25 @@ impl TestUtils {
         let accounts = &self.cached_pools[..n];
         Ok(accounts.to_vec())
     }
+    pub async fn get_initialized_pools(&mut self, n: usize) -> Result<Vec<PoolWithMeta>> {
+        let mut pools = self.get_pools(n).await?;
+        let mut res = Vec::new();
+        for pool in pools.iter_mut() {
+            let zoro_pool = ZoroPool::new_from_existing_pool(
+                self.miden_endpoint(),
+                &self.miden_client().keystore_dir(),
+                &self.miden_client().store_dir(),
+                pool.miden_account.id(),
+                pool.pool_configs.clone(),
+            )
+            .await?;
+            res.push(PoolWithMeta {
+                zoro_pool,
+                test_pool: pool.clone(),
+            });
+        }
+        Ok(res)
+    }
     pub async fn get_funded_pools(&mut self, n: usize) -> Result<Vec<PoolWithMeta>> {
         let mut pools = self.get_pools(n).await?;
         let mut res = Vec::new();

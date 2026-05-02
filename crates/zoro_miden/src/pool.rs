@@ -53,6 +53,7 @@ pub struct ZoroPool {
     endpoint: Endpoint,
 }
 
+#[derive(Default)]
 struct BatchExecutionDetails {
     advice_map: AdviceMap,
     input_notes: Vec<(Note, Option<Word>)>,
@@ -363,9 +364,16 @@ impl ZoroPool {
         prices: HashMap<AccountId, PriceData>,
     ) -> Result<HashMap<NoteId, ExecutionResult>> {
         info!("Executing {} notes on the zoro pool", notes.len());
+        if notes.is_empty() {
+            return Ok(HashMap::default());
+        }
         self.miden_client.sync_state().await?;
         let (note_execution_results, batch_execution_details) =
             self.prepare_execution_batch(notes, prices).await?;
+        if batch_execution_details.input_notes.is_empty() {
+            // no notes are eligible for execution
+            return Ok(note_execution_results);
+        }
         let start = Instant::now();
         let (len_input_notes, len_advice_map, len_future_notes, len_output_recipients) = (
             batch_execution_details.input_notes.len(),
@@ -407,6 +415,7 @@ impl ZoroPool {
         notes: Vec<TrustedNote>,
         prices: HashMap<AccountId, PriceData>,
     ) -> Result<(HashMap<NoteId, ExecutionResult>, BatchExecutionDetails)> {
+        info!("Preparing execution details for {} notes", notes.len());
         let mut advice_map = AdviceMap::default();
         let mut input_notes = Vec::with_capacity(notes.len());
         let mut expected_future_notes = Vec::with_capacity(notes.len());
@@ -416,8 +425,10 @@ impl ZoroPool {
             HashMap::with_capacity(notes.len());
         for note in notes {
             let note_id = note.note().id();
-            let execution_details = PoolExecution::new(note, &pool_states, &prices)?;
-            execution_details.print_execution_details(self.endpoint.to_network_id());
+            let (execution_result, execution_details) =
+                PoolExecution::new(note, &pool_states, &prices)?;
+            execution_details
+                .print_execution_details(self.endpoint.to_network_id(), &execution_result);
             let PoolExecution {
                 advice_map_value,
                 input_note,
@@ -425,7 +436,6 @@ impl ZoroPool {
                 expected_output_recipient,
                 new_pool_states,
                 counterparty_account,
-                result,
             } = execution_details;
 
             // Import the account if unknown
@@ -458,7 +468,7 @@ impl ZoroPool {
                 pool_states = new_pool_states
             };
 
-            note_execution_results.insert(note_id, result);
+            note_execution_results.insert(note_id, execution_result);
         }
 
         Ok((
@@ -478,11 +488,16 @@ impl ZoroPool {
         notes: Vec<TrustedNote>,
         prices: HashMap<AccountId, PriceData>,
     ) -> Result<(HashMap<NoteId, ExecutionResult>, BatchExecutionDetails)> {
+        info!("Preparing batch execution for {} notes", notes.len());
         let mut note_results = HashMap::with_capacity(notes.len());
         let mut valid_notes = notes;
         // simulate until all notes go thru
         // must do it this way because of the sequential nature of updates to the account and pool states
         loop {
+            if valid_notes.is_empty() {
+                return Ok((note_results, BatchExecutionDetails::default()));
+            }
+
             // TODO: Are prices still fresh here?
             let (note_execution_details, batch_execution_details) = self
                 .prepare_execution_details(valid_notes.clone(), prices.clone())
@@ -518,7 +533,9 @@ impl ZoroPool {
 
 #[cfg(test)]
 mod tests {
-    use crate::test_utils::TestUtils;
+    use miden_client::testing::account_id::ACCOUNT_ID_PUBLIC_FUNGIBLE_FAUCET;
+
+    use crate::test_utils::{PoolWithMeta, TestUtils};
 
     use super::*;
 
@@ -542,6 +559,39 @@ mod tests {
             pool.pool_configs.clone(),
         )
         .await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn execute_empty() -> Result<()> {
+        let mut test_utils = TestUtils::from_cache().await?;
+        let PoolWithMeta {
+            zoro_pool,
+            test_pool: _,
+        } = &mut test_utils.get_initialized_pools(1).await?[..][0];
+        zoro_pool.execute_notes(vec![], HashMap::default()).await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn execute_p2id() -> Result<()> {
+        let mut test_utils = TestUtils::from_cache().await?;
+        let PoolWithMeta {
+            zoro_pool,
+            test_pool,
+        } = &mut test_utils.get_initialized_pools(1).await?[..][0];
+        let p2id = TrustedNote::build_p2id(
+            *test_pool.miden_account.id(),
+            ACCOUNT_ID_PUBLIC_FUNGIBLE_FAUCET.try_into()?,
+            1000,
+            None,
+        )?;
+        let p2id_id = p2id.note().id();
+        let res = zoro_pool
+            .execute_notes(vec![p2id], HashMap::default())
+            .await?;
+        let res_for_note = res.get(&p2id_id).unwrap();
+        assert_eq!(res_for_note, &ExecutionResult::FailedConsuming);
         Ok(())
     }
 }

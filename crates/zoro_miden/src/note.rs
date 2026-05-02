@@ -449,7 +449,7 @@ impl TryFrom<TrustedNote> for NoteInstructions {
                     Asset::Fungible(asset_in) => Ok(Self::P2ID(P2IDInstructions {
                         asset_in: asset_in.faucet_id(),
                         amount_in: asset_in.amount(),
-                        target: AccountId::from_hex("0x0")?,
+                        target: note.note().metadata().sender(), // cant really put in the reciever because P2ID does not have that info
                         referential_serial_number: None,
                         note_type: note.note().metadata().note_type(),
                     })),
