@@ -17,9 +17,9 @@ use miden_client::{
     asset::AssetVault,
     auth::{AuthScheme, AuthSecretKey, AuthSingleSig},
     keystore::{FilesystemKeyStore, Keystore},
-    note::{Note, NoteId, NoteTag},
+    note::{Note, NoteDetails, NoteId, NoteRecipient, NoteTag},
     rpc::Endpoint,
-    transaction::TransactionRequestBuilder,
+    transaction::{TransactionRequest, TransactionRequestBuilder},
     vm::AdviceMap,
 };
 use miden_tx::NoteConsumptionInfo;
@@ -51,6 +51,29 @@ pub struct ZoroPool {
     pool_states: HashMap<AccountId, PoolState>,
     liquidity_pools: Vec<LiquidityPoolConfig>,
     endpoint: Endpoint,
+}
+
+struct BatchExecutionDetails {
+    advice_map: AdviceMap,
+    input_notes: Vec<(Note, Option<Word>)>,
+    expected_future_notes: Vec<(NoteDetails, NoteTag)>,
+    expected_output_recipients: Vec<NoteRecipient>,
+    new_pool_states: HashMap<AccountId, PoolState>,
+    note_execution_results: Vec<(NoteId, ExecutionResult)>,
+}
+
+impl TryFrom<BatchExecutionDetails> for TransactionRequest {
+    type Error = anyhow::Error;
+    fn try_from(value: BatchExecutionDetails) -> std::result::Result<Self, Self::Error> {
+        let consume_req = TransactionRequestBuilder::new()
+            .extend_advice_map(value.advice_map)
+            .input_notes(value.input_notes)
+            .expected_future_notes(value.expected_future_notes)
+            .expected_output_recipients(value.expected_output_recipients)
+            .build()
+            .map_err(|e| anyhow::anyhow!("Failed to build batch transaction request: {}", e))?;
+        Ok(consume_req)
+    }
 }
 
 impl ZoroPool {
@@ -342,36 +365,57 @@ impl ZoroPool {
     ) -> Result<Vec<(NoteId, ExecutionResult)>> {
         info!("Executing {} notes on the zoro pool", notes.len());
         self.miden_client.sync_state().await?;
+        let batch_execution_details = self.prepare_execution_batch(notes, prices).await?;
+        let start = Instant::now();
+        let (len_input_notes, len_advice_map, len_future_notes, len_output_recipients) = (
+            batch_execution_details.input_notes.len(),
+            batch_execution_details.advice_map.len(),
+            batch_execution_details.expected_future_notes.len(),
+            batch_execution_details.expected_output_recipients.len(),
+        );
+        let new_pool_states = batch_execution_details.new_pool_states.clone();
+        let note_execution_results_clone = batch_execution_details.note_execution_results.clone();
+        let tx_id = self
+            .miden_client
+            .client_mut()
+            .submit_new_transaction(
+                *self.miden_account.id(),
+                batch_execution_details.try_into()?,
+            )
+            .await
+            .inspect_err(|e| {
+                error!(
+                    // error = ?e,
+                    error = e.to_string(),
+                    pool_id = %self.miden_account.id().to_hex(),
+                    input_notes = len_input_notes,
+                    advice_map = len_advice_map,
+                    expected_future_notes = len_future_notes,
+                    expected_output_recipients = len_output_recipients,
+                    "Failed to submit batch transaction",
+                );
+            })?;
+        info!(len_notes = len_input_notes, time_elapsed= ?start.elapsed(), "Executed notes");
+        MidenClient::print_transaction_info(&tx_id);
+        self.miden_client.sync_state().await?;
+        self.pool_states = new_pool_states;
+        self.print_pool_states();
+        Ok(note_execution_results_clone)
+    }
+
+    async fn prepare_execution_details(
+        &mut self,
+        notes: Vec<TrustedNote>,
+        prices: HashMap<AccountId, PriceData>,
+    ) -> Result<BatchExecutionDetails> {
         let mut advice_map = AdviceMap::default();
         let mut input_notes = Vec::with_capacity(notes.len());
         let mut expected_future_notes = Vec::with_capacity(notes.len());
         let mut expected_output_recipients = Vec::with_capacity(notes.len());
         let mut pool_states = self.pool_states.clone();
-        let note_screener = self.miden_client.client().note_screener();
-        let raw_notes: Vec<Note> = notes.iter().map(|n| n.note().clone()).collect();
-        let NoteConsumptionInfo { successful, failed } = note_screener
-            .check_notes_consumability(*self.miden_account.id(), raw_notes)
-            .await?;
-        let successful_notes_ids: Vec<NoteId> = successful.iter().map(|n| n.id()).collect();
-        let successful_notes = notes
-            .iter()
-            .filter(|n| successful_notes_ids.contains(&n.note().id()));
-
-        if !failed.is_empty() {
-            let ids = failed
-                .iter()
-                .map(|n| format!("{}, ", n.note.id().to_hex()))
-                .collect::<Vec<String>>()
-                .join(", ");
-            warn!(
-                "{} notes cant be consumed. Their ids are: {}",
-                failed.len(),
-                ids
-            );
-        }
-
-        let mut results: Vec<(NoteId, ExecutionResult)> = Vec::with_capacity(notes.len());
-        for note in successful_notes {
+        let mut note_execution_results: Vec<(NoteId, ExecutionResult)> =
+            Vec::with_capacity(notes.len());
+        for note in notes {
             let note_id = note.note().id();
             let execution_details = PoolExecution::new(note, &pool_states, &prices)?;
             execution_details.print_execution_details(self.endpoint.to_network_id());
@@ -398,6 +442,7 @@ impl ZoroPool {
                     .import_account(&counterparty_account)
                     .await?;
             }
+
             if let Some(advice_map_value) = advice_map_value {
                 advice_map.insert(advice_map_value.0, advice_map_value.1);
             };
@@ -413,44 +458,55 @@ impl ZoroPool {
             if let Some(new_pool_states) = new_pool_states {
                 pool_states = new_pool_states
             };
-            results.push((note_id, result));
+
+            note_execution_results.push((note_id, result));
         }
-        let start = Instant::now();
-        let len_future_notes = expected_future_notes.len();
-        let len_output_recipients = expected_output_recipients.len();
-        let len_input_notes = input_notes.len();
-        let len_advice_map = advice_map.len();
-        let consume_req = TransactionRequestBuilder::new()
-            .extend_advice_map(advice_map)
-            .input_notes(input_notes)
-            .expected_future_notes(expected_future_notes)
-            .expected_output_recipients(expected_output_recipients)
-            .build()
-            .map_err(|e| anyhow::anyhow!("Failed to build batch transaction request: {}", e))?;
-        let tx_id = self
-            .miden_client
-            .client_mut()
-            .submit_new_transaction(*self.miden_account.id(), consume_req)
-            // .execute_transaction(*self.miden_account.id(), consume_req)
-            .await
-            .inspect_err(|e| {
-                error!(
-                    // error = ?e,
-                    error = e.to_string(),
-                    pool_id = %self.miden_account.id().to_hex(),
-                    input_notes = len_input_notes,
-                    advice_map = len_advice_map,
-                    expected_future_notes = len_future_notes,
-                    expected_output_recipients = len_output_recipients,
-                    "Failed to submit batch transaction",
+
+        Ok(BatchExecutionDetails {
+            advice_map,
+            input_notes,
+            expected_future_notes,
+            expected_output_recipients,
+            new_pool_states: pool_states,
+            note_execution_results,
+        })
+    }
+
+    async fn prepare_execution_batch(
+        &mut self,
+        notes: Vec<TrustedNote>,
+        prices: HashMap<AccountId, PriceData>,
+    ) -> Result<BatchExecutionDetails> {
+        let mut valid_notes = notes;
+        // simulate until all notes go thru
+        // must do it this way because of the sequential nature of updates to the account and pool states
+        loop {
+            // TODO: Are prices still fresh here?
+            let batch_execution_details = self
+                .prepare_execution_details(valid_notes.clone(), prices.clone())
+                .await?;
+            let note_screener = self.miden_client.client().note_screener();
+            let raw_notes: Vec<Note> = valid_notes.iter().map(|n| n.note().clone()).collect();
+            let NoteConsumptionInfo { successful, failed } = note_screener
+                .check_notes_consumability(*self.miden_account.id(), raw_notes)
+                .await?;
+            if !failed.is_empty() {
+                let failed_ids = failed.iter().map(|n| n.note.id());
+                let ids_string = failed_ids
+                    .clone()
+                    .map(|id| id.to_hex())
+                    .collect::<Vec<String>>()
+                    .join(", ");
+                valid_notes.retain(|n| successful.contains(n.note()));
+                warn!(
+                    "{} notes cant be consumed. Failed note ids: {}",
+                    failed_ids.len(),
+                    ids_string
                 );
-            })?;
-        info!(len_notes = len_input_notes, time_elapsed= ?start.elapsed(), "Executed notes");
-        MidenClient::print_transaction_info(&tx_id);
-        self.miden_client.sync_state().await?;
-        self.pool_states = pool_states;
-        self.print_pool_states();
-        Ok(results)
+            } else {
+                return Ok(batch_execution_details);
+            }
+        }
     }
 }
 
