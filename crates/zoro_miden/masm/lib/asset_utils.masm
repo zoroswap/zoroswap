@@ -4,28 +4,37 @@ use miden::core::sys
 #! Inputs: [ASSET] = [asset_account_prefix, asset_account_suffix, callback_enabled, amount]
 #! Outputs: [ASSET_KEY, ASSET_VALUE]
 pub proc expand_asset(asset: word)
-    #debug.stack.2
-    # => [asset_account_prefix, asset_account_suffix, callback_enabled, amount]
     swap
-    # => [suffix, prefix, callback_enabled, amount]
+    # => [suffix, prefix, cb_on, amount]
     movup.2
-    # => [callback_on, suffix, prefix, amount]
-    #debug.stack.3
+    # => [cb_on, suffix, prefix, amount]
     exec.asset::create_fungible_asset
-    #debug.stack.4
     # => [ASSET_KEY, ASSET_VALUE]
     exec.sys::truncate_stack
 end
 
 #! Inputs: [ASSET_KEY, ASSET_VALUE]
 #! Outputs: [ASSET] = [id_prefix, id_suffix, callback_enabled, amount]
+@locals(2)
 pub proc compress_asset(asset_key: word, asset_value: word) -> (word)
-    # => [id_suffix, id_prefix, id_prefix <<8, cb_on, amount, 0,0,0]
-    swap.2 drop
-    # => [id_prefix, id_suffix, cb_on, amount, 0,0,0]
-    swap ### todo: remove it when active_note::get_assets is fixed ie. the 
+    # loc.0: faucet_id_prefix
+    # loc.1: fauect_id_suffix
+    exec.asset::key_to_faucet_id
+    # => [fauect_id_suffix, faucet_id_prefix, ASSET_KEY, ASSET_VAL]
+    loc_store.1 loc_store.0
+    # => [ASSET_KEY, ASSET_VAL]
+    drop drop 
+    # => [faucet_id_suffix << 8 | cb_on, faucet_id_prefix, ASSET_VAL]
+    ### are callbacks enabled? true if 
+    loc_load.1 
+    # => [fauect_id_suffix, faucet_id_suffix << 8 | cb_on, faucet_id_prefix, ASSET_VAL]
+    neq
+    # => [cb_on, faucet_id_prefix, ASSET_VAL]
+    loc_load.1 
+    # => [fauect_id_suffix, cb_on, faucet_id_prefix, ASSET_VAL]
+    movup.2
+    # => [faucet_id_prefix, fauect_id_suffix, cb_on, value, 0, 0, 0]
+   
     movup.4 drop movup.4 drop movup.4 drop
-
-    #exec.sys::truncate_stack
 end
 

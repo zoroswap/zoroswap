@@ -74,7 +74,6 @@ const BETA_INDEX = 0x0001
 #!
 #! TODO: compare reserve with slippage with actual asset balances
 pub proc set_pool_state
-    debug.stack.12
     dupw
     movdnw.2
     # =>[ASSET, liabilities, reserve, reserve_with_slippage, 0,ASSET]
@@ -237,17 +236,16 @@ end
 #!   the total amount would be greater than 2^63.
 #!
 #! Invocation: call
+@locals(4)
 pub proc receive_asset
-    debug.stack.8
-    exec.expand_asset
-    debug.stack.8
+    loc_storew_be.0 exec.expand_asset
     # => [ASSET_KEY, ASSET_VALUE,  reserve_with_slippage, liabilities, 0, pad(8)]
     exec.native_account::add_asset
-    debug.stack.8
-    # => [ASSET_KEY, ASSET_VALUE', reserve, reserve_with_slippage, liabilities, 0, pad(8)]
-    exec.compress_asset
-    debug.stack.8
+    #debug.stack.22
+    # => [ASSET_VALUE', reserve, reserve_with_slippage, liabilities, 0, pad(8)]
+    loc_loadw_be.0
     # => [ASSET, reserve, reserve_with_slippage, liabilities, 0, pad(8)]
+    #debug.stack.12
     procref.validate_and_update_state reversew mem_storew_be.DYNAMIC_PROC_ADDR dropw push.DYNAMIC_PROC_ADDR
     dynexec
     # => [pad(16)]
@@ -320,7 +318,6 @@ end
 #! Outputs: [share_amount]
 #!
 pub proc deposit
-    debug.stack.8
     mem_storew_be.DEPOSIT_ASSET_LOC
     exec.receive_asset
     padw mem_loadw_be.DEPOSIT_ASSET_LOC
@@ -337,21 +334,17 @@ pub proc deposit
     # => [KEY, SHARE_AMOUNT]
     push.USER_DEPOSITS_MAPPING_SLOT[0..2]
     # => [slot_id_prefix, slot_id_suffix, KEY, SHARE_AMOUNT]
-    #debug.stack.3
     exec.add_to_map_item
     # update total supply
     mem_load.LP_SHARES_AMOUNT_ADDR push.0.0.0
     padw mem_loadw_be.DEPOSIT_KEY_LOC
     # => [KEY, SHARE_AMOUNT]
-    #debug.stack.4
     exec.get_lp_shares_total_supply_key
     # => [TOTAL_SUPPLY_KEY, SHARE_AMOUNT]
     push.USER_DEPOSITS_MAPPING_SLOT[0..2]
     # => [slot_id_prefix, slot_id_suffix, KEY, SHARE_AMOUNT]
-    #debug.stack.5
     exec.add_to_map_item
     # => []
-    #debug.stack.6
 end
 
 #! Inputs:  [user_id_prefix, user_id_suffix, lp_withdraw_amount, 0, ASSET_OUT, noteid, 0,0,0, liabilities, reserve, reserve_with_slippage]
@@ -561,30 +554,6 @@ end
 proc address_from_asset
     swap.2 drop
     swap.2 drop
+    swap
 end
 
-##! Inputs: [ASSET] = [asset_account_prefix, asset_account_suffix, callback_enabled, amount]
-##! Outputs: [ASSET_KEY, ASSET_VALUE]
-#pub proc expand_asset(asset: word)
-#    #debug.stack.2
-#    # => [asset_account_prefix, asset_account_suffix, callback_enabled, amount]
-#    swap
-#    # => [suffix, prefix, callback_enabled, amount]
-#    movup.2
-#    # => [callback_on, suffix, prefix, amount]
-#    #debug.stack.3
-#    exec.asset::create_fungible_asset
-#    #debug.stack.4
-#    # => [ASSET_KEY, ASSET_VALUE]
-#    exec.sys::truncate_stack
-#end
-#
-##! Inputs: [ASSET_KEY, ASSET_VALUE]
-##! Outputs: [ASSET] = [id_prefix, id_suffix, callback_enabled, amount]
-#pub proc compress_asset(asset_key: word, asset_value: word) -> (word)
-#    # => [id_suffix, id_prefix, id_prefix <<8, cb_on, amount, 0,0,0]
-#    swap.2 drop
-#    # => [id_prefix, id_suffix, , cb_on, amount, 0,0,0]
-#
-#    exec.sys::truncate_stack
-#end
