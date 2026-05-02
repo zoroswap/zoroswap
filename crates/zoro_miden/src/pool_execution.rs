@@ -37,6 +37,7 @@ pub enum ExecutionResult {
     #[default]
     Failed,
     PastDeadline,
+    FailedConsuming,
 }
 
 impl PoolExecution {

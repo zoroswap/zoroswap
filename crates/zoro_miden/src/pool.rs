@@ -59,7 +59,6 @@ struct BatchExecutionDetails {
     expected_future_notes: Vec<(NoteDetails, NoteTag)>,
     expected_output_recipients: Vec<NoteRecipient>,
     new_pool_states: HashMap<AccountId, PoolState>,
-    note_execution_results: Vec<(NoteId, ExecutionResult)>,
 }
 
 impl TryFrom<BatchExecutionDetails> for TransactionRequest {
@@ -362,10 +361,11 @@ impl ZoroPool {
         &mut self,
         notes: Vec<TrustedNote>,
         prices: HashMap<AccountId, PriceData>,
-    ) -> Result<Vec<(NoteId, ExecutionResult)>> {
+    ) -> Result<HashMap<NoteId, ExecutionResult>> {
         info!("Executing {} notes on the zoro pool", notes.len());
         self.miden_client.sync_state().await?;
-        let batch_execution_details = self.prepare_execution_batch(notes, prices).await?;
+        let (note_execution_results, batch_execution_details) =
+            self.prepare_execution_batch(notes, prices).await?;
         let start = Instant::now();
         let (len_input_notes, len_advice_map, len_future_notes, len_output_recipients) = (
             batch_execution_details.input_notes.len(),
@@ -374,7 +374,6 @@ impl ZoroPool {
             batch_execution_details.expected_output_recipients.len(),
         );
         let new_pool_states = batch_execution_details.new_pool_states.clone();
-        let note_execution_results_clone = batch_execution_details.note_execution_results.clone();
         let tx_id = self
             .miden_client
             .client_mut()
@@ -400,21 +399,21 @@ impl ZoroPool {
         self.miden_client.sync_state().await?;
         self.pool_states = new_pool_states;
         self.print_pool_states();
-        Ok(note_execution_results_clone)
+        Ok(note_execution_results)
     }
 
     async fn prepare_execution_details(
         &mut self,
         notes: Vec<TrustedNote>,
         prices: HashMap<AccountId, PriceData>,
-    ) -> Result<BatchExecutionDetails> {
+    ) -> Result<(HashMap<NoteId, ExecutionResult>, BatchExecutionDetails)> {
         let mut advice_map = AdviceMap::default();
         let mut input_notes = Vec::with_capacity(notes.len());
         let mut expected_future_notes = Vec::with_capacity(notes.len());
         let mut expected_output_recipients = Vec::with_capacity(notes.len());
         let mut pool_states = self.pool_states.clone();
-        let mut note_execution_results: Vec<(NoteId, ExecutionResult)> =
-            Vec::with_capacity(notes.len());
+        let mut note_execution_results: HashMap<NoteId, ExecutionResult> =
+            HashMap::with_capacity(notes.len());
         for note in notes {
             let note_id = note.note().id();
             let execution_details = PoolExecution::new(note, &pool_states, &prices)?;
@@ -459,38 +458,45 @@ impl ZoroPool {
                 pool_states = new_pool_states
             };
 
-            note_execution_results.push((note_id, result));
+            note_execution_results.insert(note_id, result);
         }
 
-        Ok(BatchExecutionDetails {
-            advice_map,
-            input_notes,
-            expected_future_notes,
-            expected_output_recipients,
-            new_pool_states: pool_states,
+        Ok((
             note_execution_results,
-        })
+            BatchExecutionDetails {
+                advice_map,
+                input_notes,
+                expected_future_notes,
+                expected_output_recipients,
+                new_pool_states: pool_states,
+            },
+        ))
     }
 
     async fn prepare_execution_batch(
         &mut self,
         notes: Vec<TrustedNote>,
         prices: HashMap<AccountId, PriceData>,
-    ) -> Result<BatchExecutionDetails> {
+    ) -> Result<(HashMap<NoteId, ExecutionResult>, BatchExecutionDetails)> {
+        let mut note_results = HashMap::with_capacity(notes.len());
         let mut valid_notes = notes;
         // simulate until all notes go thru
         // must do it this way because of the sequential nature of updates to the account and pool states
         loop {
             // TODO: Are prices still fresh here?
-            let batch_execution_details = self
+            let (note_execution_details, batch_execution_details) = self
                 .prepare_execution_details(valid_notes.clone(), prices.clone())
                 .await?;
+            note_results.extend(note_execution_details);
             let note_screener = self.miden_client.client().note_screener();
             let raw_notes: Vec<Note> = valid_notes.iter().map(|n| n.note().clone()).collect();
             let NoteConsumptionInfo { successful, failed } = note_screener
                 .check_notes_consumability(*self.miden_account.id(), raw_notes)
                 .await?;
             if !failed.is_empty() {
+                for n in &failed {
+                    note_results.insert(n.note.id(), ExecutionResult::FailedConsuming);
+                }
                 let failed_ids = failed.iter().map(|n| n.note.id());
                 let ids_string = failed_ids
                     .clone()
@@ -504,7 +510,7 @@ impl ZoroPool {
                     ids_string
                 );
             } else {
-                return Ok(batch_execution_details);
+                return Ok((note_results, batch_execution_details));
             }
         }
     }
