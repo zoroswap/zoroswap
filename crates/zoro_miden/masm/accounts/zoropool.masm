@@ -549,7 +549,7 @@ end
 #! Returns ASSET ADDRESS
 #!
 #! Inputs: [ASSET]
-#! Outputs: [asset_accout_prefix, asset_account_suffix]
+#! Outputs: [asset_account_suffix, asset_accout_prefix]
 #!
 proc address_from_asset
     swap.2 drop

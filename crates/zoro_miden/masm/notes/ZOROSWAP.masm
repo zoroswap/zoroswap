@@ -31,6 +31,13 @@ const PUBLIC_NOTE=1
 # next 4  WORDS reserved for arguments
 # ====================================================
 
+### MEMORY LOCATIONS
+const SCRATCH_SPACE = 0
+
+const OUTPUT_NOTE_INPUTS_START = SCRATCH_SPACE
+const OUTPUT_NOTE_INPUTS_1 = OUTPUT_NOTE_INPUTS_START + 1
+
+
 const STORAGE_POINTER = 0x0010            # 16
 
 
@@ -185,42 +192,6 @@ proc store_args_to_memory
 end
 
 
-#! Returns the P2ID RECIPIENT for a specified SERIAL_NUM, SCRIPT_HASH, and account_id
-#!
-#! Inputs: [SERIAL_NUM, SCRIPT_HASH]
-#! Outputs: [P2ID_RECIPIENT]
-#!
-proc build_p2id_recipient_hash
-
-    padw hmerge
-    # => [SERIAL_NUM_HASH, SCRIPT_HASH]
-    swapw hmerge
-    # => [SERIAL_SCRIPT_HASH]
-
-    # Compute inputs commitment: hash_elements([suffix, prefix])
-    # Must match build_p2id_recipient() from miden_standards which internally
-    # computes NoteInputs::new(vec![suffix, prefix]).commitment() via
-    # Rpo256::hash_elements(&[suffix, prefix])
-    #
-    # mem_storew_le stores in little-endian: stack[0]→pos0, stack[1]→pos1, etc.
-    # hash_elements (via mem_stream) reads pos0 first → rate[0], pos1 → rate[1]
-    # So we need suffix on top (it goes to pos0) and prefix below (pos1)
-    # padw
-    push.0.0
-
-    mem_load.P2ID_TARGET_ID_PREFIX mem_load.P2ID_TARGET_ID_SUFFIX
-
-    push.4000 mem_storew_le dropw
-    # => mem[4000] pos0=suffix, pos1=prefix (LE), stack=[SERIAL_SCRIPT_HASH]
-
-    push.2.4000
-    # => [ptr=4000, num_elements=2, SERIAL_SCRIPT_HASH]
-    exec.poseidon2::hash_elements
-    # => [INPUTS_COMMITMENT, SERIAL_SCRIPT_HASH]
-    hmerge
-    # => [P2ID_RECIPIENT]
-end
-
 # input: [SERIAL_NUM,...]
 # ouput: [P2ID_SERIAL_NUM, ...]
 proc get_p2id_serial_num
@@ -239,13 +210,19 @@ proc create_p2id_reverse_note
     padw mem_loadw_be.P2ID_SCRIPT_ROOT_WORD
     # => [P2ID_SCRIPT_HASH, pad(8)]
     exec.active_note::get_serial_number
-    # => [P2ID_SERIAL_NUM, , P2ID_SCRIPT_HASH, pad(8)]
+    # => [THIS_SERIAL_NUM, P2ID_SCRIPT_HASH, pad(8)]
     exec.get_p2id_serial_num
     debug.stack.4
     # => [P2ID_SERIAL_NUM, P2ID_SCRIPT_HASH, pad(8)]
-    exec.build_p2id_recipient_hash
+    ## store note storage into memory and push pointer and size
+    mem_load.P2ID_TARGET_ID_SUFFIX mem_store.OUTPUT_NOTE_INPUTS_START
+    mem_load.P2ID_TARGET_ID_PREFIX mem_store.OUTPUT_NOTE_INPUTS_1
+    push.2.OUTPUT_NOTE_INPUTS_START
+    ## => [inputs_ptr, number_of_inputs, P2ID_SERIAL_NUM, P2ID_SCRIPT_HASH]
+    exec.note::build_recipient
     # => [P2ID_RECIPIENT, pad(8)]
-    debug.stack.4
+    
+    debug.stack.4   
 
     push.PUBLIC_NOTE
     # => [note_type, P2ID_RECIPIENT, pad(8)]
@@ -256,11 +233,7 @@ proc create_p2id_reverse_note
 end
 
 proc store_p2id_script_hash
-    # P2ID script root from miden-standards v0.13 WellKnownNote::P2ID.script_root()
-    #push.13362761878458161062.15090726097241769395.444910447169617901.3558201871398422326
-    # P2ID script root from miden-standards v0.14 StandardNote::P2ID.script_root()
-    push.17479343943140556328.4201800931930002347.9159872301314598941.3672480923625915098
-    #push.3672480923625915098.9159872301314598941.4201800931930002347.17479343943140556328
+    push.3672480923625915098.9159872301314598941.4201800931930002347.17479343943140556328
     
     mem_storew_be.P2ID_SCRIPT_ROOT_WORD dropw
 end
