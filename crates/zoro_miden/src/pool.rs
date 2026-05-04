@@ -130,10 +130,10 @@ impl ZoroPool {
                 Felt::new(0),
             ]));
             let asset_id = StorageMapKey::new(Word::from([
-                Felt::new(0),
-                Felt::new(0),
                 pool.faucet_id.suffix(),
                 pool.faucet_id.prefix().as_felt(),
+                Felt::new(0),
+                Felt::new(0),
             ]));
             assets_mapping
                 .insert(asset_index, Word::from(asset_id))
@@ -257,6 +257,7 @@ impl ZoroPool {
         for pool in self.liquidity_pools.iter() {
             let (settings, balances, lp_total_supply) =
                 Self::extract_liqudity_pool_state_from_account(&acc, pool.faucet_id).await?;
+            println!("pool {settings:?}, {balances:?}, {lp_total_supply:?}");
             let pool_state = PoolState::new(
                 settings,
                 balances,
@@ -279,10 +280,10 @@ impl ZoroPool {
         let lp_supply_slot =
             StorageSlotName::new("zoroswap::user_deposits").expect("valid slot name");
         let asset_address: Word = [
-            Felt::new(0),
-            Felt::new(0),
             faucet_id.suffix(),
             faucet_id.prefix().as_felt(),
+            Felt::new(0),
+            Felt::new(0),
         ]
         .into();
 
