@@ -182,6 +182,7 @@ impl PoolExecution {
                         instructions.asset_in,
                         Some(note.serial_number()),
                     )?;
+
                     pool_state_base.update_balances(new_base_pool_balances);
                     pool_state_quote.update_balances(new_quote_pool_balances);
                     new_pool_states.insert(instructions.asset_in.faucet_id(), pool_state_base);
@@ -211,6 +212,12 @@ impl PoolExecution {
                         Some(instructions.creator),
                     )
                 };
+
+                info!(
+                    "P2ID: srial {:?} recipient {:?}",
+                    p2id.note().serial_num(),
+                    p2id.note().recipient().digest()
+                );
 
                 let advice_map_value = vec![
                     Felt::new(

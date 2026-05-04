@@ -9,8 +9,8 @@ pub fn asset_to_word(asset: FungibleAsset) -> Word {
     let value = asset.to_value_word();
     let callbacks = asset.callbacks();
     [
-        faucet_id.prefix().as_felt(),
         Felt::new(faucet_id.suffix().as_canonical_u64()),
+        faucet_id.prefix().as_felt(),
         callbacks.as_u8().into(),
         value[0],
     ]
@@ -19,7 +19,7 @@ pub fn asset_to_word(asset: FungibleAsset) -> Word {
 
 pub fn word_to_asset(word: Word) -> Result<FungibleAsset> {
     let asset = FungibleAsset::from_key_value_words(
-        [Felt::ZERO, Felt::ZERO, word[1].add(word[2]), word[0]].into(),
+        [Felt::ZERO, Felt::ZERO, word[0].add(word[2]), word[1]].into(),
         [word[3], Felt::ZERO, Felt::ZERO, Felt::ZERO].into(),
     )?;
     if word[2].as_canonical_u64().ne(&0) {

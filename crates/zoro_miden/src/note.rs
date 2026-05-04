@@ -75,11 +75,17 @@ impl TrustedNote {
         let serial_number = if let Some(serial_num) = note_elements.referential_serial_number {
             // when returnin p2ids for zoro notes
             let p2id_serial_num: Word = [
-                serial_num[0],
+                serial_num[0] + Felt::new(1),
                 serial_num[1],
                 serial_num[2],
-                serial_num[3] + Felt::new(1),
+                serial_num[3],
             ]
+            // let p2id_serial_num: Word = [
+            //     serial_num[3],
+            //     serial_num[2],
+            //     serial_num[1],
+            //     serial_num[0] + Felt::new(1),
+            // ]
             .into();
             Ok(p2id_serial_num)
         } else {
