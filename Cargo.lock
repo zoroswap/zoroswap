@@ -8220,6 +8220,7 @@ dependencies = [
  "miden-protocol",
  "miden-standards",
  "miden-tx",
+ "num-traits",
  "rand 0.9.4",
  "serde",
  "tokio",

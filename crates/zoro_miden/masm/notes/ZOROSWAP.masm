@@ -44,7 +44,7 @@ const STORAGE_POINTER = 0x0010            # 16
 
 const INPUTS_WORD_0 = STORAGE_POINTER        # [REQUESTED_ASSET_WORD]
 const INPUTS_WORD_1 = STORAGE_POINTER + 4    # [deadline, p2id_tag, empty, empty]
-const INPUTS_WORD_2 = STORAGE_POINTER + 8    # [CREATOR_ID_WORD] = [empty, empty, creator_id_suffix, creator_id_prefix]
+const INPUTS_WORD_2 = STORAGE_POINTER + 8    # [CREATOR_ID_WORD] = [beneficiary_id_suffix, beneficiary_id_prefix, creator_id_suffix, creator_id_prefix]
 const INPUTS_WORD_3 = STORAGE_POINTER + 12   # [EMPTY]
 const INPUTS_WORD_4 = STORAGE_POINTER + 16   # [EMPTY]
 const INPUTS_WORD_5 = STORAGE_POINTER + 20   # [EMPTY]
@@ -71,10 +71,10 @@ const INPUTS_EMPTY_WORD_0 = INPUTS_WORD_3
 
 # ZOROSWAP Note Inputs (16 to 28)
 # [min_amount_out, empty, out_asset_id_suffix, out_asset_id_prefix]
-const MIN_AMOUNT_OUT = REQUESTED_ASSET_WORD  # 0x0010
-const OUT_TOKEN_EMPTY_FELT = REQUESTED_ASSET_WORD + 1
-const OUT_TOKEN_ID_SUFFIX = REQUESTED_ASSET_WORD + 2
-const OUT_TOKEN_ID_PREFIX = REQUESTED_ASSET_WORD + 3  # 0x0013
+const OUT_TOKEN_ID_SUFFIX = REQUESTED_ASSET_WORD  # 0x0010
+const OUT_TOKEN_ID_PREFIX = REQUESTED_ASSET_WORD + 1
+const OUT_TOKEN_CB_ON = REQUESTED_ASSET_WORD + 2
+const MIN_AMOUNT_OUT = REQUESTED_ASSET_WORD + 3  # 0x0013
 
 # [deadline, p2id_tag, empty, empty]
 const DEADLINE = INPUTS_WORD_1  # 0x0014
@@ -174,7 +174,6 @@ proc store_to_memory
     push.STORAGE_POINTER exec.active_note::get_storage
     # => [num_inputs, inputs_ptr]
     # make sure the number of inputs is N
-    #debug.mem.STORAGE_POINTER.28
     eq.NUMBER_OF_STORAGE_ELEMENTS assert.err=ERR_ZOROSWAP_WRONG_NUMBER_OF_STORAGE_ELEMENTS
     # => [inputs_ptr]
     drop
@@ -188,6 +187,7 @@ proc store_args_to_memory
     swap.3 drop push.ARGS_POINTER   # => 999 = mem address
     padw padw padw
     adv_pipe
+
     dropw swapw dropw swapw dropw
 end
 
@@ -212,7 +212,6 @@ proc create_p2id_reverse_note
     exec.active_note::get_serial_number
     # => [THIS_SERIAL_NUM, P2ID_SCRIPT_HASH, pad(8)]
     exec.get_p2id_serial_num
-    debug.stack.4
     # => [P2ID_SERIAL_NUM, P2ID_SCRIPT_HASH, pad(8)]
     ## store note storage into memory and push pointer and size
     mem_load.P2ID_TARGET_ID_SUFFIX mem_store.OUTPUT_NOTE_INPUTS_START
@@ -222,8 +221,6 @@ proc create_p2id_reverse_note
     exec.note::build_recipient
     # => [P2ID_RECIPIENT, pad(8)]
     
-    debug.stack.4   
-
     push.PUBLIC_NOTE
     # => [note_type, P2ID_RECIPIENT, pad(8)]
     mem_load.P2ID_TAG
@@ -233,6 +230,7 @@ proc create_p2id_reverse_note
 end
 
 proc store_p2id_script_hash
+    # P2ID script root from miden-standards v0.14 StandardNote::P2ID.script_root()
     push.3672480923625915098.9159872301314598941.4201800931930002347.17479343943140556328
     
     mem_storew_be.P2ID_SCRIPT_ROOT_WORD dropw
@@ -259,19 +257,24 @@ proc execute_ZOROSWAP
         call.zoropool::bounce_asset
     else
         mem_load.IN_POOL_RESERVE_WITH_SLIPPAGE mem_load.IN_POOL_RESERVE mem_load.IN_POOL_LIABILITIES
-        push.0.0.0.0
-        mem_loadw_be.IN_ASSET_KEY
-        debug.stack.3
+        # => [in_pool_liabilities, in_pool_reserve, in_pool_reserve_with_slippage]
+        exec.get_compressed_asset_in
+        # => [ASSET_IN, in_pool_liabilities, in_pool_reserve, in_pool_reserve_with_slippage]
         call.zoropool::receive_asset
         mem_load.BENEFICIARY_ID_SUFFIX mem_store.P2ID_TARGET_ID_SUFFIX  
         mem_load.BENEFICIARY_ID_PREFIX mem_store.P2ID_TARGET_ID_PREFIX 
-        mem_load.AMOUNT_OUT push.0 mem_load.OUT_TOKEN_ID_SUFFIX mem_load.OUT_TOKEN_ID_PREFIX
+        #mem_load.AMOUNT_OUT push.0 mem_load.OUT_TOKEN_ID_SUFFIX mem_load.OUT_TOKEN_ID_PREFIX
         exec.create_p2id_reverse_note
+        # => [note_idx, pad(15)]
         padw mem_loadw_le.NEW_OUT_POOL_STATE_WORD # load new out pool state
-        swapw.2 swapw 
-        debug.stack.4
+        swapw 
+        # => [note_idx, 0, 0, 0, liabilities, reserve, reserve_with_slippage, 0]
+        padw mem_loadw_le.REQUESTED_ASSET_WORD
+        # => [REQUESTED_ASSET, note_idx, 0, 0, 0, liabilities, reserve, reserve_with_slippage, 0]
+        mem_load.AMOUNT_OUT swap.4 drop
+        # => [ASSET_OUT, note_idx, 0, 0, 0, liabilities, reserve, reserve_with_slippage, 0]
+
         call.zoropool::move_asset_to_note
-        debug.stack.5
     end
 
 end

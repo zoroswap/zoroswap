@@ -1,3 +1,4 @@
+use num_traits::pow::Pow;
 use std::collections::HashMap;
 
 use anyhow::Result;
@@ -75,10 +76,16 @@ async fn executing_swap() -> Result<()> {
     let mut prices: HashMap<AccountId, PriceData> = HashMap::with_capacity(2);
     prices.insert(pool_config_token0.faucet_id, PriceData::new_at_now(1));
     prices.insert(pool_config_token1.faucet_id, PriceData::new_at_now(1));
+
+    let decmials_scaling_factor =
+        10_f64.pow(pool_config_token1.decimals as f32 - pool_config_token0.decimals as f32);
     let note = TrustedNote::new(
         NoteInstructions::Swap(SwapInstructions {
             asset_in: FungibleAsset::new(pool_config_token0.faucet_id, amount)?,
-            min_asset_out: FungibleAsset::new(pool_config_token1.faucet_id, amount / 2)?,
+            min_asset_out: FungibleAsset::new(
+                pool_config_token1.faucet_id,
+                (amount as f64 * decmials_scaling_factor) as u64 / 2,
+            )?,
             creator: *user.miden_account.id(),
             beneficiary: None,
             note_type: miden_client::note::NoteType::Public,

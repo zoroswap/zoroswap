@@ -122,10 +122,10 @@ proc store_inputs_to_memory
 
 end
 proc store_args_to_memory
-    mem_store.LIABILITIES
-    mem_store.RESERVE
-    mem_store.RESERVE_WITH_SLIPPAGE
     mem_store.LP_AMOUNT_OUT
+    mem_store.RESERVE_WITH_SLIPPAGE
+    mem_store.RESERVE
+    mem_store.LIABILITIES
 end
 
 
@@ -210,8 +210,8 @@ proc create_p2id_reverse_note
 end
 
 proc store_p2id_script_hash
-    # P2ID script root from miden-standards v0.13 WellKnownNote::P2ID.script_root()
-    push.13362761878458161062.15090726097241769395.444910447169617901.3558201871398422326
+    # P2ID script root from miden-standards v0.14 StandardNote::P2ID.script_root()
+    push.3672480923625915098.9159872301314598941.4201800931930002347.17479343943140556328
     mem_storew_be.P2ID_SCRIPT_ROOT_WORD dropw
 end
 
@@ -226,15 +226,13 @@ proc execute_DEPOSIT
         call.zoropool::bounce_asset
     else
         mem_load.LP_AMOUNT_OUT mem_load.DEPOSIT_CREATOR_ID_SUFFIX mem_load.DEPOSIT_CREATOR_ID_PREFIX
-        # => [creator_id_prefix, creator_id_suffix]
+        # => [creator_id_prefix, creator_id_suffix, lp_amount_out]
         push.0 mem_load.RESERVE_WITH_SLIPPAGE mem_load.RESERVE mem_load.LIABILITIES 
-         # => [liabilities,reserve, reserve_with_slippage, 0, creator_id_prefix, creator_id_suffix]
+         # => [liabilities,reserve, reserve_with_slippage, 0, creator_id_prefix, creator_id_suffix, lp_amount_out]
         padw push.DEPOSIT_ASSET_KEY add.4 mem_loadw_le
-        push.0.0.0.0
-        mem_loadw_le.DEPOSIT_ASSET_KEY
+        padw mem_loadw_le.DEPOSIT_ASSET_KEY
         exec.asset_utils::compress_asset
-        #exec.compress_asset
-        # => [ASSET, liabilities,reserve, reserve_with_slippage, 0, creator_id_prefix, creator_id_suffix]
+        # => [ASSET, liabilities,reserve, reserve_with_slippage, 0, creator_id_prefix, creator_id_suffix, lp_amount_out]
         call.zoropool::deposit
     end
 

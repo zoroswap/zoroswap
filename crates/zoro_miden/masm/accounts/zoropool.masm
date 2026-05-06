@@ -2,6 +2,7 @@ use miden::protocol::active_account
 use miden::protocol::native_account
 use miden::protocol::output_note
 use miden::protocol::asset
+use miden::protocol::account_id
 use miden::core::sys
 
 use zoro_miden::lib::asset_utils::compress_asset
@@ -31,7 +32,7 @@ const WITHDRAW_KEY_LOC = 0x00A4
 const BOUNCE_ASSET_LOC = 0x00A8
 
 const LP_SHARES_LOC = 0x00AC
-const LP_SHARES_AMOUNT_ADDR = LP_SHARES_LOC + 3
+const LP_SHARES_AMOUNT_ADDR = LP_SHARES_LOC
 
 const HELPER_SLOT_ID_PREFIX_LOC = 0x00B0
 const HELPER_SLOT_ID_SUFFIX_LOC = 0x00B1
@@ -73,10 +74,11 @@ const BETA_INDEX = 0x0001
 #! Outputs: []
 #!
 #! TODO: compare reserve with slippage with actual asset balances
+@locals(4)
 pub proc set_pool_state
-    dupw
-    movdnw.2
-    # =>[ASSET, liabilities, reserve, reserve_with_slippage, 0,ASSET]
+    # loc.0-3: ASSET
+    loc_storew_be.0
+    # =>[ASSET, liabilities, reserve, reserve_with_slippage, 0]
 
     # ensure reserve never > reserve_with_slippage
     dup.5
@@ -86,10 +88,10 @@ pub proc set_pool_state
     lte assert.err=ERR_RESERVE_EXCEEDS_RESERVE_WITH_SLIPPAGE
     ## => [ASSET, liabilities, reserve, reserve_with_slippage, 0, ASSET]
 
-    # ensure reserves < max_coverage_ratio * liabilities
+    # ensure reserves <= max_coverage_ratio * liabilities
     dup.6 dup.5 mul.MAX_COVERAGE_RATIO
     # => [liablities * max_coverage_ratio, reserve_with_slippage, ASSET, liabilities, reserve, reserve_with_slippage, 0, ASSET]
-    lt assert.err=ERR_MAX_COVERAGE_RATIO_EXCEEDED
+    lte assert.err=ERR_MAX_COVERAGE_RATIO_EXCEEDED
     ## => [ASSET, liabilities, reserve, reserve_with_slippage, 0, ASSET]
 
     # => [ASSET, liabilities, reserve, reserve_with_slippage, 0, ASSET]
@@ -103,7 +105,8 @@ pub proc set_pool_state
     lte assert.err=ERR_RESERVE_WITH_SLIPPAGE_EXCEEDS_ASSET_BALANCE
     # => [liabilities, reserve, reserve_with_slippage, 0, ASSET]
     # => [ POOL_STATE, ASSET]
-    swapw
+    #swapw
+    padw loc_loadw_be.0
     # => [ ASSET, POOL_STATE]
     #reversew drop drop push.0.0
     exec.address_word_from_asset
@@ -272,19 +275,24 @@ end
 #! - adding a fungible asset would result in amount overflow, i.e.,
 #!   the total amount would be greater than 2^63.
 #!
+@locals(4)
 pub proc move_asset_to_note
+    ## loc.0: ASEET_OUT
+    loc_storew_be.0 
+    exec.expand_asset
+    # => [ASSET_OUT_KEY, ASSET_OUT_VALUE, note_idx, 0,0,0, liabilities, reserve, reserve_with_slippage, 0, pad(4)]
     exec.native_account::remove_asset
-    # => [ASSET, note_idx, 0,0,0, liabilities, reserve, reserve_with_slippage, 0, pad(4)]
-
-    dupw dup.8 movdn.4
-    # => [ASSET, note_idx, ASSET, note_idx,0,0,0, liabilities, reserve, reserve_with_slippage, 0, pad(4)]
-
+    # => [ASSET_OUT_VALUE, note_idx, 0,0,0, liabilities, reserve, reserve_with_slippage, 0, pad(4)]
+    loc_loadw_be.0 exec.expand_asset
+    # => [ASSET_OUT_KEY, ASSET_OUT_VALUE, note_idx, 0,0,0, liabilities, reserve, reserve_with_slippage, 0, pad(4)]
+   
     exec.output_note::add_asset
+    # => [0,0,0, liabilities, reserve, reserve_with_slippage, 0, pad(4)]
 
-    # => [ASSET, note_idx, 0,0,0, liabilities, reserve, reserve_with_slippage, 0, pad(4)]
-
-    swapw.1 dropw
-
+    #swapw.1 dropw
+    ### todo: padw later after note_idx is passed as felt not a word
+    push.0 loc_loadw_be.0
+    # => [ ASSET_OUT, liabilities, reserve, reserve_with_slippage, 0]
     exec.set_pool_state
 end
 
@@ -328,7 +336,7 @@ pub proc deposit
     movup.4
     # => [lp_amount_out, KEY]
     dup mem_store.LP_SHARES_AMOUNT_ADDR
-    push.0.0.0
+    push.0.0.0 swap.3
     # => [SHARE_AMOUNT, KEY]
     swapw
     # => [KEY, SHARE_AMOUNT]
@@ -336,7 +344,7 @@ pub proc deposit
     # => [slot_id_prefix, slot_id_suffix, KEY, SHARE_AMOUNT]
     exec.add_to_map_item
     # update total supply
-    mem_load.LP_SHARES_AMOUNT_ADDR push.0.0.0
+    push.0.0.0 mem_load.LP_SHARES_AMOUNT_ADDR 
     padw mem_loadw_be.DEPOSIT_KEY_LOC
     # => [KEY, SHARE_AMOUNT]
     exec.get_lp_shares_total_supply_key
@@ -478,7 +486,7 @@ proc get_user_deposit
     # => [KEY]
     push.USER_DEPOSITS_MAPPING_SLOT[0..2]
     exec.active_account::get_map_item
-    drop drop drop
+    swap.3 drop drop drop
     # => [share_amount]
 end
 
@@ -539,7 +547,7 @@ end
 #! Returns ASSET ADDRESS followd by two 0 felts
 #!
 #! Inputs: [ASSET]
-#! Outputs: [asset_accout_prefix, asset_account_suffix, 0, 0]
+#! Outputs: [asset_account_suffix, asset_account_prefix, 0, 0]
 #!
 proc address_word_from_asset
     push.0 swap.3 drop

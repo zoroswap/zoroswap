@@ -292,9 +292,9 @@ impl ZoroPool {
         let pool_fees = storage.get_map_item(&fees_slot, asset_address)?;
 
         let balances = PoolBalances {
-            reserve_with_slippage: U256::from(pool_balances_raw[1].as_canonical_u64()),
-            reserve: U256::from(pool_balances_raw[2].as_canonical_u64()),
-            total_liabilities: U256::from(pool_balances_raw[3].as_canonical_u64()),
+            total_liabilities: U256::from(pool_balances_raw[0].as_canonical_u64()),
+            reserve: U256::from(pool_balances_raw[1].as_canonical_u64()),
+            reserve_with_slippage: U256::from(pool_balances_raw[2].as_canonical_u64()),
         };
         let settings = PoolSettings {
             beta: I256::from_str(&pool_curve[0].as_canonical_u64().to_string())?,

@@ -207,14 +207,16 @@ impl PoolExecution {
                     };
                     (
                         p2id,
-                        instructions.asset_in.amount(),
+                        0, //instructions.asset_in.amount(),
                         result,
                         Some(instructions.creator),
                     )
                 };
 
+                info!(" swap execution result: {:?}", result);
+
                 info!(
-                    "P2ID: srial {:?} recipient {:?}",
+                    "P2ID: serial {:?} recipient {:?}",
                     p2id.note().serial_num(),
                     p2id.note().recipient().digest()
                 );
@@ -249,7 +251,6 @@ impl PoolExecution {
                     ),
                     Felt::new(0),
                 ];
-
                 Ok(PoolExecution {
                     advice_map_value: Some((note.serial_number(), advice_map_value)),
                     input_note: Some((note.note().clone(), None)),
