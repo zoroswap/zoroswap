@@ -110,7 +110,7 @@ impl TrustedNote {
         let code_builder = link_all_libraries(code_builder.clone())?;
         code_builder
             .compile_note_script(note_code)
-            .map_err(|e| anyhow!("Failed to compile note script: {:?}", e))
+            .map_err(|e| anyhow!("Failed to compile note script: {}", e))
     }
 
     fn new_zoro_note(
@@ -681,10 +681,10 @@ impl TrustedNoteElements {
             min_asset_out[1],
             min_asset_out[2],
             min_asset_out[3],
-            Felt::new(0),
             Felt::new(instructions.lp_amount_in),
             Felt::new(instructions.deadline),
             instructions.p2id_tag.into(),
+            Felt::new(0),
             Felt::new(0),
             Felt::new(0),
             instructions.creator.suffix(),
