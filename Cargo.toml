@@ -20,7 +20,43 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 incremental = true
 codegen-units = 16
 
+[profile.dev.package.miden-agglayer]
+opt-level = 3
+debug-assertions = false
+
+[profile.dev.package.miden-block-prover]
+opt-level = 3
+debug-assertions = false
+
 [profile.dev.package.miden-client]
+opt-level = 3
+debug-assertions = false
+
+[profile.dev.package.miden-client-sqlite-store]
+opt-level = 3
+debug-assertions = false
+
+[profile.dev.package.miden-debug]
+opt-level = 3
+debug-assertions = false
+
+[profile.dev.package.miden-remote-prover-client]
+opt-level = 3
+debug-assertions = false
+
+[profile.dev.package.miden-standards]
+opt-level = 3
+debug-assertions = false
+
+[profile.dev.package.miden-testing]
+opt-level = 3
+debug-assertions = false
+
+[profile.dev.package.miden-tx]
+opt-level = 3
+debug-assertions = false
+
+[profile.dev.package.miden-tx-batch-prover]
 opt-level = 3
 debug-assertions = false
 

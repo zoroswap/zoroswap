@@ -478,9 +478,9 @@ impl TryFrom<TrustedNote> for NoteInstructions {
             NoteKind::Withdraw => {
                 let vals = note.note().storage().items();
                 let min_asset_out = word_to_asset(Word::new(vals[..4].try_into()?))?;
-                let lp_withdraw_amount: u64 = vals[5].as_canonical_u64();
-                let deadline: u64 = vals[6].as_canonical_u64();
-                let p2id_tag: u64 = vals[7].as_canonical_u64();
+                let lp_withdraw_amount: u64 = vals[4].as_canonical_u64();
+                let deadline: u64 = vals[5].as_canonical_u64();
+                let p2id_tag: u64 = vals[6].as_canonical_u64();
                 let creator_suffix = vals[10];
                 let creator_prefix = vals[11];
                 let creator = AccountId::try_from_elements(creator_suffix, creator_prefix)
