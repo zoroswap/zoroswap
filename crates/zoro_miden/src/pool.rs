@@ -429,11 +429,9 @@ impl ZoroPool {
             .expected_output_recipients(expected_output_recipients)
             .build()
             .map_err(|e| anyhow::anyhow!("Failed to build batch transaction request: {}", e))?;
-        let tx_id = self
-            .miden_client
-            .client_mut()
-            .submit_new_transaction(*self.miden_account.id(), consume_req)
-            // .execute_transaction(*self.miden_account.id(), consume_req)
+        let mut client = self.miden_client.client_mut();
+        let tx_res = client
+            .execute_transaction(*self.miden_account.id(), consume_req)
             .await
             .map_err(|e| {
                 error!(
@@ -448,8 +446,15 @@ impl ZoroPool {
                 );
                 e
             })?;
+        let proven_tx = client.prove_transaction(&tx_res).await?;
+        let block_nr = client.submit_proven_transaction(proven_tx, &tx_res).await?;
+        client.apply_transaction(&tx_res, block_nr).await?;
         info!(len_notes = len_input_notes, time_elapsed= ?start.elapsed(), "Executed notes");
-        MidenClient::print_transaction_info(&tx_id);
+        info!(
+            "tx_res.delta.storage: {:?}",
+            tx_res.account_delta().storage()
+        );
+        MidenClient::print_transaction_info(&tx_res.id());
         self.miden_client.sync_state().await?;
         self.pool_states = pool_states;
         self.print_pool_states();

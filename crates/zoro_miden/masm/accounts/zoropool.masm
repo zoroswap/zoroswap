@@ -244,11 +244,9 @@ pub proc receive_asset
     loc_storew_be.0 exec.expand_asset
     # => [ASSET_KEY, ASSET_VALUE,  reserve_with_slippage, liabilities, 0, pad(8)]
     exec.native_account::add_asset
-    #debug.stack.22
     # => [ASSET_VALUE', reserve, reserve_with_slippage, liabilities, 0, pad(8)]
     loc_loadw_be.0
     # => [ASSET, reserve, reserve_with_slippage, liabilities, 0, pad(8)]
-    #debug.stack.12
     procref.validate_and_update_state reversew mem_storew_be.DYNAMIC_PROC_ADDR dropw push.DYNAMIC_PROC_ADDR
     dynexec
     # => [pad(16)]
@@ -355,14 +353,14 @@ pub proc deposit
     # => []
 end
 
-#! Inputs:  [user_id_prefix, user_id_suffix, lp_withdraw_amount, 0, ASSET_OUT, noteid, 0,0,0, liabilities, reserve, reserve_with_slippage]
+#! Inputs:  [user_id_suffix, user_id_prefix, lp_withdraw_amount, 0, ASSET_OUT, noteid, 0,0,0, liabilities, reserve, reserve_with_slippage]
 pub proc withdraw
     dupw
-    # => [user_id_prefix, user_id_suffix, lp_withdraw_amount, 0, user_id_prefix, user_id_suffix, lp_withdraw_amount, 0, ASSET_OUT, noteid, 0,0,0, liabilities, reserve, reserve_with_slippage, 0]
+    # => [user_id_suffix, user_id_prefix, lp_withdraw_amount, 0, user_id_suffix, user_id_prefix, lp_withdraw_amount, 0, ASSET_OUT, noteid, 0,0,0, liabilities, reserve, reserve_with_slippage, 0]
     dupw.2
-    # => [ASSET_OUT, user_id_prefix, user_id_suffix, lp_withdraw_amount, 0, user_id_prefix, user_id_suffix, lp_withdraw_amount, 0, ASSET_OUT, noteid, 0,0,0, liabilities, reserve, reserve_with_slippage, 0]
+    # => [ASSET_OUT, user_id_suffix, user_id_prefix, lp_withdraw_amount, 0, user_id_prefix, user_id_suffix, lp_withdraw_amount, 0, ASSET_OUT, noteid, 0,0,0, liabilities, reserve, reserve_with_slippage, 0]
     exec.get_user_deposit_key
-    # => [KEY, lp_withdraw_amount, 0, user_id_prefix, user_id_suffix, lp_withdraw_amount, 0, ASSET, noteid, 0,0,0, liabilities, reserve, reserve_with_slippage, 0 ]
+    # => [KEY, lp_withdraw_amount, 0,  user_id_suffix, user_id_prefix, lp_withdraw_amount, 0, ASSET, noteid, 0,0,0, liabilities, reserve, reserve_with_slippage, 0 ]
     mem_storew_be.WITHDRAW_KEY_LOC
     exec.get_user_deposit
     # => [user_lp_shares, lp_withdraw_amount, 0, user_id_prefix, user_id_suffix, lp_withdraw_amount, 0, ASSET, noteid, 0,0,0, liabilities, reserve, reserve_with_slippage, 0]
@@ -407,36 +405,37 @@ end
 #!
 #! Inputs: [slot_id_prefix, slot_id_suffix, KEY, VALUE]
 #! Outputs: []
+@locals(6)
 proc add_to_map_item
+    #loc.0: KEY
+    #loc.4: added_value
     # Save slot ID to memory
     mem_store.HELPER_SLOT_ID_PREFIX_LOC
     mem_store.HELPER_SLOT_ID_SUFFIX_LOC
     # => [KEY, VALUE]
-
-    # Duplicate KEY for second call
-    dupw
-    # => [KEY, KEY, VALUE]
-
+    loc_storew_be.0
+    # => [KEY,VALUE]
+    swapw loc_store.4 drop drop drop
+    # => [KEY]
     # Load slot ID and get current map value
     mem_load.HELPER_SLOT_ID_SUFFIX_LOC
     mem_load.HELPER_SLOT_ID_PREFIX_LOC
-    # => [slot_id_prefix, slot_id_suffix, KEY, KEY, VALUE]
-    exec.active_account::get_map_item drop drop drop
-    # => [old_amount, KEY, VALUE]
-
-    # Add new amount to old amount
-    movup.8 add
-    # => [new_amount, KEY, 0, 0, 0]
-    movdn.7
-    # => [KEY, 0, 0, 0, new_amount]
+    # => [slot_id_prefix, slot_id_suffix, KEY]
+    exec.active_account::get_map_item movdn.3 drop drop drop 
+    # => [old_amount]
+    loc_load.4 add 
+    # => [new_amount]
+    push.0.0.0 movup.3
+    # => [NEW_VALUE]
+    padw loc_loadw_be.0
     # => [KEY, NEW_VALUE]
-
     # Load slot ID and set map item
     mem_load.HELPER_SLOT_ID_SUFFIX_LOC
     mem_load.HELPER_SLOT_ID_PREFIX_LOC
     # => [slot_id_prefix, slot_id_suffix, KEY, NEW_VALUE]
     exec.native_account::set_map_item dropw
     # => []
+    exec.sys::truncate_stack
 end
 
 #! Atomically decrements a storage map entry: map[KEY] -= VALUE.
@@ -444,29 +443,32 @@ end
 #!
 #! Inputs: [slot_id_prefix, slot_id_suffix, KEY, VALUE]
 #! Outputs: []
+@locals(6)
 proc sub_from_map_item
+    #loc.0: KEY
+    #loc.4: subtracted_value
     # Save slot ID to memory
     mem_store.HELPER_SLOT_ID_PREFIX_LOC
     mem_store.HELPER_SLOT_ID_SUFFIX_LOC
     # => [KEY, VALUE]
-
-    # Duplicate KEY for second call
-    dupw
-    # => [KEY, KEY, VALUE]
-
+    loc_storew_be.0
+    # => [KEY,VALUE]
+    swapw loc_store.4 drop drop drop
+    # => [KEY]
     # Load slot ID and get current map value
     mem_load.HELPER_SLOT_ID_SUFFIX_LOC
     mem_load.HELPER_SLOT_ID_PREFIX_LOC
-    # => [slot_id_prefix, slot_id_suffix, KEY, KEY, VALUE]
-    exec.active_account::get_map_item drop drop drop
-    # => [old_amount, KEY, VALUE]
+    # => [slot_id_prefix, slot_id_suffix, KEY]
+    exec.active_account::get_map_item movdn.3 drop drop drop
+    # => [old_amount]
 
     # Subtract new amount from old amount
-    movup.8
+    loc_load.4 
     sub
-    # => [new_amount, KEY, 0, 0, 0]
-    movdn.7
-    # => [KEY, 0, 0, 0, new_amount]
+    # => [new_amount]
+    push.0.0.0 movup.3
+    # => [NEW_VALUE]
+    padw loc_loadw_be.0
     # => [KEY, NEW_VALUE]
 
     # Load slot ID and set map item

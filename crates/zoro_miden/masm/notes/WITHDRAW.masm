@@ -58,16 +58,17 @@ const CREATOR_ID_WORD = NOTE_STORAGE_WORD_2
 
 # WITHDRAW Note Inputs (10 to 22)
 # [asset_id_prefix, asset_id_suffix, empty, min_asset_amount_out]
-const ASSET_ID_PREFIX = MIN_ASSET_OUT + 3
-const ASSET_ID_SUFFIX = MIN_ASSET_OUT + 2
-const MIN_ASSET_AMOUNT_OUT = MIN_ASSET_OUT
+const ASSET_ID_SUFFIX = MIN_ASSET_OUT
+const ASSET_ID_PREFIX = MIN_ASSET_OUT + 1
+const MIN_ASSET_AMOUNT_OUT = MIN_ASSET_OUT + 3
 
 
 
 # [lp_withdraw_amount, deadline, p2id_tag, 0]
-const P2ID_TAG = STORAGE_ITEM_PARAMS + 3
-const DEADLINE = STORAGE_ITEM_PARAMS + 2
-const LP_WITHDRAW_AMOUNT = STORAGE_ITEM_PARAMS  + 1# 0x0010
+const LP_WITHDRAW_AMOUNT = STORAGE_ITEM_PARAMS
+const DEADLINE = STORAGE_ITEM_PARAMS + 1
+const P2ID_TAG = STORAGE_ITEM_PARAMS + 2
+
 
 # [empty, empty, creator_id_suffix, creator_id_prefix]
 const CREATOR_ID_PREFIX = CREATOR_ID_WORD + 3
@@ -116,7 +117,6 @@ proc store_note_storage_to_memory
 end
 
 proc store_args_to_memory
-debug.stack.4
     mem_store.WITHDRAW_AMOUNT_OUT
     mem_store.RESERVE_WITH_SLIPPAGE
     mem_store.RESERVE
@@ -199,11 +199,11 @@ proc create_p2id_reverse_note
     # => [note_idx, 0, 0, 0, liabilities,reserve, reserve,reserve_with_slippage]
     mem_load.WITHDRAW_AMOUNT_OUT
     push.0
-    mem_load.ASSET_ID_SUFFIX
     mem_load.ASSET_ID_PREFIX
+    mem_load.ASSET_ID_SUFFIX
     # => [ASSET, note_idx, 0, 0, 0, liabilities,reserve, reserve,reserve_with_slippage]
-    push.0 mem_load.LP_WITHDRAW_AMOUNT mem_load.CREATOR_ID_SUFFIX mem_load.CREATOR_ID_PREFIX
-    # => [user_id_prefix, user_id_suffix, lp_withdraw_amount, 0, ASSET, noteid, 0,0,0, liabilities, reserve, reserve_with_slippage]
+    push.0 mem_load.LP_WITHDRAW_AMOUNT mem_load.CREATOR_ID_PREFIX mem_load.CREATOR_ID_SUFFIX
+    # => [user_id_suffix, user_id_prefix, lp_withdraw_amount, 0, ASSET, noteid, 0,0,0, liabilities, reserve, reserve_with_slippage]
     call.zoropool::withdraw
 
     # => []

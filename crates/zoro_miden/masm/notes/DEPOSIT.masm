@@ -225,14 +225,14 @@ proc execute_DEPOSIT
         exec.create_p2id_reverse_note
         call.zoropool::bounce_asset
     else
-        mem_load.LP_AMOUNT_OUT mem_load.DEPOSIT_CREATOR_ID_SUFFIX mem_load.DEPOSIT_CREATOR_ID_PREFIX
+        mem_load.LP_AMOUNT_OUT mem_load.DEPOSIT_CREATOR_ID_PREFIX mem_load.DEPOSIT_CREATOR_ID_SUFFIX 
         # => [creator_id_prefix, creator_id_suffix, lp_amount_out]
         push.0 mem_load.RESERVE_WITH_SLIPPAGE mem_load.RESERVE mem_load.LIABILITIES 
-         # => [liabilities,reserve, reserve_with_slippage, 0, creator_id_prefix, creator_id_suffix, lp_amount_out]
+         # => [liabilities, reserve, reserve_with_slippage, 0, creator_id_suffix, creator_id_prefix, lp_amount_out]
         padw push.DEPOSIT_ASSET_KEY add.4 mem_loadw_le
         padw mem_loadw_le.DEPOSIT_ASSET_KEY
         exec.asset_utils::compress_asset
-        # => [ASSET, liabilities,reserve, reserve_with_slippage, 0, creator_id_prefix, creator_id_suffix, lp_amount_out]
+        # => [ASSET, liabilities, reserve, reserve_with_slippage, 0, creator_id_suffix, creator_id_prefix, lp_amount_out]
         call.zoropool::deposit
     end
 
