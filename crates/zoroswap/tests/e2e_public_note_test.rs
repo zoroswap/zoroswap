@@ -2,6 +2,7 @@ mod test_utils;
 
 use anyhow::Result;
 use chrono::Utc;
+use miden_client::asset::FungibleAsset;
 use miden_client::note::{NoteTag, NoteType};
 use test_utils::*;
 use tracing::info;
@@ -64,10 +65,8 @@ async fn e2e_public_note() -> Result<()> {
     let min_amount_out = min_amount_out as u64;
     let note = TrustedNote::new(
         NoteInstructions::Swap(SwapInstructions {
-            asset_in: pool0.faucet_id,
-            amount_in,
-            asset_out: pool1.faucet_id,
-            min_amount_out,
+            asset_in: FungibleAsset::new(pool0.faucet_id, amount_in)?,
+            min_asset_out: FungibleAsset::new(pool1.faucet_id, min_amount_out)?,
             creator: *account.id(),
             beneficiary: None,
             note_type: NoteType::Public,

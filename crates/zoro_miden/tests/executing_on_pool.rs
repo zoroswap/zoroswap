@@ -1,8 +1,9 @@
+use num_traits::pow::Pow;
 use std::collections::HashMap;
 
 use anyhow::Result;
 use chrono::Utc;
-use miden_client::account::AccountId;
+use miden_client::{account::AccountId, asset::FungibleAsset};
 use tracing::info;
 use zoro_miden::{
     note::{
@@ -35,8 +36,7 @@ async fn executing_deposit() -> Result<()> {
     let user_id = *user.miden_account.id();
     let deposit_note = TrustedNote::new(
         NoteInstructions::Deposit(DepositInstructions {
-            asset_in: pool_config.faucet_id,
-            amount_in: amount,
+            asset_in: FungibleAsset::new(pool_config.faucet_id, amount)?,
             min_lp_amount_out: amount - 100,
             creator: user_id,
             note_type: miden_client::note::NoteType::Public,
@@ -76,12 +76,16 @@ async fn executing_swap() -> Result<()> {
     let mut prices: HashMap<AccountId, PriceData> = HashMap::with_capacity(2);
     prices.insert(pool_config_token0.faucet_id, PriceData::new_at_now(1));
     prices.insert(pool_config_token1.faucet_id, PriceData::new_at_now(1));
+
+    let decmials_scaling_factor =
+        10_f64.pow(pool_config_token1.decimals as f32 - pool_config_token0.decimals as f32);
     let note = TrustedNote::new(
         NoteInstructions::Swap(SwapInstructions {
-            asset_in: pool_config_token0.faucet_id,
-            amount_in: amount,
-            asset_out: pool_config_token1.faucet_id,
-            min_amount_out: amount / 2,
+            asset_in: FungibleAsset::new(pool_config_token0.faucet_id, amount)?,
+            min_asset_out: FungibleAsset::new(
+                pool_config_token1.faucet_id,
+                (amount as f64 * decmials_scaling_factor) as u64 / 2,
+            )?,
             creator: *user.miden_account.id(),
             beneficiary: None,
             note_type: miden_client::note::NoteType::Public,
@@ -122,12 +126,11 @@ async fn executing_deposit_withdraw() -> Result<()> {
 
     let deposit_note = TrustedNote::new(
         NoteInstructions::Deposit(DepositInstructions {
-            asset_in: pool_config_token0.faucet_id,
-            amount_in: amount,
+            asset_in: FungibleAsset::new(pool_config_token0.faucet_id, amount)?,
             min_lp_amount_out: amount - 100,
             creator: user_id,
             note_type: miden_client::note::NoteType::Public,
-            deadline: Utc::now().timestamp_millis() as u64,
+            deadline: Utc::now().timestamp_millis() as u64 + 120_000,
             p2id_tag: user.miden_account.tag(),
             pool_tag: zoro_pool.miden_account().tag(),
         }),
@@ -149,9 +152,8 @@ async fn executing_deposit_withdraw() -> Result<()> {
 
     let note = TrustedNote::new(
         NoteInstructions::Withdraw(WithdrawInstructions {
+            min_asset_out: FungibleAsset::new(pool_config_token0.faucet_id, amount / 2)?,
             lp_amount_in: amount,
-            asset_out: pool_config_token0.faucet_id,
-            min_amount_out: amount / 2,
             creator: *user.miden_account.id(),
             note_type: miden_client::note::NoteType::Public,
             deadline: Utc::now().timestamp_millis() as u64 + 120_000,

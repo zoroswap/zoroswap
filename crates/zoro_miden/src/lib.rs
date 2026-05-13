@@ -1,4 +1,6 @@
 pub mod account;
+pub mod asset_utils;
+pub mod assembly_utils;
 pub mod client;
 pub mod curve;
 pub mod faucet;

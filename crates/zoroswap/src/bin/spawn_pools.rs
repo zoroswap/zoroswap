@@ -2,7 +2,10 @@ use anyhow::Result;
 use chrono::Utc;
 use clap::Parser;
 use dotenv::dotenv;
-use miden_client::note::{NoteTag, NoteType};
+use miden_client::{
+    asset::FungibleAsset,
+    note::{NoteTag, NoteType},
+};
 use std::collections::HashMap;
 use tracing_subscriber::EnvFilter;
 use zoro_miden::{
@@ -89,8 +92,7 @@ async fn main() -> Result<()> {
         let min_lp_amount_out = ((amount as f64) * (1.0 - max_slippage)) as u64;
         let deposit_note = TrustedNote::new(
             NoteInstructions::Deposit(DepositInstructions {
-                asset_in: pool.faucet_id,
-                amount_in: amount,
+                asset_in: FungibleAsset::new(pool.faucet_id, amount)?,
                 min_lp_amount_out,
                 creator: *lp_account.id(),
                 note_type: NoteType::Private,

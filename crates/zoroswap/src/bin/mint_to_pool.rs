@@ -4,6 +4,7 @@ use clap::Parser;
 use dotenv::dotenv;
 use miden_client::{
     account::AccountId,
+    asset::FungibleAsset,
     note::{NoteTag, NoteType},
 };
 use tracing_subscriber::EnvFilter;
@@ -74,8 +75,7 @@ async fn main() -> Result<()> {
     let min_lp_amount_out = ((args.amount as f64) * (1.0 - max_slippage)) as u64;
     let deposit_note = TrustedNote::new(
         NoteInstructions::Deposit(DepositInstructions {
-            asset_in: faucet_id.1,
-            amount_in: args.amount,
+            asset_in: FungibleAsset::new(faucet_id.1, args.amount)?,
             min_lp_amount_out,
             creator: *lp_account.id(),
             note_type: NoteType::Public,
