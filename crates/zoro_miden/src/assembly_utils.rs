@@ -42,6 +42,20 @@ pub fn create_library_with_assembler(
 }
 
 /// Zoro specific functions
+
+pub fn link_math(mut code_builder: CodeBuilder) -> Result<CodeBuilder> {
+    let math_code = read_masm_file(&["lib", "math.masm"])?;
+    code_builder.link_module("zoro_miden::lib::math", &math_code)?;
+    Ok(code_builder)
+}
+
+pub fn link_storage_utils(code_builder: CodeBuilder) -> Result<CodeBuilder> {
+    let mut code_builder = link_math(code_builder)?;
+    let storage_utils_code = read_masm_file(&["lib", "storage_utils.masm"])?;
+    code_builder.link_module("zoro_miden::lib::storage_utils", &storage_utils_code)?;
+    Ok(code_builder)
+}
+
 pub fn link_asset_utils(mut code_builder: CodeBuilder) -> Result<CodeBuilder> {
     let asset_utils_code = read_masm_file(&["lib", "asset_utils.masm"])?;
     code_builder.link_module("zoro_miden::lib::asset_utils", &asset_utils_code)?;
@@ -49,7 +63,9 @@ pub fn link_asset_utils(mut code_builder: CodeBuilder) -> Result<CodeBuilder> {
 }
 
 pub fn link_zoropool(code_builder: CodeBuilder) -> Result<CodeBuilder> {
-    let mut code_builder = link_asset_utils(code_builder)?;
+    let code_builder = link_asset_utils(code_builder)?;
+    let mut code_builder = link_storage_utils(code_builder)?;
+
     let pool_code = read_masm_file(&["accounts", "zoropool.masm"])?;
     code_builder.link_module("zoroswap::zoropool", &pool_code)?;
     Ok(code_builder)

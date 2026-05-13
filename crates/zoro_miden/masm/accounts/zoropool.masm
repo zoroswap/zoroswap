@@ -8,6 +8,8 @@ use miden::core::sys
 use zoro_miden::lib::asset_utils::compress_asset
 use zoro_miden::lib::asset_utils::expand_asset
 
+use zoro_miden::lib::storage_utils
+
 
 #! CONSTANTS
 const MAX_COVERAGE_RATIO = 0x0002 # 200%
@@ -275,7 +277,7 @@ end
 #!
 @locals(4)
 pub proc move_asset_to_note
-    ## loc.0: ASEET_OUT
+    ## loc.0: ASSET_OUT
     loc_storew_be.0 
     exec.expand_asset
     # => [ASSET_OUT_KEY, ASSET_OUT_VALUE, note_idx, 0,0,0, liabilities, reserve, reserve_with_slippage, 0, pad(4)]
@@ -334,27 +336,29 @@ pub proc deposit
     movup.4
     # => [lp_amount_out, KEY]
     dup mem_store.LP_SHARES_AMOUNT_ADDR
-    push.0.0.0 swap.3
-    # => [SHARE_AMOUNT, KEY]
-    swapw
-    # => [KEY, SHARE_AMOUNT]
+    movdn.4 #swapw
+    # => [KEY, share_amount]
     push.USER_DEPOSITS_MAPPING_SLOT[0..2]
-    # => [slot_id_prefix, slot_id_suffix, KEY, SHARE_AMOUNT]
-    exec.add_to_map_item
+    # => [slot_id_prefix, slot_id_suffix, KEY, share_amount]
+    exec.storage_utils::add_to_map_item
+    # => [new_value]
+    drop
     # update total supply
-    push.0.0.0 mem_load.LP_SHARES_AMOUNT_ADDR 
+    mem_load.LP_SHARES_AMOUNT_ADDR 
     padw mem_loadw_be.DEPOSIT_KEY_LOC
-    # => [KEY, SHARE_AMOUNT]
+    # => [KEY, share_amount]
     exec.get_lp_shares_total_supply_key
-    # => [TOTAL_SUPPLY_KEY, SHARE_AMOUNT]
+    # => [TOTAL_SUPPLY_KEY, share_amount]
     push.USER_DEPOSITS_MAPPING_SLOT[0..2]
-    # => [slot_id_prefix, slot_id_suffix, KEY, SHARE_AMOUNT]
-    exec.add_to_map_item
+    # => [slot_id_prefix, slot_id_suffix, KEY, share_amount]
+    exec.storage_utils::add_to_map_item
     # => []
 end
 
 #! Inputs:  [user_id_suffix, user_id_prefix, lp_withdraw_amount, 0, ASSET_OUT, noteid, 0,0,0, liabilities, reserve, reserve_with_slippage]
+@locals(1)
 pub proc withdraw
+    # loc.0: old_user_lp_shares
     dupw
     # => [user_id_suffix, user_id_prefix, lp_withdraw_amount, 0, user_id_suffix, user_id_prefix, lp_withdraw_amount, 0, ASSET_OUT, noteid, 0,0,0, liabilities, reserve, reserve_with_slippage, 0]
     dupw.2
@@ -362,122 +366,37 @@ pub proc withdraw
     exec.get_user_deposit_key
     # => [KEY, lp_withdraw_amount, 0,  user_id_suffix, user_id_prefix, lp_withdraw_amount, 0, ASSET, noteid, 0,0,0, liabilities, reserve, reserve_with_slippage, 0 ]
     mem_storew_be.WITHDRAW_KEY_LOC
-    exec.get_user_deposit
-    # => [user_lp_shares, lp_withdraw_amount, 0, user_id_prefix, user_id_suffix, lp_withdraw_amount, 0, ASSET, noteid, 0,0,0, liabilities, reserve, reserve_with_slippage, 0]
+    exec.get_user_deposit loc_store.0 loc_load.0
+    # => [old_user_lp_shares, lp_withdraw_amount, 0, user_id_prefix, user_id_suffix, lp_withdraw_amount, 0, ASSET, noteid, 0,0,0, liabilities, reserve, reserve_with_slippage, 0]
     swap sub
     # => [new_user_lp_shares, 0, user_id_prefix, user_id_suffix, lp_withdraw_amount, 0, ASSET, noteid, 0,0,0, liabilities, reserve, reserve_with_slippage, 0 ]
     dup
     # => [new_user_lp_shares, new_user_lp_shares, 0, user_id_prefix, user_id_suffix, lp_withdraw_amount, 0, ASSET, noteid, 0,0,0, liabilities, reserve, reserve_with_slippage, 0]
-    padw mem_loadw_be.WITHDRAW_KEY_LOC
-    exec.get_user_deposit
-    # => [user_lp_shares, new_user_lp_shares, new_user_lp_shares, 0, user_id_prefix, user_id_suffix, lp_withdraw_amount, 0, ASSET, noteid, 0,0,0, liabilities, reserve, reserve_with_slippage, 0]
+    loc_load.0
+    # => [old_user_lp_shares, new_user_lp_shares, new_user_lp_shares, 0, user_id_prefix, user_id_suffix, lp_withdraw_amount, 0, ASSET, noteid, 0,0,0, liabilities, reserve, reserve_with_slippage, 0]
     lt assert.err=ERR_LP_WITHDRAW_AMOUNT_EXCEEDS_USER_LP_SHARES
     # => [new_user_lp_shares, 0, user_id_prefix, user_id_suffix, lp_withdraw_amount, 0, ASSET, noteid, 0,0,0, liabilities, reserve, reserve_with_slippage, 0]
-
-    # store new user lp shares
-    push.0.0.0
     # => [NEW_USER_LP_SHARES, 0, user_id_prefix, user_id_suffix, lp_withdraw_amount, 0, ASSET, noteid, 0,0,0, liabilities, reserve, reserve_with_slippage, 0]
     padw mem_loadw_be.WITHDRAW_KEY_LOC
     push.USER_DEPOSITS_MAPPING_SLOT[0..2]
     # => [slot_id_prefix, slot_id_suffix, KEY, NEW_USER_LP_SHARES]
-    exec.native_account::set_map_item
-    dropw drop
+    exec.storage_utils::set_map_item #exec.native_account::set_map_item
+    drop drop #dropw drop
     # => [user_id_prefix, user_id_suffix, lp_withdraw_amount, 0, ASSET, noteid, 0,0,0, liabilities, reserve, reserve_with_slippage, 0]
     drop drop swap drop
-    mem_store.LP_SHARES_AMOUNT_ADDR
+    # => [lp_withdraw_amount]
 
-
-    mem_load.LP_SHARES_AMOUNT_ADDR push.0.0.0
     padw mem_loadw_be.WITHDRAW_KEY_LOC
     exec.get_lp_shares_total_supply_key
-    # => [KEY, SHARE_AMOUNT]
+    # => [KEY, lp_withdraw_amount]
     push.USER_DEPOSITS_MAPPING_SLOT[0..2]
     # => [slot_id_prefix, slot_id_suffix, KEY, SHARE_AMOUNT]
-    exec.sub_from_map_item
+    exec.storage_utils::sub_from_map_item drop# exec.sub_from_map_item
     # => [ ASSET_OUT, noteid, 0,0,0, liabilities, reserve, reserve_with_slippage, 0]
     exec.move_asset_to_note
     dropw dropw dropw
 end
 
-
-#! Atomically increments a storage map entry: map[KEY] += VALUE.
-#! Reads the current value via get_map_item, adds VALUE, writes back via set_map_item.
-#!
-#! Inputs: [slot_id_prefix, slot_id_suffix, KEY, VALUE]
-#! Outputs: []
-@locals(6)
-proc add_to_map_item
-    #loc.0: KEY
-    #loc.4: added_value
-    # Save slot ID to memory
-    mem_store.HELPER_SLOT_ID_PREFIX_LOC
-    mem_store.HELPER_SLOT_ID_SUFFIX_LOC
-    # => [KEY, VALUE]
-    loc_storew_be.0
-    # => [KEY,VALUE]
-    swapw loc_store.4 drop drop drop
-    # => [KEY]
-    # Load slot ID and get current map value
-    mem_load.HELPER_SLOT_ID_SUFFIX_LOC
-    mem_load.HELPER_SLOT_ID_PREFIX_LOC
-    # => [slot_id_prefix, slot_id_suffix, KEY]
-    exec.active_account::get_map_item movdn.3 drop drop drop 
-    # => [old_amount]
-    loc_load.4 add 
-    # => [new_amount]
-    push.0.0.0 movup.3
-    # => [NEW_VALUE]
-    padw loc_loadw_be.0
-    # => [KEY, NEW_VALUE]
-    # Load slot ID and set map item
-    mem_load.HELPER_SLOT_ID_SUFFIX_LOC
-    mem_load.HELPER_SLOT_ID_PREFIX_LOC
-    # => [slot_id_prefix, slot_id_suffix, KEY, NEW_VALUE]
-    exec.native_account::set_map_item dropw
-    # => []
-    exec.sys::truncate_stack
-end
-
-#! Atomically decrements a storage map entry: map[KEY] -= VALUE.
-#! Reads the current value via get_map_item, subtracts VALUE, writes back via set_map_item.
-#!
-#! Inputs: [slot_id_prefix, slot_id_suffix, KEY, VALUE]
-#! Outputs: []
-@locals(6)
-proc sub_from_map_item
-    #loc.0: KEY
-    #loc.4: subtracted_value
-    # Save slot ID to memory
-    mem_store.HELPER_SLOT_ID_PREFIX_LOC
-    mem_store.HELPER_SLOT_ID_SUFFIX_LOC
-    # => [KEY, VALUE]
-    loc_storew_be.0
-    # => [KEY,VALUE]
-    swapw loc_store.4 drop drop drop
-    # => [KEY]
-    # Load slot ID and get current map value
-    mem_load.HELPER_SLOT_ID_SUFFIX_LOC
-    mem_load.HELPER_SLOT_ID_PREFIX_LOC
-    # => [slot_id_prefix, slot_id_suffix, KEY]
-    exec.active_account::get_map_item movdn.3 drop drop drop
-    # => [old_amount]
-
-    # Subtract new amount from old amount
-    loc_load.4 
-    sub
-    # => [new_amount]
-    push.0.0.0 movup.3
-    # => [NEW_VALUE]
-    padw loc_loadw_be.0
-    # => [KEY, NEW_VALUE]
-
-    # Load slot ID and set map item
-    mem_load.HELPER_SLOT_ID_SUFFIX_LOC
-    mem_load.HELPER_SLOT_ID_PREFIX_LOC
-    # => [slot_id_prefix, slot_id_suffix, KEY, NEW_VALUE]
-    exec.native_account::set_map_item dropw
-    # => []
-end
 
 #! Returns user LP shares amount
 #!

@@ -28,7 +28,7 @@ use tracing::{error, info, warn};
 
 use crate::{
     account::MidenAccount,
-    assembly_utils::{link_asset_utils, read_masm_file},
+    assembly_utils::{link_asset_utils, link_storage_utils, read_masm_file},
     client::MidenClient,
     note::TrustedNote,
     pool_execution::{ExecutionResult, PoolExecution},
@@ -153,6 +153,7 @@ impl ZoroPool {
         let user_deposits_mapping = StorageSlot::with_empty_map(n("zoroswap::user_deposits"));
 
         let code_builder = link_asset_utils(miden_client.client_mut().code_builder())?;
+        let code_builder = link_storage_utils(code_builder)?;
         let pool_library = code_builder.compile_component_code("zoroswap::zoropool", &pool_code)?;
         let pool_metadata = AccountComponentMetadata::new("zoroswap::zoropool", AccountType::all());
 
