@@ -2,13 +2,12 @@ use anyhow::{Result, anyhow};
 use std::{fs::read_to_string, path::PathBuf, sync::Arc};
 
 use miden_assembly::{
-    Assembler, DefaultSourceManager,
+    Assembler, DefaultSourceManager, Library,
     ast::{Module, ModuleKind},
 };
 use miden_client::assembly::CodeBuilder;
 
 /// Universal functions
-
 pub fn read_masm_file(path_steps: &[&str]) -> Result<String> {
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
     let path = PathBuf::from_iter(
@@ -29,12 +28,16 @@ pub fn create_library_with_assembler(
     assembler: Assembler,
     library_path: &str,
     source_code: &str,
-) -> Result<Arc<miden_assembly::Library>, Box<dyn std::error::Error>> {
+) -> Result<Arc<Library>> {
     let source_manager = Arc::new(DefaultSourceManager::default());
     let path = miden_assembly::Path::new(library_path);
-    let module =
-        Module::parser(ModuleKind::Library).parse_str(path, source_code, source_manager)?;
-    let library = assembler.clone().assemble_library([module])?;
+    let module = Module::parser(ModuleKind::Library)
+        .parse_str(path, source_code, source_manager)
+        .map_err(|e| anyhow!("Error assembling module: {e:?}"))?;
+    let library = assembler
+        .clone()
+        .assemble_library([module])
+        .map_err(|e| anyhow!("Error assembling library: {e:?}"))?;
     Ok(library)
 }
 
@@ -45,13 +48,13 @@ pub fn link_asset_utils(mut code_builder: CodeBuilder) -> Result<CodeBuilder> {
     Ok(code_builder)
 }
 
-pub fn link_zoropool(mut code_builder: CodeBuilder) -> Result<CodeBuilder> {
+pub fn link_zoropool(code_builder: CodeBuilder) -> Result<CodeBuilder> {
     let mut code_builder = link_asset_utils(code_builder)?;
     let pool_code = read_masm_file(&["accounts", "zoropool.masm"])?;
     code_builder.link_module("zoroswap::zoropool", &pool_code)?;
     Ok(code_builder)
 }
 
-pub fn link_all_libraries(mut code_builder: CodeBuilder) -> Result<CodeBuilder> {
+pub fn link_all_libraries(code_builder: CodeBuilder) -> Result<CodeBuilder> {
     link_zoropool(code_builder)
 }

@@ -30,7 +30,7 @@ pub proc compress_asset(asset_key: word, asset_value: word) -> (word)
     swap
     # => [prefix, cb_on, value, 0, 0, 0]
     loc_load.0  
-    # => [prefix, suffix, cb_on, value, 0, 0, 0]
+    # => [suffix, prefix, cb_on, value, 0, 0, 0]
    
     movup.4 drop movup.4 drop movup.4 drop
 end
