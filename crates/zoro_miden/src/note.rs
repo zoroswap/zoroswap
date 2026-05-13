@@ -1,4 +1,4 @@
-use std::{collections::HashSet, fs::read_to_string, path::PathBuf, sync::OnceLock};
+use std::{collections::HashSet, fs::read_to_string, path::PathBuf};
 
 use anyhow::{Result, anyhow};
 use base64::{Engine as _, engine::general_purpose};
@@ -11,24 +11,14 @@ use miden_client::{
     asset::{Asset, FungibleAsset},
     note::{Note, NoteAssets, NoteMetadata, NoteRecipient, NoteStorage, NoteTag, NoteType},
     store::InputNoteRecord,
-    transaction::TransactionKernel,
 };
 use miden_protocol::note::NoteScript;
-use miden_standards::note::{P2idNoteStorage, StandardNote};
+use miden_standards::note::P2idNoteStorage;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use tracing::info;
 
-use crate::assembly_utils::{create_library_with_assembler, link_all_libraries};
 use crate::asset_utils::{asset_to_word, word_to_asset};
-
-static NOTE_ROOTS: OnceLock<NoteRoots> = OnceLock::new();
-
-fn get_note_roots() -> &'static NoteRoots {
-    NOTE_ROOTS.get_or_init(|| {
-        info!("Initializing Note roots ...");
-        NoteRoots::generate_from_notes().expect("Generating Note Roots failed.")
-    })
-}
+use crate::{assembly_utils::link_all_libraries, note_roots::get_note_roots};
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum NoteKind {
@@ -225,61 +215,6 @@ impl TrustedNote {
         ];
         Ok(Word::new(felts))
     }
-}
-
-struct NoteRoots {
-    deposit: Word,
-    withdraw: Word,
-    swap: Word,
-    p2id: Word,
-}
-
-impl NoteRoots {
-    pub fn generate_from_notes() -> Result<Self> {
-        Ok(Self {
-            deposit: get_script_root_for_local_script("DEPOSIT.masm")?,
-            withdraw: get_script_root_for_local_script("WITHDRAW.masm")?,
-            swap: get_script_root_for_local_script("ZOROSWAP.masm")?,
-            p2id: StandardNote::P2ID.script_root(),
-        })
-    }
-
-    pub fn get_order_type(&self, root: &Word) -> Result<NoteKind> {
-        if root.eq(&self.deposit) {
-            Ok(NoteKind::Deposit)
-        } else if root.eq(&self.withdraw) {
-            Ok(NoteKind::Withdraw)
-        } else if root.eq(&self.swap) {
-            Ok(NoteKind::Swap)
-        } else if root.eq(&self.p2id) {
-            Ok(NoteKind::P2ID)
-        } else {
-            Err(anyhow!(
-                "Passed note root does not belong to a known note kind."
-            ))
-        }
-    }
-}
-
-pub fn get_script_root_for_local_script(masm_name: &str) -> Result<Word> {
-    let manifest_dir = env!("CARGO_MANIFEST_DIR");
-    let assembler = TransactionKernel::assembler().with_warnings_as_errors(true);
-    let path: PathBuf = [manifest_dir, "masm", "notes", masm_name].iter().collect();
-    let note_code = read_to_string(&path)
-        .unwrap_or_else(|err| panic!("Error reading {}: {}", path.display(), err));
-    let pool_code_path: PathBuf = [manifest_dir, "masm", "accounts", "zoropool.masm"]
-        .iter()
-        .collect();
-    let pool_code = std::fs::read_to_string(&pool_code_path)
-        .unwrap_or_else(|err| panic!("Error reading {}: {}", pool_code_path.display(), err));
-    let pool_component_lib =
-        create_library_with_assembler(assembler.clone(), "zoroswap::zoropool", &pool_code).unwrap();
-    let note_script = CodeBuilder::new()
-        .with_dynamically_linked_library(&pool_component_lib)
-        .unwrap()
-        .compile_note_script(note_code)
-        .unwrap();
-    Ok(note_script.root())
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -675,7 +610,7 @@ impl TrustedNoteElements {
         if instructions.deadline.eq(&0) {
             return Err(anyhow!("Deadline is zero"));
         }
-        let min_asset_out = asset_to_word(instructions.min_asset_out.into());
+        let min_asset_out = asset_to_word(instructions.min_asset_out);
         let inputs = NoteStorage::new(vec![
             min_asset_out[0],
             min_asset_out[1],
