@@ -142,7 +142,7 @@ impl GuardedFaucet {
                 .unwrap()
                 .unwrap_fungible()
                 .amount();
-            note_data.extend(note.recipient().digest().iter());
+            note_data.extend(note.recipient().digest().iter().rev());
             note_data.push(Felt::from(note.metadata().note_type()));
             note_data.push(Felt::from(note.metadata().tag()));
             note_data.push(Felt::new(amount));

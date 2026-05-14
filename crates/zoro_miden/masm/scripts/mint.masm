@@ -56,7 +56,7 @@ begin
         # OS => [amount_i, tag_i, note_type_i, RECIPIENT_i(4), pad(9), i, n]
         # AS => [...]
 
-        call.::miden::standards::faucets::basic_fungible::distribute
+        call.::miden::standards::faucets::basic_fungible::mint_and_send
         # OS => [note_idx, pad(15), i, n]
 
         dropw dropw dropw dropw
