@@ -1,6 +1,5 @@
 use std::{
-    collections::HashMap,
-    path::{Path, PathBuf},
+    collections::{BTreeMap, HashMap},
     str::FromStr,
     time::{Duration, Instant},
 };
@@ -19,7 +18,7 @@ use miden_client::{
     keystore::{FilesystemKeyStore, Keystore},
     note::{Note, NoteDetails, NoteId, NoteRecipient, NoteTag},
     rpc::Endpoint,
-    transaction::{TransactionRequest, TransactionRequestBuilder},
+    transaction::{TransactionArgs, TransactionRequest, TransactionRequestBuilder},
     vm::AdviceMap,
 };
 use miden_tx::NoteConsumptionInfo;
@@ -29,6 +28,7 @@ use tracing::{error, info, warn};
 
 use crate::{
     account::MidenAccount,
+    assembly_utils::{link_asset_utils, link_storage_utils, read_masm_file},
     client::MidenClient,
     note::TrustedNote,
     pool_execution::{ExecutionResult, PoolExecution},
@@ -113,15 +113,11 @@ impl ZoroPool {
         keystore_dir: &str,
         store_dir: &str,
     ) -> Result<Self> {
-        let manifest_dir = env!("CARGO_MANIFEST_DIR");
-        let masm_path: PathBuf = [manifest_dir, "masm", "accounts", "zoropool.masm"]
-            .iter()
-            .collect();
         let mut miden_client: MidenClient =
             MidenClient::new(endpoint.clone(), keystore_dir, store_dir).await?;
-        let pool_reader_path = Path::new(&masm_path);
-        let pool_code = std::fs::read_to_string(pool_reader_path)
-            .unwrap_or_else(|err| panic!("unable to read from {pool_reader_path:?}: {err}"));
+
+        let pool_code = read_masm_file(&["accounts", "zoropool.masm"])
+            .map_err(|e| anyhow!("Failed to read zoropool.masm: {e:?}"))?;
 
         let mut assets_mapping = StorageMap::new();
         let mut curves_mapping = StorageMap::new();
@@ -157,10 +153,10 @@ impl ZoroPool {
                 Felt::new(0),
             ]));
             let asset_id = StorageMapKey::new(Word::from([
-                Felt::new(0),
-                Felt::new(0),
                 pool.faucet_id.suffix(),
                 pool.faucet_id.prefix().as_felt(),
+                Felt::new(0),
+                Felt::new(0),
             ]));
             assets_mapping
                 .insert(asset_index, Word::from(asset_id))
@@ -179,11 +175,8 @@ impl ZoroPool {
         let pool_states_mapping = StorageSlot::with_empty_map(n("zoroswap::pool_state"));
         let user_deposits_mapping = StorageSlot::with_empty_map(n("zoroswap::user_deposits"));
 
-        // Compile the account code into a Library, then create AccountComponent
-        // let assembler = TransactionKernel::assembler();
-        // let pool_library = create_library(assembler.clone(), "zoroswap::zoropool", &pool_code)
-        //     .map_err(|e| anyhow!("Failed to create pool library: {e}"))?;
-        let code_builder = miden_client.client_mut().code_builder();
+        let code_builder = link_asset_utils(miden_client.client_mut().code_builder())?;
+        let code_builder = link_storage_utils(code_builder)?;
         let pool_library = code_builder.compile_component_code("zoroswap::zoropool", &pool_code)?;
         let pool_metadata = AccountComponentMetadata::new("zoroswap::zoropool", AccountType::all());
 
@@ -288,6 +281,7 @@ impl ZoroPool {
         for pool in self.liquidity_pools.iter() {
             let (settings, balances, lp_total_supply) =
                 Self::extract_liqudity_pool_state_from_account(&acc, pool.faucet_id).await?;
+            println!("pool {settings:?}, {balances:?}, {lp_total_supply:?}");
             let pool_state = PoolState::new(
                 settings,
                 balances,
@@ -310,10 +304,10 @@ impl ZoroPool {
         let lp_supply_slot =
             StorageSlotName::new("zoroswap::user_deposits").expect("valid slot name");
         let asset_address: Word = [
-            Felt::new(0),
-            Felt::new(0),
             faucet_id.suffix(),
             faucet_id.prefix().as_felt(),
+            Felt::new(0),
+            Felt::new(0),
         ]
         .into();
 
@@ -322,9 +316,9 @@ impl ZoroPool {
         let pool_fees = storage.get_map_item(&fees_slot, asset_address)?;
 
         let balances = PoolBalances {
-            reserve_with_slippage: U256::from(pool_balances_raw[1].as_canonical_u64()),
-            reserve: U256::from(pool_balances_raw[2].as_canonical_u64()),
-            total_liabilities: U256::from(pool_balances_raw[3].as_canonical_u64()),
+            total_liabilities: U256::from(pool_balances_raw[0].as_canonical_u64()),
+            reserve: U256::from(pool_balances_raw[1].as_canonical_u64()),
+            reserve_with_slippage: U256::from(pool_balances_raw[2].as_canonical_u64()),
         };
         let settings = PoolSettings {
             beta: I256::from_str(&pool_curve[0].as_canonical_u64().to_string())?,
@@ -470,7 +464,6 @@ impl ZoroPool {
 
             note_execution_results.insert(note_id, execution_result);
         }
-
         Ok((
             note_execution_results,
             BatchExecutionDetails {
@@ -493,47 +486,61 @@ impl ZoroPool {
         let mut valid_notes = notes;
         // simulate until all notes go thru
         // must do it this way because of the sequential nature of updates to the account and pool states
-        loop {
-            if valid_notes.is_empty() {
-                return Ok((note_results, BatchExecutionDetails::default()));
-            }
+        // loop {
+        if valid_notes.is_empty() {
+            return Ok((note_results, BatchExecutionDetails::default()));
+        }
 
-            // TODO: Are prices still fresh here?
-            let (note_execution_details, batch_execution_details) = self
-                .prepare_execution_details(valid_notes.clone(), prices.clone())
-                .await?;
-            note_results.extend(note_execution_details);
-            let note_screener = self.miden_client.client().note_screener();
-            let raw_notes: Vec<Note> = valid_notes.iter().map(|n| n.note().clone()).collect();
-            let NoteConsumptionInfo { successful, failed } = note_screener
-                .check_notes_consumability(*self.miden_account.id(), raw_notes)
-                .await?;
-            if !failed.is_empty() {
-                for n in &failed {
-                    note_results.insert(n.note.id(), ExecutionResult::FailedConsuming);
-                }
-                let failed_ids = failed.iter().map(|n| n.note.id());
-                let ids_string = failed_ids
-                    .clone()
-                    .map(|id| id.to_hex())
-                    .collect::<Vec<String>>()
-                    .join(", ");
-                valid_notes.retain(|n| successful.contains(n.note()));
-                warn!(
-                    "{} notes cant be consumed. Failed note ids: {}",
-                    failed_ids.len(),
-                    ids_string
-                );
-            } else {
-                return Ok((note_results, batch_execution_details));
+        // TODO: Are prices still fresh here?
+        let (note_execution_details, batch_execution_details) = self
+            .prepare_execution_details(valid_notes.clone(), prices.clone())
+            .await?;
+        note_results.extend(note_execution_details);
+        // let note_screener = self.miden_client.client().note_screener();
+
+        let mut note_args = BTreeMap::new();
+        for (note, args) in &batch_execution_details.input_notes {
+            if let Some(args) = args {
+                note_args.insert(note.id(), *args);
             }
         }
+        Ok((note_results, batch_execution_details))
+
+        // let tx_args = TransactionArgs::new(batch_execution_details.advice_map.clone())
+        //     .with_note_args(note_args);
+        // let note_screener = note_screener.with_transaction_args(tx_args);
+        // let raw_notes: Vec<Note> = valid_notes.iter().map(|n| n.note().clone()).collect();
+        // let NoteConsumptionInfo { successful, failed } = note_screener
+        //     .check_notes_consumability(*self.miden_account.id(), raw_notes)
+        //     .await?;
+        // if !failed.is_empty() {
+        //     for n in &failed {
+        //         note_results.insert(n.note.id(), ExecutionResult::FailedConsuming);
+        //     }
+        //     let failed_ids = failed.iter().map(|n| n.note.id());
+        //     let ids_string = failed_ids
+        //         .clone()
+        //         .map(|id| id.to_hex())
+        //         .collect::<Vec<String>>()
+        //         .join(", ");
+        //     valid_notes.retain(|n| successful.contains(n.note()));
+        //     warn!(
+        //         "{} notes cant be consumed. Failed note ids: {}",
+        //         failed_ids.len(),
+        //         ids_string
+        //     );
+        // } else {
+        //     return Ok((note_results, batch_execution_details));
+        // }
+        // }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use miden_client::testing::account_id::ACCOUNT_ID_PUBLIC_FUNGIBLE_FAUCET;
+    use miden_client::{
+        asset::FungibleAsset, testing::account_id::ACCOUNT_ID_PUBLIC_FUNGIBLE_FAUCET,
+    };
 
     use crate::test_utils::{PoolWithMeta, TestUtils};
 
@@ -582,8 +589,7 @@ mod tests {
         } = &mut test_utils.get_initialized_pools(1).await?[..][0];
         let p2id = TrustedNote::build_p2id(
             *test_pool.miden_account.id(),
-            ACCOUNT_ID_PUBLIC_FUNGIBLE_FAUCET.try_into()?,
-            1000,
+            FungibleAsset::new(ACCOUNT_ID_PUBLIC_FUNGIBLE_FAUCET.try_into()?, 1000)?,
             None,
         )?;
         let p2id_id = p2id.note().id();

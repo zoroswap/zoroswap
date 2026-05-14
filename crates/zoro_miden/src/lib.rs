@@ -1,8 +1,11 @@
 pub mod account;
+pub mod assembly_utils;
+pub mod asset_utils;
 pub mod client;
 pub mod curve;
 pub mod faucet;
 pub mod note;
+pub mod note_roots;
 pub mod pool;
 pub mod pool_execution;
 pub mod pool_state;

@@ -1,4 +1,4 @@
-use std::{collections::HashSet, fs::read_to_string, path::PathBuf, sync::OnceLock};
+use std::{collections::HashSet, fs::read_to_string, path::PathBuf};
 
 use anyhow::{Result, anyhow};
 use base64::{Engine as _, engine::general_purpose};
@@ -10,24 +10,15 @@ use miden_client::{
     assembly::CodeBuilder,
     asset::{Asset, FungibleAsset},
     note::{Note, NoteAssets, NoteMetadata, NoteRecipient, NoteStorage, NoteTag, NoteType},
-    store::InputNoteRecord,
-    transaction::TransactionKernel,
+    store::{InputNoteRecord, OutputNoteRecord},
 };
 use miden_protocol::note::NoteScript;
-use miden_standards::note::{P2idNoteStorage, StandardNote};
+use miden_standards::note::P2idNoteStorage;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use tracing::info;
 
-use crate::client::create_library;
-
-static NOTE_ROOTS: OnceLock<NoteRoots> = OnceLock::new();
-
-fn get_note_roots() -> &'static NoteRoots {
-    NOTE_ROOTS.get_or_init(|| {
-        info!("Initializing Note roots ...");
-        NoteRoots::generate_from_notes().expect("Generating Note Roots failed.")
-    })
-}
+use crate::asset_utils::{asset_to_word, word_to_asset};
+use crate::{assembly_utils::link_all_libraries, note_roots::get_note_roots};
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum NoteKind {
@@ -74,11 +65,17 @@ impl TrustedNote {
         let serial_number = if let Some(serial_num) = note_elements.referential_serial_number {
             // when returnin p2ids for zoro notes
             let p2id_serial_num: Word = [
-                serial_num[0],
+                serial_num[0] + Felt::new(1),
                 serial_num[1],
                 serial_num[2],
-                serial_num[3] + Felt::new(1),
+                serial_num[3],
             ]
+            // let p2id_serial_num: Word = [
+            //     serial_num[3],
+            //     serial_num[2],
+            //     serial_num[1],
+            //     serial_num[0] + Felt::new(1),
+            // ]
             .into();
             Ok(p2id_serial_num)
         } else {
@@ -96,27 +93,14 @@ impl TrustedNote {
     pub fn get_note_script(code_builder: CodeBuilder, note_file_name: &str) -> Result<NoteScript> {
         let manifest_dir = env!("CARGO_MANIFEST_DIR");
         let note_path = PathBuf::from_iter(&[manifest_dir, "masm", "notes", note_file_name]);
-        let pool_path = PathBuf::from_iter(&[manifest_dir, "masm", "accounts", "zoropool.masm"]);
+        // let pool_path = PathBuf::from_iter(&[manifest_dir, "masm", "accounts", "zoropool.masm"]);
         let note_code = read_to_string(&note_path)
             .map_err(|e| anyhow!("Error parsing note code at path {note_path:?}: {e:?}"))?;
-        let pool_code = read_to_string(&pool_path)
-            .map_err(|e| anyhow!("Error parsing pool code at path {pool_path:?}: {e:?}"))?;
 
-        let pool_component_lib = code_builder
-            .clone()
-            .compile_component_code("zoroswap::zoropool", &pool_code)?;
-
-        let assembler =
-            TransactionKernel::assembler_with_source_manager(code_builder.source_manager().clone())
-                .with_warnings_as_errors(true)
-                .with_static_library(&pool_component_lib)
-                .map_err(|e| anyhow!("Failed to link pool library: {:?}", e))?;
-
-        let note_library = assembler
-            .assemble_library([note_code])
-            .map_err(|e| anyhow!("Failed to assemble note library: {:?}", e))?;
-        NoteScript::from_library(&note_library)
-            .map_err(|e| anyhow!("Failed to create note script from note library: {:?}", e))
+        let code_builder = link_all_libraries(code_builder.clone())?;
+        code_builder
+            .compile_note_script(note_code)
+            .map_err(|e| anyhow!("Failed to compile note script: {}", e))
     }
 
     fn new_zoro_note(
@@ -174,6 +158,26 @@ impl TrustedNote {
             created_at: Utc::now().timestamp_millis(),
         })
     }
+    pub fn from_output_note(output_note_record: &OutputNoteRecord) -> Result<Self> {
+        let note = Note::new(
+            output_note_record.assets().clone(),
+            output_note_record.metadata().clone(),
+            output_note_record
+                .recipient()
+                .ok_or(anyhow!("Note missing recipient"))?
+                .clone(),
+        );
+        let root = note.script().root();
+        let known_roots = get_note_roots();
+        let note_kind = known_roots.get_order_type(&root)?;
+        let serial_number = note.serial_num();
+        Ok(Self {
+            note,
+            note_kind,
+            serial_number,
+            created_at: Utc::now().timestamp_millis(),
+        })
+    }
 
     pub fn from_base64(encoded: &str) -> Result<Self> {
         // base64 -> bytes
@@ -188,14 +192,12 @@ impl TrustedNote {
     }
     pub fn build_p2id(
         target: AccountId,
-        asset_in: AccountId,
-        amount_in: u64,
+        asset_in: FungibleAsset,
         referential_serial_number: Option<Word>,
     ) -> Result<Self> {
         let p2id_note = TrustedNote::new(
             NoteInstructions::P2ID(P2IDInstructions {
                 asset_in,
-                amount_in,
                 target,
                 referential_serial_number,
                 note_type: NoteType::Public,
@@ -235,61 +237,6 @@ impl TrustedNote {
     }
 }
 
-struct NoteRoots {
-    deposit: Word,
-    withdraw: Word,
-    swap: Word,
-    p2id: Word,
-}
-
-impl NoteRoots {
-    pub fn generate_from_notes() -> Result<Self> {
-        Ok(Self {
-            deposit: get_script_root_for_local_script("DEPOSIT.masm")?,
-            withdraw: get_script_root_for_local_script("WITHDRAW.masm")?,
-            swap: get_script_root_for_local_script("ZOROSWAP.masm")?,
-            p2id: StandardNote::P2ID.script_root(),
-        })
-    }
-
-    pub fn get_order_type(&self, root: &Word) -> Result<NoteKind> {
-        if root.eq(&self.deposit) {
-            Ok(NoteKind::Deposit)
-        } else if root.eq(&self.withdraw) {
-            Ok(NoteKind::Withdraw)
-        } else if root.eq(&self.swap) {
-            Ok(NoteKind::Swap)
-        } else if root.eq(&self.p2id) {
-            Ok(NoteKind::P2ID)
-        } else {
-            Err(anyhow!(
-                "Passed note root does not belong to a known note kind."
-            ))
-        }
-    }
-}
-
-pub fn get_script_root_for_local_script(masm_name: &str) -> Result<Word> {
-    let manifest_dir = env!("CARGO_MANIFEST_DIR");
-    let assembler = TransactionKernel::assembler().with_warnings_as_errors(true);
-    let path: PathBuf = [manifest_dir, "masm", "notes", masm_name].iter().collect();
-    let note_code = read_to_string(&path)
-        .unwrap_or_else(|err| panic!("Error reading {}: {}", path.display(), err));
-    let pool_code_path: PathBuf = [manifest_dir, "masm", "accounts", "zoropool.masm"]
-        .iter()
-        .collect();
-    let pool_code = std::fs::read_to_string(&pool_code_path)
-        .unwrap_or_else(|err| panic!("Error reading {}: {}", pool_code_path.display(), err));
-    let pool_component_lib =
-        create_library(assembler.clone(), "zoroswap::zoropool", &pool_code).unwrap();
-    let note_script = CodeBuilder::new()
-        .with_dynamically_linked_library(&pool_component_lib)
-        .unwrap()
-        .compile_note_script(note_code)
-        .unwrap();
-    Ok(note_script.root())
-}
-
 #[derive(Clone, Copy, Debug)]
 pub enum NoteInstructions {
     Deposit(DepositInstructions),
@@ -318,9 +265,9 @@ impl NoteInstructions {
                 };
                 format!(
                     "Deposit of {} -> min LP: {} for faucet {}. From user {} (tag {}) with deadline {}. Type: {}.",
-                    i.amount_in,
+                    i.asset_in.amount(),
                     i.min_lp_amount_out,
-                    i.asset_in.to_bech32(network_id.clone()),
+                    i.asset_in.faucet_id().to_bech32(network_id.clone()),
                     i.creator.to_bech32(network_id.clone()),
                     i.p2id_tag.as_u32(),
                     deadline,
@@ -336,8 +283,8 @@ impl NoteInstructions {
                 format!(
                     "Withdraw of {} LP -> min {} for faucet {}. From user {} (tag {}) with deadline {}. Type: {}.",
                     i.lp_amount_in,
-                    i.min_amount_out,
-                    i.asset_out.to_bech32(network_id.clone()),
+                    i.min_asset_out.amount(),
+                    i.min_asset_out.faucet_id().to_bech32(network_id.clone()),
                     i.creator.to_bech32(network_id.clone()),
                     i.p2id_tag.as_u32(),
                     deadline,
@@ -352,10 +299,10 @@ impl NoteInstructions {
                 };
                 format!(
                     "Swap of {} -> min {} for faucets {} -> {}. From user {} (tag {}) with deadline {}. Type: {}.",
-                    i.amount_in,
-                    i.min_amount_out,
-                    i.asset_in.to_bech32(network_id.clone()),
-                    i.asset_out.to_bech32(network_id.clone()),
+                    i.asset_in.amount(),
+                    i.min_asset_out.amount(),
+                    i.asset_in.faucet_id().to_bech32(network_id.clone()),
+                    i.min_asset_out.faucet_id().to_bech32(network_id.clone()),
                     i.creator.to_bech32(network_id.clone()),
                     i.p2id_tag.as_u32(),
                     deadline,
@@ -365,8 +312,8 @@ impl NoteInstructions {
             NoteInstructions::P2ID(i) => {
                 format!(
                     "P2ID with amount {} for faucet {}. Target user {}. Type: {}.",
-                    i.asset_in,
-                    i.amount_in,
+                    i.asset_in.amount(),
+                    i.asset_in.faucet_id().to_bech32(network_id.clone()),
                     i.target.to_bech32(network_id),
                     i.note_type,
                 )
@@ -376,10 +323,10 @@ impl NoteInstructions {
 
     pub fn involves_faucets(&self, faucets: &HashSet<AccountId>) -> bool {
         let faucets_involved = match self {
-            NoteInstructions::P2ID(i) => vec![i.asset_in],
-            NoteInstructions::Deposit(i) => vec![i.asset_in],
-            NoteInstructions::Withdraw(i) => vec![i.asset_out],
-            NoteInstructions::Swap(i) => vec![i.asset_in, i.asset_out],
+            NoteInstructions::P2ID(i) => vec![i.asset_in.faucet_id()],
+            NoteInstructions::Deposit(i) => vec![i.asset_in.faucet_id()],
+            NoteInstructions::Withdraw(i) => vec![i.min_asset_out.faucet_id()],
+            NoteInstructions::Swap(i) => vec![i.asset_in.faucet_id(), i.min_asset_out.faucet_id()],
         };
         let faucets_involved: HashSet<AccountId> = HashSet::from_iter(faucets_involved);
         faucets_involved.is_subset(faucets)
@@ -388,8 +335,7 @@ impl NoteInstructions {
 
 #[derive(Clone, Copy, Debug)]
 pub struct DepositInstructions {
-    pub asset_in: AccountId,
-    pub amount_in: u64,
+    pub asset_in: FungibleAsset,
     pub min_lp_amount_out: u64,
     pub creator: AccountId,
     pub note_type: NoteType,
@@ -400,9 +346,8 @@ pub struct DepositInstructions {
 
 #[derive(Clone, Copy, Debug)]
 pub struct WithdrawInstructions {
-    pub asset_out: AccountId,
+    pub min_asset_out: FungibleAsset,
     pub lp_amount_in: u64,
-    pub min_amount_out: u64,
     pub creator: AccountId,
     pub note_type: NoteType,
     pub deadline: u64,
@@ -412,10 +357,8 @@ pub struct WithdrawInstructions {
 
 #[derive(Clone, Copy, Debug)]
 pub struct SwapInstructions {
-    pub asset_in: AccountId,
-    pub amount_in: u64,
-    pub asset_out: AccountId,
-    pub min_amount_out: u64,
+    pub asset_in: FungibleAsset,
+    pub min_asset_out: FungibleAsset,
     pub creator: AccountId,
     pub beneficiary: Option<AccountId>,
     pub note_type: NoteType,
@@ -426,8 +369,7 @@ pub struct SwapInstructions {
 
 #[derive(Clone, Copy, Debug)]
 pub struct P2IDInstructions {
-    pub asset_in: AccountId,
-    pub amount_in: u64,
+    pub asset_in: FungibleAsset,
     pub target: AccountId,
     pub referential_serial_number: Option<Word>,
     pub note_type: NoteType,
@@ -447,9 +389,8 @@ impl TryFrom<TrustedNote> for NoteInstructions {
 
                 match asset_in {
                     Asset::Fungible(asset_in) => Ok(Self::P2ID(P2IDInstructions {
-                        asset_in: asset_in.faucet_id(),
-                        amount_in: asset_in.amount(),
-                        target: note.note().metadata().sender(), // cant really put in the reciever because P2ID does not have that info
+                        asset_in: *asset_in,
+                        target: note.note().metadata().sender(),
                         referential_serial_number: None,
                         note_type: note.note().metadata().note_type(),
                     })),
@@ -480,8 +421,7 @@ impl TryFrom<TrustedNote> for NoteInstructions {
                 let creator = AccountId::try_from_elements(creator_suffix, creator_prefix)
                     .map_err(|_| anyhow!("Couldn't parse creator_id from order note"))?;
                 Ok(Self::Deposit(DepositInstructions {
-                    asset_in: asset_in.faucet_id(),
-                    amount_in: asset_in.amount(),
+                    asset_in,
                     min_lp_amount_out,
                     creator,
                     note_type: note.note().metadata().note_type(),
@@ -492,21 +432,18 @@ impl TryFrom<TrustedNote> for NoteInstructions {
             }
             NoteKind::Withdraw => {
                 let vals = note.note().storage().items();
-                let requested_asset_out_id = AccountId::try_from_elements(vals[2], vals[3])?;
-                let asset_out =
-                    FungibleAsset::new(requested_asset_out_id, vals[0].as_canonical_u64())?;
-                let lp_withdraw_amount: u64 = vals[5].as_canonical_u64();
-                let deadline: u64 = vals[6].as_canonical_u64();
-                let p2id_tag: u64 = vals[7].as_canonical_u64();
+                let min_asset_out = word_to_asset(Word::new(vals[..4].try_into()?))?;
+                let lp_withdraw_amount: u64 = vals[4].as_canonical_u64();
+                let deadline: u64 = vals[5].as_canonical_u64();
+                let p2id_tag: u64 = vals[6].as_canonical_u64();
                 let creator_suffix = vals[10];
                 let creator_prefix = vals[11];
                 let creator = AccountId::try_from_elements(creator_suffix, creator_prefix)
                     .map_err(|_| anyhow!("Couldn't parse creator_id from order note"))?;
 
                 Ok(Self::Withdraw(WithdrawInstructions {
-                    asset_out: asset_out.faucet_id(),
+                    min_asset_out,
                     lp_amount_in: lp_withdraw_amount,
-                    min_amount_out: asset_out.amount(),
                     creator,
                     note_type: note.note().metadata().note_type(),
                     deadline,
@@ -526,13 +463,7 @@ impl TryFrom<TrustedNote> for NoteInstructions {
                 }
                 let asset_in = asset_in.unwrap_fungible();
                 let vals: &[Felt] = note.note().storage().items();
-                let requested: &[Felt] = vals
-                    .get(..4)
-                    .ok_or(anyhow!("note has fewer than 4 inputs"))?;
-                let requested_asset_out_id =
-                    AccountId::try_from_elements(requested[2], requested[3])?;
-                let asset_out =
-                    FungibleAsset::new(requested_asset_out_id, requested[0].as_canonical_u64())?;
+                let min_asset_out = word_to_asset(Word::new(vals[..4].try_into()?))?;
                 let deadline: u64 = vals[4].as_canonical_u64();
                 let p2id_tag: u64 = vals[5].as_canonical_u64();
                 let beneficiary_suffix = vals[8];
@@ -545,10 +476,8 @@ impl TryFrom<TrustedNote> for NoteInstructions {
                 let creator_id = AccountId::try_from_elements(creator_suffix, creator_prefix)
                     .map_err(|_| anyhow!("Couldn't parse creator_id from order note"))?;
                 Ok(Self::Swap(SwapInstructions {
-                    asset_in: asset_in.faucet_id(),
-                    amount_in: asset_in.amount(),
-                    asset_out: asset_out.faucet_id(),
-                    min_amount_out: asset_out.amount(),
+                    asset_in,
+                    min_asset_out,
                     creator: creator_id,
                     beneficiary: Some(beneficiary_id),
                     note_type: note.note().metadata().note_type(),
@@ -596,9 +525,7 @@ impl TrustedNoteElements {
             NoteTag::new(123)
         };
         let metadata = NoteMetadata::new(instructions.target, instructions.note_type).with_tag(tag);
-        let assets = NoteAssets::new(vec![
-            FungibleAsset::new(instructions.asset_in, instructions.amount_in)?.into(),
-        ])?;
+        let assets = NoteAssets::new(vec![instructions.asset_in.into()])?;
         Ok(Self {
             assets,
             metadata,
@@ -610,35 +537,33 @@ impl TrustedNoteElements {
     }
 
     pub fn from_swap_instructions(instructions: SwapInstructions) -> Result<Self> {
-        if instructions.amount_in.eq(&0) {
+        if instructions.asset_in.amount().eq(&0) {
             return Err(anyhow!("Amount in is zero"));
         }
-        if instructions.min_amount_out.eq(&0) {
+        if instructions.min_asset_out.amount().eq(&0) {
             return Err(anyhow!("Min amount out is zero"));
         }
-        if instructions.asset_in.eq(&instructions.asset_out) {
+        if instructions
+            .asset_in
+            .faucet_id()
+            .eq(&instructions.min_asset_out.faucet_id())
+        {
             return Err(anyhow!("Asset in cant be the same as asset out"));
         }
         if instructions.deadline.eq(&0) {
             return Err(anyhow!("Deadline is zero"));
         }
-        let requested_asset: Word = [
-            Felt::new(instructions.min_amount_out),
-            Felt::new(0),
-            instructions.asset_out.suffix(),
-            instructions.asset_out.prefix().as_felt(),
-        ]
-        .into();
+        let min_asset_out = asset_to_word(instructions.min_asset_out);
         let beneficiary = if let Some(beneficiary) = instructions.beneficiary {
             beneficiary
         } else {
             instructions.creator
         };
         let inputs = NoteStorage::new(vec![
-            requested_asset[0],
-            requested_asset[1],
-            requested_asset[2],
-            requested_asset[3],
+            min_asset_out[0],
+            min_asset_out[1],
+            min_asset_out[2],
+            min_asset_out[3],
             Felt::new(instructions.deadline),
             instructions.p2id_tag.into(),
             Felt::new(0),
@@ -648,9 +573,7 @@ impl TrustedNoteElements {
             instructions.creator.suffix(),
             instructions.creator.prefix().into(),
         ])?;
-        let assets = NoteAssets::new(vec![
-            FungibleAsset::new(instructions.asset_in, instructions.amount_in)?.into(),
-        ])?;
+        let assets = NoteAssets::new(vec![instructions.asset_in.into()])?;
         let metadata = NoteMetadata::new(instructions.creator, instructions.note_type)
             .with_tag(instructions.pool_tag);
         Ok(Self {
@@ -665,7 +588,7 @@ impl TrustedNoteElements {
 
     pub fn from_deposit_instructions(instructions: DepositInstructions) -> Result<Self> {
         // TODO: should make such DespositInstruction impossible to make rather than checking here?
-        if instructions.amount_in.eq(&0) {
+        if instructions.asset_in.amount().eq(&0) {
             return Err(anyhow!("Amount in is zero"));
         }
         if instructions.min_lp_amount_out.eq(&0) {
@@ -684,9 +607,7 @@ impl TrustedNoteElements {
             instructions.creator.suffix(),
             instructions.creator.prefix().into(),
         ])?;
-        let assets = NoteAssets::new(vec![
-            FungibleAsset::new(instructions.asset_in, instructions.amount_in)?.into(),
-        ])?;
+        let assets = NoteAssets::new(vec![instructions.asset_in.into()])?;
         let metadata = NoteMetadata::new(instructions.creator, instructions.note_type)
             .with_tag(instructions.pool_tag);
         Ok(Self {
@@ -703,29 +624,22 @@ impl TrustedNoteElements {
         if instructions.lp_amount_in.eq(&0) {
             return Err(anyhow!("Lp Amount in is zero"));
         }
-        if instructions.min_amount_out.eq(&0) {
+        if instructions.min_asset_out.amount().eq(&0) {
             return Err(anyhow!("Min amount out is zero"));
         }
         if instructions.deadline.eq(&0) {
             return Err(anyhow!("Deadline is zero"));
         }
-        let asset_out: Word = [
-            Felt::new(instructions.min_amount_out),
-            Felt::new(0),
-            instructions.asset_out.suffix(),
-            instructions.asset_out.prefix().as_felt(),
-        ]
-        .into();
-
+        let min_asset_out = asset_to_word(instructions.min_asset_out);
         let inputs = NoteStorage::new(vec![
-            asset_out[0],
-            asset_out[1],
-            asset_out[2],
-            asset_out[3],
-            Felt::new(0),
+            min_asset_out[0],
+            min_asset_out[1],
+            min_asset_out[2],
+            min_asset_out[3],
             Felt::new(instructions.lp_amount_in),
             Felt::new(instructions.deadline),
             instructions.p2id_tag.into(),
+            Felt::new(0),
             Felt::new(0),
             Felt::new(0),
             instructions.creator.suffix(),
@@ -756,10 +670,8 @@ mod tests {
         let test_utils = TestUtils::from_cache().await?;
         TrustedNote::new(
             NoteInstructions::Swap(SwapInstructions {
-                asset_in: test_utils.faucet_1,
-                asset_out: test_utils.faucet_2,
-                amount_in: 100_000,
-                min_amount_out: 100_000,
+                asset_in: FungibleAsset::new(test_utils.faucet_1, 100_000)?,
+                min_asset_out: FungibleAsset::new(test_utils.faucet_2, 100_000)?,
                 creator: test_utils.user_1,
                 beneficiary: None,
                 note_type: NoteType::Public,
@@ -777,12 +689,10 @@ mod tests {
         let test_utils = TestUtils::from_cache().await?;
         let res = TrustedNote::new(
             NoteInstructions::Swap(SwapInstructions {
-                amount_in: 100_000,
-                min_amount_out: 100_000,
+                asset_in: FungibleAsset::new(test_utils.faucet_1, 100_000)?,
+                min_asset_out: FungibleAsset::new(test_utils.faucet_1, 100_000)?,
                 beneficiary: None,
                 note_type: NoteType::Public,
-                asset_in: test_utils.faucet_1,
-                asset_out: test_utils.faucet_1,
                 creator: test_utils.user_1,
                 deadline: Utc::now().timestamp_millis() as u64,
                 p2id_tag: NoteTag::with_account_target(test_utils.user_2),
@@ -799,13 +709,11 @@ mod tests {
         let test_utils = TestUtils::from_cache().await?;
         let res = TrustedNote::new(
             NoteInstructions::Swap(SwapInstructions {
-                amount_in: 0,
-                min_amount_out: 100_000,
+                asset_in: FungibleAsset::new(test_utils.faucet_1, 0)?,
+                min_asset_out: FungibleAsset::new(test_utils.faucet_2, 100_000)?,
                 beneficiary: None,
                 note_type: NoteType::Public,
                 deadline: Utc::now().timestamp_millis() as u64,
-                asset_in: test_utils.faucet_1,
-                asset_out: test_utils.faucet_2,
                 creator: test_utils.user_1,
                 p2id_tag: NoteTag::with_account_target(test_utils.user_2),
                 pool_tag: NoteTag::with_account_target(test_utils.pool_1),
@@ -815,13 +723,11 @@ mod tests {
         assert!(res.is_err(), "Should have rejected constructing the note.");
         let res = TrustedNote::new(
             NoteInstructions::Swap(SwapInstructions {
-                amount_in: 100_000,
-                min_amount_out: 0,
+                asset_in: FungibleAsset::new(test_utils.faucet_1, 100_000)?,
+                min_asset_out: FungibleAsset::new(test_utils.faucet_2, 0)?,
                 beneficiary: None,
                 note_type: NoteType::Public,
                 deadline: Utc::now().timestamp_millis() as u64,
-                asset_in: test_utils.faucet_1,
-                asset_out: test_utils.faucet_2,
                 creator: test_utils.user_1,
                 p2id_tag: NoteTag::with_account_target(test_utils.user_2),
                 pool_tag: NoteTag::with_account_target(test_utils.pool_1),
@@ -837,11 +743,10 @@ mod tests {
         let test_utils = TestUtils::from_cache().await?;
         TrustedNote::new(
             NoteInstructions::Deposit(DepositInstructions {
-                amount_in: 10_000,
+                asset_in: FungibleAsset::new(test_utils.faucet_1, 10_000)?,
                 min_lp_amount_out: 10_000,
                 note_type: NoteType::Public,
                 deadline: Utc::now().timestamp_millis() as u64,
-                asset_in: test_utils.faucet_1,
                 creator: test_utils.user_1,
                 p2id_tag: NoteTag::with_account_target(test_utils.user_2),
                 pool_tag: NoteTag::with_account_target(test_utils.pool_1),
@@ -856,11 +761,10 @@ mod tests {
         let test_utils = TestUtils::from_cache().await?;
         let res = TrustedNote::new(
             NoteInstructions::Deposit(DepositInstructions {
-                amount_in: 0,
+                asset_in: FungibleAsset::new(test_utils.faucet_1, 0)?,
                 min_lp_amount_out: 10_000,
                 note_type: NoteType::Public,
                 deadline: Utc::now().timestamp_millis() as u64,
-                asset_in: test_utils.faucet_1,
                 creator: test_utils.user_1,
                 p2id_tag: NoteTag::with_account_target(test_utils.user_2),
                 pool_tag: NoteTag::with_account_target(test_utils.pool_1),
@@ -870,11 +774,10 @@ mod tests {
         assert!(res.is_err(), "Should have rejected constructing the note.");
         let res = TrustedNote::new(
             NoteInstructions::Deposit(DepositInstructions {
-                amount_in: 10_000,
+                asset_in: FungibleAsset::new(test_utils.faucet_1, 10_000)?,
                 min_lp_amount_out: 0,
                 note_type: NoteType::Public,
                 deadline: Utc::now().timestamp_millis() as u64,
-                asset_in: test_utils.faucet_1,
                 creator: test_utils.user_1,
                 p2id_tag: NoteTag::with_account_target(test_utils.user_2),
                 pool_tag: NoteTag::with_account_target(test_utils.pool_1),
@@ -890,11 +793,10 @@ mod tests {
         let test_utils = TestUtils::from_cache().await?;
         TrustedNote::new(
             NoteInstructions::Withdraw(WithdrawInstructions {
+                min_asset_out: FungibleAsset::new(test_utils.faucet_1, 10_000)?,
                 lp_amount_in: 10_000,
-                min_amount_out: 10_000,
                 note_type: NoteType::Public,
                 deadline: Utc::now().timestamp_millis() as u64,
-                asset_out: test_utils.faucet_1,
                 creator: test_utils.user_1,
                 p2id_tag: NoteTag::with_account_target(test_utils.user_2),
                 pool_tag: NoteTag::with_account_target(test_utils.pool_1),
@@ -909,11 +811,10 @@ mod tests {
         let test_utils = TestUtils::from_cache().await?;
         let res = TrustedNote::new(
             NoteInstructions::Withdraw(WithdrawInstructions {
+                min_asset_out: FungibleAsset::new(test_utils.faucet_1, 10_000)?,
                 lp_amount_in: 0,
-                min_amount_out: 10_000,
                 note_type: NoteType::Public,
                 deadline: Utc::now().timestamp_millis() as u64,
-                asset_out: test_utils.faucet_1,
                 creator: test_utils.user_1,
                 p2id_tag: NoteTag::with_account_target(test_utils.user_2),
                 pool_tag: NoteTag::with_account_target(test_utils.pool_1),
@@ -923,11 +824,10 @@ mod tests {
         assert!(res.is_err(), "Should have rejected constructing the note.");
         let res = TrustedNote::new(
             NoteInstructions::Withdraw(WithdrawInstructions {
+                min_asset_out: FungibleAsset::new(test_utils.faucet_1, 0)?,
                 lp_amount_in: 10_000,
-                min_amount_out: 0,
                 note_type: NoteType::Public,
                 deadline: Utc::now().timestamp_millis() as u64,
-                asset_out: test_utils.faucet_1,
                 creator: test_utils.user_1,
                 p2id_tag: NoteTag::with_account_target(test_utils.user_2),
                 pool_tag: NoteTag::with_account_target(test_utils.pool_1),

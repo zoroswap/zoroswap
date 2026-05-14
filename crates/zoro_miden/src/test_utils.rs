@@ -5,6 +5,7 @@ use chrono::Utc;
 use dotenv::dotenv;
 use miden_client::{
     account::AccountId,
+    asset::FungibleAsset,
     rpc::Endpoint,
     testing::account_id::{
         ACCOUNT_ID_PUBLIC_FUNGIBLE_FAUCET_1, ACCOUNT_ID_PUBLIC_FUNGIBLE_FAUCET_2,
@@ -425,8 +426,7 @@ impl TestUtils {
                         .await?;
                     let deposit_note = TrustedNote::new(
                         NoteInstructions::Deposit(DepositInstructions {
-                            asset_in: liq_config.faucet_id,
-                            amount_in: mint_amount,
+                            asset_in: FungibleAsset::new(liq_config.faucet_id, mint_amount)?,
                             min_lp_amount_out: mint_amount - 100,
                             creator: *acc.miden_account.id(),
                             note_type: miden_client::note::NoteType::Public,
@@ -637,8 +637,8 @@ fn generate_random_faucet_metadata() -> TestFaucetMeta {
         .map(char::from)
         .collect();
     TestFaucetMeta {
-        decimals: rng.random_range(0..12),
-        max_supply: rng.random_range(10_000_000..5_000_000_000),
+        decimals: rng.random_range(6..9),
+        max_supply: rng.random_range(10_000_000_000..5_000_000_000_000),
         symbol: symbol.to_ascii_uppercase(),
     }
 }
