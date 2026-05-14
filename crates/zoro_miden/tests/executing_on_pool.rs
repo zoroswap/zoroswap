@@ -175,6 +175,8 @@ async fn executing_swap() -> Result<()> {
         .get(&pool_config_token1.faucet_id)
         .unwrap();
 
+    let fee_amount = amount * pool_balances_before_1.settings().swap_fee.to::<u64>() / 1000000;
+
     prices.insert(pool_config_token0.faucet_id, PriceData::new_at_now(1));
     prices.insert(pool_config_token1.faucet_id, PriceData::new_at_now(1));
     info!("--- Creating note min amount out: {}", min_amount_out);
@@ -279,9 +281,17 @@ async fn executing_swap() -> Result<()> {
         pool_balances_after_0.balances().total_liabilities,
         pool_balances_before_0.balances().total_liabilities
     );
+
     assert_eq!(
-        pool_balances_after_1.balances().total_liabilities,
-        pool_balances_before_1.balances().total_liabilities
+        pool_balances_after_1
+            .balances()
+            .total_liabilities
+            .to::<u64>(),
+        pool_balances_before_1
+            .balances()
+            .total_liabilities
+            .to::<u64>()
+            + fee_amount
     );
 
     Ok(())
