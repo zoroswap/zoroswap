@@ -3,7 +3,17 @@ use std::{collections::HashMap, path::PathBuf};
 use anyhow::{Result, anyhow};
 use chrono::Utc;
 use dotenv::dotenv;
-use miden_client::{account::AccountId, asset::FungibleAsset, rpc::Endpoint};
+use miden_client::{
+    account::AccountId,
+    asset::FungibleAsset,
+    rpc::Endpoint,
+    testing::account_id::{
+        ACCOUNT_ID_PUBLIC_FUNGIBLE_FAUCET_1, ACCOUNT_ID_PUBLIC_FUNGIBLE_FAUCET_2,
+        ACCOUNT_ID_REGULAR_PUBLIC_ACCOUNT_IMMUTABLE_CODE,
+        ACCOUNT_ID_REGULAR_PUBLIC_ACCOUNT_IMMUTABLE_CODE_2,
+        ACCOUNT_ID_REGULAR_PUBLIC_ACCOUNT_UPDATABLE_CODE,
+    },
+};
 use rand::{Rng, distr::Alphabetic};
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
@@ -17,6 +27,12 @@ use crate::{
     note::{DepositInstructions, NoteInstructions, TrustedNote},
     pool::{LiquidityPoolConfig, ZoroPool},
 };
+
+const USER_1: u128 = ACCOUNT_ID_REGULAR_PUBLIC_ACCOUNT_IMMUTABLE_CODE;
+const USER_2: u128 = ACCOUNT_ID_REGULAR_PUBLIC_ACCOUNT_IMMUTABLE_CODE_2;
+const POOL_1: u128 = ACCOUNT_ID_REGULAR_PUBLIC_ACCOUNT_UPDATABLE_CODE;
+const FAUCET_1: u128 = ACCOUNT_ID_PUBLIC_FUNGIBLE_FAUCET_1;
+const FAUCET_2: u128 = ACCOUNT_ID_PUBLIC_FUNGIBLE_FAUCET_2;
 
 // TODO: Move actual config module here perhaps, this is the same as `RawLiquidityPoolConfig`
 #[derive(Deserialize, Serialize, Debug)]
@@ -138,6 +154,11 @@ pub struct TestUtils {
     cached_pools: Vec<TestPool>,
     miden_client: MidenClient,
     miden_endpoint: Endpoint,
+    pub user_1: AccountId,
+    pub user_2: AccountId,
+    pub faucet_1: AccountId,
+    pub faucet_2: AccountId,
+    pub pool_1: AccountId,
 }
 
 impl TestUtils {
@@ -233,6 +254,11 @@ impl TestUtils {
             cached_pools,
             miden_client,
             miden_endpoint,
+            user_1: USER_1.try_into()?,
+            user_2: USER_2.try_into()?,
+            faucet_1: FAUCET_1.try_into()?,
+            faucet_2: FAUCET_2.try_into()?,
+            pool_1: POOL_1.try_into()?,
         })
     }
     pub async fn add_cached_accounts(&mut self, n: usize) -> Result<()> {
@@ -347,6 +373,25 @@ impl TestUtils {
         let accounts = &self.cached_pools[..n];
         Ok(accounts.to_vec())
     }
+    pub async fn get_initialized_pools(&mut self, n: usize) -> Result<Vec<PoolWithMeta>> {
+        let mut pools = self.get_pools(n).await?;
+        let mut res = Vec::new();
+        for pool in pools.iter_mut() {
+            let zoro_pool = ZoroPool::new_from_existing_pool(
+                self.miden_endpoint(),
+                &self.miden_client().keystore_dir(),
+                &self.miden_client().store_dir(),
+                pool.miden_account.id(),
+                pool.pool_configs.clone(),
+            )
+            .await?;
+            res.push(PoolWithMeta {
+                zoro_pool,
+                test_pool: pool.clone(),
+            });
+        }
+        Ok(res)
+    }
     pub async fn get_funded_pools(&mut self, n: usize) -> Result<Vec<PoolWithMeta>> {
         let mut pools = self.get_pools(n).await?;
         let mut res = Vec::new();
@@ -410,19 +455,6 @@ impl TestUtils {
             });
         }
         Ok(res)
-    }
-    pub async fn get_two_accounts_two_faucets(
-        &mut self,
-    ) -> Result<((MidenAccount, MidenAccount), (TestFaucet, TestFaucet))> {
-        let mut accounts = self.get_accounts(2).await?.into_iter();
-        let mut faucets = self.get_faucets(2).await?.into_iter();
-        let (Some(acc0), Some(acc1)) = (accounts.next(), accounts.next()) else {
-            return Err(anyhow!("Failed getting accounts"));
-        };
-        let (Some(faucet0), Some(faucet1)) = (faucets.next(), faucets.next()) else {
-            return Err(anyhow!("Failed getting faucets"));
-        };
-        Ok(((acc0.miden_account, acc1.miden_account), (faucet0, faucet1)))
     }
     pub fn miden_endpoint(&self) -> Endpoint {
         self.miden_endpoint.clone()
