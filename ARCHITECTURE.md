@@ -1,7 +1,7 @@
 ### Architecture
 
-- **`zoro`**: The main crate that uses either curve implementation based on feature flags
-- **`zoro_miden_client`**: Communication with the Miden node.
-- **`zoro_primitives`**: Contains the `Curve` trait and a `DummyCurve` implementation
-- **`zoro_curve`**: Contains the proprietary `ZoroCurve` implementation (not published, kept private)
+- **`zoro`**: The main crate for trading engine and scripts
+- **`zoro_miden`**: Crate for miden related things reused in broader codebase.
+- **`zoro_curve_base`**: Contains the `Curve` trait and a `DummyCurve` implementation
+- **`zoro_curve_local`**: Contains the propriatary curve (not included publicly)
 

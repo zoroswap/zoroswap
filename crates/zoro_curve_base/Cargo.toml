@@ -1,12 +1,12 @@
 [package]
-name = "zoro_primitives"
-version = "0.4.1"
+name = "zoro_curve_base"
+version = "0.5.0"
 edition = "2024"
 license = "GPL-3.0-only"
+
+[dependencies]
+alloy = { workspace = true }
 
 [features]
 default = ["dummy-curve"]
 dummy-curve = []
-
-[dependencies]
-alloy = { workspace = true }

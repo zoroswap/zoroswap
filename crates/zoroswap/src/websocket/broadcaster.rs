@@ -122,12 +122,6 @@ mod tests {
             order_id: Uuid::new_v4(),
             note_id: "0x1234567890abcdef".to_string(),
             status: OrderStatus::Pending,
-            details: crate::websocket::messages::OrderUpdateDetails {
-                amount_in: 1000,
-                amount_out: None,
-                asset_in_faucet: "faucet1".to_string(),
-                asset_out_faucet: "faucet2".to_string(),
-            },
             timestamp: 1234567890,
         };
 

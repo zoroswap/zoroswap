@@ -1,34 +1,37 @@
 use crate::{
     config::Config,
-    oracle_sse::{PriceData, PriceMetadata},
+    oracle_sse::PriceMetadata,
     order::Order,
-    order::OrderType,
-    pool::PoolState,
-    websocket::{EventBroadcaster, PoolStateEvent},
+    websocket::{EventBroadcaster, messages::PoolStateEvent},
 };
-use alloy::primitives::U256;
 use anyhow::{Result, anyhow};
 use chrono::Utc;
 use dashmap::DashMap;
-use miden_client::{account::AccountId, note::Note};
-use std::sync::Arc;
-use tracing::{error, info, warn};
+use miden_client::{account::AccountId, note::NoteId};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
+use tracing::error;
 use uuid::Uuid;
-use zoro_miden_client::MidenClient;
+use zoro_miden::{note::TrustedNote, pool_state::PoolState, price::PriceData};
 
 pub struct AmmState {
     open_orders: DashMap<Uuid, Order>,
     closed_orders: DashMap<Uuid, Order>,
-    notes: DashMap<Uuid, Note>,
+    notes: DashMap<Uuid, TrustedNote>,
     note_ids: DashMap<Uuid, String>,
     liquidity_pools: DashMap<AccountId, PoolState>,
     oracle_prices: DashMap<AccountId, PriceData>,
     config: Arc<Config>,
     broadcaster: Arc<EventBroadcaster>,
+    valid_faucets: HashSet<AccountId>,
 }
 
 impl AmmState {
     pub async fn new(config: Config, broadcaster: Arc<EventBroadcaster>) -> Self {
+        let valid_faucets: HashSet<AccountId> =
+            config.liquidity_pools.iter().map(|p| p.faucet_id).collect();
         Self {
             open_orders: DashMap::new(),
             closed_orders: DashMap::new(),
@@ -38,52 +41,33 @@ impl AmmState {
             config: Arc::new(config),
             oracle_prices: DashMap::new(),
             broadcaster,
+            valid_faucets,
         }
     }
 
-    pub async fn init_liquidity_pool_states(&self, client: &mut MidenClient) -> Result<()> {
-        info!("Starting initiation of liq pool states.");
-        for liq_pool_config in &self.config.liquidity_pools {
-            let mut new_liq_pool_state =
-                PoolState::new(self.config.pool_account_id, liq_pool_config.faucet_id);
-            {
-                new_liq_pool_state
-                    .sync_from_chain(client, liq_pool_config.faucet_id)
-                    .await?;
-            }
-            self.liquidity_pools
-                .insert(liq_pool_config.faucet_id, new_liq_pool_state);
-        }
-        info!("Successfully initiated / synced pool states from the chain.");
-        Ok(())
-    }
-
-    pub fn add_order(&self, note: Note, order_type: OrderType) -> Result<(String, Uuid, Order)> {
-        // Get hex and ensure single 0x prefix to match frontend note.id().toString() format
-        let hex = note.id().to_hex();
-        let note_id = if hex.starts_with("0x") {
-            hex
-        } else {
-            format!("0x{}", hex)
-        };
-        let order = match order_type {
-            OrderType::Deposit => Order::from_deposit_note(&note),
-            OrderType::Withdraw => Order::from_withdraw_note(&note),
-            OrderType::Swap => Order::from_swap_note(&note),
-        }?;
-
+    pub fn add_order(&self, note: TrustedNote) -> Result<(String, Uuid, Order)> {
+        let hex = note.note().id().to_hex();
+        let order = Order::from_trusted_note(note.clone())?;
         let order_id = order.id;
-        // Store note_id mapping before inserting note (note might be consumed later)
-        self.note_ids.insert(order_id, note_id.clone());
+        if !order.instructions.involves_faucets(&self.valid_faucets) {
+            return Err(anyhow!("Wrong faucet ids for order."));
+        }
+        self.note_ids.insert(order_id, hex.clone());
         self.notes.insert(order_id, note);
         self.open_orders.insert(order_id, order);
-
-        Ok((note_id, order_id, order))
+        Ok((hex, order_id, order))
     }
 
-    pub fn get_note_id(&self, order_id: &Uuid) -> Option<String> {
+    pub fn get_order_id(&self, note_id: &NoteId) -> Option<Uuid> {
         // Look up from stored note_ids map (notes might be consumed during execution)
-        self.note_ids.get(order_id).map(|id| id.clone())
+        let note_id_hex = note_id.to_hex();
+        self.note_ids.iter().find_map(|i| {
+            if i.value().eq(&note_id_hex) {
+                Some(*i.key())
+            } else {
+                None
+            }
+        })
     }
 
     pub fn get_open_orders(&self) -> Vec<Order> {
@@ -95,7 +79,10 @@ impl AmmState {
     }
 
     pub fn flush_open_orders(&self) -> Vec<Order> {
-        let orders = self.get_open_orders();
+        let orders = self.get_open_orders().clone();
+        for order in orders.iter() {
+            self.closed_orders.insert(order.id, *order);
+        }
         self.open_orders.clear();
         orders
     }
@@ -110,23 +97,25 @@ impl AmmState {
                     );
                 }
                 Err(e) => {
-                    error!("Failed to map oracle id '{}' to faucet id: {e:?}", price_update.id)
+                    error!(
+                        "Failed to map oracle id '{}' to faucet id: {e:?}",
+                        price_update.id
+                    )
                 }
             }
         }
     }
 
-    pub fn update_pool_state(&self, faucet_id: &AccountId, new_pool_state: PoolState) {
-        if let Some(mut liq_pool) = self.liquidity_pools.get_mut(faucet_id) {
-            liq_pool.update_state(new_pool_state.balances, new_pool_state.lp_total_supply);
-            if let Err(e) = self.broadcaster.broadcast_pool_state(PoolStateEvent {
+    pub fn set_pool_states(&self, new_pool_state: HashMap<AccountId, PoolState>) {
+        let timestamp = Utc::now().timestamp_millis() as u64;
+        for (faucet_id, new_pool_state) in new_pool_state.iter() {
+            let _ = self.broadcaster.broadcast_pool_state(PoolStateEvent {
                 faucet_id: faucet_id.to_bech32(self.config.network_id.clone()),
-                balances: new_pool_state.balances,
-                timestamp: Utc::now().timestamp_millis() as u64,
-            }) {
-                warn!("Error sending broadcast: {e}")
-            };
-        };
+                balances: *new_pool_state.balances(),
+                timestamp,
+            });
+            self.liquidity_pools.insert(*faucet_id, *new_pool_state);
+        }
     }
 
     pub fn config(&self) -> Config {
@@ -142,46 +131,11 @@ impl AmmState {
     }
 
     /// Clones a note without removing it from state.
-    pub fn get_note(&self, id: &Uuid) -> Result<Note> {
-        self.notes
-            .get(id)
-            .map(|n| n.clone())
-            .ok_or(anyhow!("No note found for id {id} in state."))
-    }
-
-    pub fn pluck_note(&self, id: &Uuid) -> Result<(Uuid, Note)> {
+    pub fn pluck_note(&self, id: &Uuid) -> Result<TrustedNote> {
         self.notes
             .remove(id)
+            .map(|(_, n)| n)
             .ok_or(anyhow!("No note found for id {id} in state."))
-    }
-
-    /// Restores orders into `open_orders`.
-    pub fn add_orders(&self, orders: Vec<Order>) {
-        for order in orders {
-            self.open_orders.insert(order.id, order);
-        }
-    }
-
-    pub fn oracle_price_for_pair(
-        &self,
-        faucet_in: AccountId,
-        faucet_out: AccountId,
-    ) -> Result<U256> {
-        let price_in = self
-            .oracle_prices
-            .get(&faucet_in)
-            .ok_or(anyhow!("No oracle price found for faucet id: {faucet_in}"))?;
-        let price_out = self
-            .oracle_prices
-            .get(&faucet_out)
-            .ok_or(anyhow!("No oracle price found for faucet id: {faucet_out}"))?;
-        let price = price_in.price as f64 / price_out.price as f64;
-        let price = U256::from(price * 1e12);
-        info!(
-            "Price for pair: {price:?}. Price in: {}, Price out: {}",
-            price_in.price, price_out.price
-        );
-        Ok(price)
     }
 
     /// Check if oracle prices for specified tokens are fresh (within max_age_secs).

@@ -23,7 +23,7 @@ use alloy::primitives::{I256, U256};
 /// # Example
 ///
 /// ```ignore
-/// use zoro_primitives::traits::Curve;
+/// use zoro_curve_base::traits::Curve;
 /// use alloy::primitives::U256;
 ///
 /// fn calculate_swap<C: Curve>(curve: &C, b: U256, l: U256) -> U256 {

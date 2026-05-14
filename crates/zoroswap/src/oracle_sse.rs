@@ -4,13 +4,13 @@ use crate::{
     websocket::{EventBroadcaster, OraclePriceEvent},
 };
 use anyhow::Result;
-use chrono::Utc;
 use futures_util::StreamExt;
 use reqwest_eventsource::{Event, EventSource};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashSet, str::FromStr, sync::Arc};
 use tracing::{error, info};
 use url::Url;
+use zoro_miden::price::PriceData;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Binary {
@@ -22,6 +22,15 @@ pub struct Binary {
 pub struct Price {
     pub price: u64,
     pub publish_time: u64,
+}
+
+impl From<Price> for PriceData {
+    fn from(value: Price) -> Self {
+        PriceData {
+            price: value.price,
+            timestamp: value.publish_time,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -40,25 +49,6 @@ pub struct ParsedEvent {
 pub struct OracleSSEClient {
     state: Arc<AmmState>,
     broadcaster: Arc<EventBroadcaster>,
-}
-
-#[derive(Clone, Debug, Copy)]
-pub struct PriceData {
-    pub price: u64,
-    pub timestamp: u64,
-}
-
-impl PriceData {
-    pub fn new(timestamp: u64, price: u64) -> Self {
-        Self { price, timestamp }
-    }
-
-    pub fn new_at_now(price: u64) -> Self {
-        Self {
-            price,
-            timestamp: Utc::now().timestamp_millis() as u64,
-        }
-    }
 }
 
 impl OracleSSEClient {

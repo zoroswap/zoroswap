@@ -5,6 +5,7 @@ use std::{
     env,
     fs::{self},
 };
+use zoro_miden::pool::LiquidityPoolConfig;
 
 #[derive(Deserialize, Serialize)]
 pub struct RawLiquidityPoolConfig {
@@ -15,23 +16,14 @@ pub struct RawLiquidityPoolConfig {
     oracle_id: String,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct LiquidityPoolConfig {
-    pub name: &'static str,
-    pub symbol: &'static str,
-    pub decimals: u8,
-    pub faucet_id: AccountId,
-    pub oracle_id: &'static str,
-}
-
-impl LiquidityPoolConfig {
-    pub fn to_raw_config(self, network_id: NetworkId) -> RawLiquidityPoolConfig {
+impl RawLiquidityPoolConfig {
+    pub fn from_pool_config(liq_pool_config: &LiquidityPoolConfig, network_id: NetworkId) -> Self {
         RawLiquidityPoolConfig {
-            name: self.name.into(),
-            symbol: self.symbol.into(),
-            decimals: self.decimals,
-            faucet_id: self.faucet_id.to_bech32(network_id),
-            oracle_id: self.oracle_id.into(),
+            name: liq_pool_config.name.into(),
+            symbol: liq_pool_config.symbol.into(),
+            decimals: liq_pool_config.decimals,
+            faucet_id: liq_pool_config.faucet_id.to_bech32(network_id),
+            oracle_id: liq_pool_config.oracle_id.into(),
         }
     }
 }
@@ -85,18 +77,10 @@ pub struct Config {
     pub liquidity_pools: Vec<LiquidityPoolConfig>,
     pub amm_tick_interval: u64,
     pub network_id: NetworkId,
-    pub masm_path: &'static str,
-    pub keystore_path: &'static str,
-    pub store_path: &'static str,
 }
 
 impl Config {
-    pub fn from_config_file(
-        config_path: &str,
-        masm_path: &str,
-        keystore_path: &str,
-        store_path: &str,
-    ) -> Result<Self> {
+    pub fn from_config_file(config_path: &str) -> Result<Self> {
         let contents = fs::read_to_string(config_path)
             .map_err(|e| anyhow!("Error opening {config_path}: {e}"))?;
         let parsed: RawConfig = toml::from_str(&contents)?;
@@ -113,9 +97,6 @@ impl Config {
             .expect("Missing AMM_TICK_INTERVAL_MILLIS in .env file.")
             .parse()
             .expect("AMM_TICK_INTERVAL_MILLIS is not a valid u64");
-        let masm_path = Box::new(masm_path.to_string()).leak();
-        let keystore_path = Box::new(keystore_path.to_string()).leak();
-        let store_path = Box::new(store_path.to_string()).leak();
         let miden_endpoint = match miden_endpoint.as_str() {
             "testnet" => Endpoint::testnet(),
             "devnet" => Endpoint::devnet(),
@@ -131,9 +112,6 @@ impl Config {
             miden_endpoint,
             server_url,
             amm_tick_interval,
-            masm_path,
-            keystore_path,
-            store_path,
         };
         Ok(config)
     }
@@ -151,18 +129,5 @@ impl Config {
             .ok_or(anyhow!(
                 "No faucet found connected to oracle id: {oracle_id}"
             ))
-    }
-
-    pub fn get_asset_decimals_by_faucet_id(&self, faucet_id: &AccountId) -> Result<u8> {
-        self.liquidity_pools
-            .iter()
-            .find_map(|liq_pool| {
-                if liq_pool.faucet_id.eq(faucet_id) {
-                    Some(liq_pool.decimals)
-                } else {
-                    None
-                }
-            })
-            .ok_or(anyhow!("No faucet found for id: {faucet_id}"))
     }
 }

@@ -1,10 +1,66 @@
 [workspace]
-members = [
-	"crates/zoroswap",
-	"crates/zoro_primitives",
-	"crates/zoro_miden_client"
-]
 resolver = "2"
+members = ["crates/zoro_curve_base", "crates/zoro_miden", "crates/zoroswap"]
 
 [workspace.dependencies]
 alloy = { version = "1.0.23", features = ["full"] }
+miden-assembly = "0.22"
+miden-client = { version = "0.14.5", features = ["testing", "tonic"] }
+miden-client-sqlite-store = { version = "0.14.5" }
+miden-core = "0.22.1"
+miden-protocol = { version = "0.14.5", default-features = false, features = [
+  "testing",
+] }
+miden-standards = "0.14.5"
+miden-tx = "0.14.5"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[profile.dev]
+incremental = true
+codegen-units = 256
+
+[profile.dev.package.miden-agglayer]
+opt-level = 3
+debug-assertions = false
+
+[profile.dev.package.miden-block-prover]
+opt-level = 3
+debug-assertions = false
+
+[profile.dev.package.miden-client]
+opt-level = 3
+debug-assertions = false
+
+[profile.dev.package.miden-client-sqlite-store]
+opt-level = 3
+debug-assertions = false
+
+[profile.dev.package.miden-debug]
+opt-level = 3
+debug-assertions = false
+
+[profile.dev.package.miden-remote-prover-client]
+opt-level = 3
+debug-assertions = false
+
+[profile.dev.package.miden-standards]
+opt-level = 3
+debug-assertions = false
+
+[profile.dev.package.miden-testing]
+opt-level = 3
+debug-assertions = false
+
+[profile.dev.package.miden-tx]
+opt-level = 3
+debug-assertions = false
+
+[profile.dev.package.miden-tx-batch-prover]
+opt-level = 3
+debug-assertions = false
+
+[profile.release]
+lto = true
+panic = "abort"
+codegen-units = 1

@@ -1,32 +1,32 @@
 mod amm_state;
-mod common;
 mod config;
 mod faucet;
-mod note_serialization;
 mod notes_listener;
 mod oracle_sse;
 mod order;
-mod pool;
 mod server;
 mod trading_engine;
 mod websocket;
 
 use amm_state::AmmState;
 use clap::Parser;
-use common::{enable_wal_mode, instantiate_client};
 use config::Config;
 use dotenv::dotenv;
 use faucet::{FaucetMintInstruction, GuardedFaucet};
 use notes_listener::NotesListener;
 use oracle_sse::OracleSSEClient;
 use server::{AppState, create_router};
-use std::{sync::Arc, thread};
+use std::{
+    sync::Arc,
+    thread::{self},
+    time::Duration,
+};
 use tokio::{runtime::Builder, sync::mpsc::Sender};
-use tracing::{error, info, warn};
+use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
 use trading_engine::TradingEngine;
 use websocket::{ConnectionManager, EventBroadcaster};
-use zoro_miden_client::delete_client_store;
+use zoro_miden::client::delete_client_store;
 
 #[derive(Parser, Debug)]
 #[command(name = "zoro-server")]
@@ -40,13 +40,9 @@ struct Args {
     #[arg(short, long, default_value = "./crates/zoroswap/masm")]
     masm_path: String,
 
-    /// Path to the keystore directory
-    #[arg(short, long, default_value = "./keystore")]
-    keystore_path: String,
-
     /// Path to the SQLite store file
-    #[arg(short, long, default_value = "./store.sqlite3")]
-    store_path: String,
+    #[arg(short, long, default_value = "stores")]
+    store_dir: String,
 }
 
 fn main() {
@@ -62,46 +58,34 @@ fn main() {
     match runtime.block_on(async {
         info!("[INIT] Parsing config");
         info!("Deleting old sqlite3 store");
-        delete_client_store(&args.store_path).await;
+        delete_client_store(&args.store_dir).await;
 
-        // Enable WAL mode for better concurrent database access
-        // This must be done before any clients are created
-        if let Err(e) = enable_wal_mode(&args.store_path) {
-            // Non-fatal: WAL mode is an optimization, not a requirement
-            warn!("Failed to enable WAL mode: {e}");
-        }
-
-        let config = Config::from_config_file(
-            &args.config,
-            &args.masm_path,
-            &args.keystore_path,
-            &args.store_path,
-        ).map_err(|e| e.to_string())?;
-        let mut init_client = instantiate_client(config.clone(), config.store_path)
-            .await
-            .unwrap_or_else(|err| panic!("Failed to instantiate init client: {err:?}"));
+        let config = Config::from_config_file(&args.config).map_err(|e| e.to_string())?;
         info!(
-            "[INFO] Pool information\n\n\tpool_id: {}\n\tpool0 faucet_id: {}\n\tpool1 faucet_id: {}\n",
+            "[INFO] Pool information\n\n\tpool_id: {}",
             config.pool_account_id.to_bech32(config.network_id.clone()),
-            config.liquidity_pools[0].faucet_id.to_bech32(config.network_id.clone()),
-            config.liquidity_pools[1].faucet_id.to_bech32(config.network_id.clone()),
         );
+        for liq_pool in &config.liquidity_pools {
+            info!(
+                "[INFO] Liquidity pool: \t{}",
+                liq_pool.faucet_id.to_bech32(config.network_id.clone()),
+            );
+        }
         // Initialize WebSocket infrastructure
         info!("[INIT] Initializing WebSocket infrastructure");
         let event_broadcaster = Arc::new(EventBroadcaster::new());
-        let connection_manager = Arc::new(ConnectionManager::with_broadcaster(event_broadcaster.clone()));
+        let connection_manager = Arc::new(ConnectionManager::with_broadcaster(
+            event_broadcaster.clone(),
+        ));
 
         // Create and initialize AMM state
         let amm_state = Arc::new(AmmState::new(config, event_broadcaster.clone()).await);
 
         info!("[INIT] Initializing liquidity pool states");
-        amm_state
-            .init_liquidity_pool_states(&mut init_client)
-            .await
-            .map_err(|e| e.to_string())?;
-
         // Initialize components with broadcaster
-        let trading_engine = TradingEngine::new(&args.store_path, amm_state.clone(), event_broadcaster.clone());
+        let trading_engine = TradingEngine::new(amm_state.clone(), event_broadcaster.clone())
+            .await
+            .unwrap();
         let oracle_client = OracleSSEClient::new(amm_state.clone(), event_broadcaster.clone());
 
         info!("[INIT] Initializing oracle prices");
@@ -120,7 +104,6 @@ fn main() {
                 Sender<FaucetMintInstruction>,
                 NotesListener,
                 Arc<ConnectionManager>,
-                Arc<EventBroadcaster>,
             ),
             String,
         >((
@@ -131,7 +114,6 @@ fn main() {
             faucet_tx,
             notes_listener,
             connection_manager,
-            event_broadcaster,
         ))
     }) {
         Ok((
@@ -142,21 +124,33 @@ fn main() {
             faucet_tx,
             mut notes_listener,
             connection_manager,
-            event_broadcaster,
         )) => {
             thread::scope(|s| {
                 s.spawn(move || {
-                    let rt = Builder::new_current_thread().enable_all().build()
-                        .unwrap_or_else(|err| panic!("Failed building runtime for trading engine: {err:?}"));
+                    let rt = Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .unwrap_or_else(|err| {
+                            panic!("Failed building runtime for trading engine: {err:?}")
+                        });
                     rt.block_on(async {
                         info!("[RUN] Starting trading engine");
-                        trading_engine.start().await;
+                        if let Err(e) = trading_engine.start().await {
+                            error!(
+                                "Critical error on trading engine: {e:?}. Exiting with status 1."
+                            );
+                            std::process::exit(1);
+                        }
                     });
                 });
-
+                std::thread::sleep(Duration::from_millis(100));
                 s.spawn(move || {
-                    let rt = Builder::new_current_thread().enable_all().build()
-                        .unwrap_or_else(|err| panic!("Failed building runtime for guarded faucet: {err:?}"));
+                    let rt = Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .unwrap_or_else(|err| {
+                            panic!("Failed building runtime for guarded faucet: {err:?}")
+                        });
                     rt.block_on(async {
                         info!("[RUN] Starting guarded faucet");
                         if let Err(e) = guarded_faucet.start().await {
@@ -165,17 +159,26 @@ fn main() {
                         }
                     });
                 });
-
+                std::thread::sleep(Duration::from_millis(100));
                 s.spawn(move || {
-                    let rt = Builder::new_current_thread().enable_all().build()
-                        .unwrap_or_else(|err| panic!("Failed building runtime for notes listener: {err:?}"));
+                    let rt = Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .unwrap_or_else(|err| {
+                            panic!("Failed building runtime for notes listener: {err:?}")
+                        });
                     rt.block_on(async {
                         info!("[RUN] Starting notes listener");
-                        notes_listener.start().await
+                        if let Err(e) = notes_listener.start().await {
+                            error!(
+                                "Critical error on notes listener: {e:?}. Exiting with status 1."
+                            );
+                            std::process::exit(1);
+                        }
                     });
                 });
 
-                run_main_tokio((oracle_client, amm_state, faucet_tx, connection_manager, event_broadcaster));
+                run_main_tokio((oracle_client, amm_state, faucet_tx, connection_manager));
             });
         }
         Err(e) => {
@@ -186,12 +189,11 @@ fn main() {
 
 #[tokio::main]
 async fn run_main_tokio(
-    (mut oracle_client, original_amm_state, faucet_tx, connection_manager, event_broadcaster): (
+    (mut oracle_client, original_amm_state, faucet_tx, connection_manager): (
         OracleSSEClient,
         Arc<AmmState>,
         Sender<FaucetMintInstruction>,
         Arc<ConnectionManager>,
-        Arc<EventBroadcaster>,
     ),
 ) {
     let server_url = original_amm_state.config().server_url;
@@ -214,7 +216,6 @@ async fn run_main_tokio(
         amm_state: original_amm_state.clone(),
         faucet_tx,
         connection_manager,
-        event_broadcaster,
     });
     let listener = tokio::net::TcpListener::bind(server_url)
         .await

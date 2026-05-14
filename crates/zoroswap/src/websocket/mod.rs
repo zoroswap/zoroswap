@@ -6,6 +6,4 @@ pub mod messages;
 pub use broadcaster::EventBroadcaster;
 pub use connection_manager::ConnectionManager;
 pub use handlers::websocket_handler;
-pub use messages::{
-    OraclePriceEvent, OrderStatus, OrderUpdateDetails, OrderUpdateEvent, PoolStateEvent,
-};
+pub use messages::{OraclePriceEvent, OrderStatus, OrderUpdateEvent};

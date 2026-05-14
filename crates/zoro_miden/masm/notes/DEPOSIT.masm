@@ -1,9 +1,12 @@
 use miden::protocol::active_note
 use miden::protocol::output_note
-use miden::core::crypto::hashes::rpo256
+use miden::core::crypto::hashes::poseidon2
 use miden::core::sys
 
 use zoroswap::zoropool
+
+use miden::protocol::asset
+use zoro_miden::lib::asset_utils
 
 # ERRORS
 # =================================================================================================
@@ -88,13 +91,14 @@ const RESERVE_WITH_SLIPPAGE = ARGS_WORD_0 + 3  # 0x0043
 
 
 # memory addresses of the assets
-const DEPOSIT_ASSET_WORD = 0x0060
+const DEPOSIT_ASSET_KEY = 0x0060
 # memory locations based on IN_ASSET_WORD
-const DEPOSIT_AMOUNT = DEPOSIT_ASSET_WORD
-const DEPOSIT_ASSET_EMPTY_FELT = DEPOSIT_ASSET_WORD + 1
-const DEPOSIT_ASSET_ID_PREFIX = DEPOSIT_ASSET_WORD + 3
-const DEPOSIT_ASSET_ID_SUFFIX = DEPOSIT_ASSET_WORD + 2
+const DEPOSIT_ASSET_EMPTY_FELT_0 = DEPOSIT_ASSET_KEY
+const DEPOSIT_ASSET_EMPTY_FELT_1 = DEPOSIT_ASSET_KEY + 1
+const DEPOSIT_ASSET_ID_PREFIX = DEPOSIT_ASSET_KEY + 3
+const DEPOSIT_ASSET_ID_SUFFIX = DEPOSIT_ASSET_KEY + 2
 
+const DEPOSIT_ASSET_AMOUNT = DEPOSIT_ASSET_KEY + 4
 
 # "constant" MEMORY
 # =================================================================================================
@@ -103,13 +107,13 @@ const P2ID_SCRIPT_ROOT_WORD = 0x0080
 
 
 proc store_asset_in_to_memory
-    push.DEPOSIT_ASSET_WORD exec.active_note::get_assets assert.err=ERR_DEPOSIT_WRONG_NUMBER_OF_ASSETS
+    push.DEPOSIT_ASSET_KEY exec.active_note::get_assets assert.err=ERR_DEPOSIT_WRONG_NUMBER_OF_ASSETS
     drop
 end
 
 proc store_inputs_to_memory
     # store note inputs into memory starting at address 0
-    push.INPUTS_POINTER exec.active_note::get_inputs
+    push.INPUTS_POINTER exec.active_note::get_storage
     # => [num_inputs, inputs_ptr]
     # make sure the number of inputs is N
     eq.NUMBER_OF_INPUTS assert.err=ERR_DEPOSIT_WRONG_NUMBER_OF_INPUTS
@@ -117,12 +121,11 @@ proc store_inputs_to_memory
     drop
 
 end
-# @note TODO: pool stats will likely need to go through the advice stack
 proc store_args_to_memory
-    mem_store.LIABILITIES
-    mem_store.RESERVE
-    mem_store.RESERVE_WITH_SLIPPAGE
     mem_store.LP_AMOUNT_OUT
+    mem_store.RESERVE_WITH_SLIPPAGE
+    mem_store.RESERVE
+    mem_store.LIABILITIES
 end
 
 
@@ -156,7 +159,7 @@ proc build_p2id_recipient_hash
 
     push.2.4000
     # => [ptr=4000, num_elements=2, SERIAL_SCRIPT_HASH]
-    exec.rpo256::hash_elements
+    exec.poseidon2::hash_elements
     # => [INPUTS_COMMITMENT, SERIAL_SCRIPT_HASH]
     hmerge
     # => [P2ID_RECIPIENT]
@@ -207,8 +210,8 @@ proc create_p2id_reverse_note
 end
 
 proc store_p2id_script_hash
-    # P2ID script root from miden-standards v0.13 WellKnownNote::P2ID.script_root()
-    push.13362761878458161062.15090726097241769395.444910447169617901.3558201871398422326
+    # P2ID script root from miden-standards v0.14 StandardNote::P2ID.script_root()
+    push.3672480923625915098.9159872301314598941.4201800931930002347.17479343943140556328
     mem_storew_be.P2ID_SCRIPT_ROOT_WORD dropw
 end
 
@@ -218,17 +221,18 @@ proc execute_DEPOSIT
     lt
     # min amount out is not met
     if.true
-        mem_loadw_be.DEPOSIT_ASSET_WORD
+        mem_loadw_be.DEPOSIT_ASSET_KEY
         exec.create_p2id_reverse_note
         call.zoropool::bounce_asset
     else
-        mem_load.LP_AMOUNT_OUT mem_load.DEPOSIT_CREATOR_ID_SUFFIX mem_load.DEPOSIT_CREATOR_ID_PREFIX
-        # => [creator_id_prefix, creator_id_suffix]
+        mem_load.LP_AMOUNT_OUT mem_load.DEPOSIT_CREATOR_ID_PREFIX mem_load.DEPOSIT_CREATOR_ID_SUFFIX 
+        # => [creator_id_prefix, creator_id_suffix, lp_amount_out]
         push.0 mem_load.RESERVE_WITH_SLIPPAGE mem_load.RESERVE mem_load.LIABILITIES 
-         # => [liabilities,reserve, reserve_with_slippage, 0, creator_id_prefix, creator_id_suffix]
-        push.0.0.0.0
-        mem_loadw_be.DEPOSIT_ASSET_WORD
-        # => [ASSET, liabilities,reserve, reserve_with_slippage, 0, creator_id_prefix, creator_id_suffix]
+         # => [liabilities, reserve, reserve_with_slippage, 0, creator_id_suffix, creator_id_prefix, lp_amount_out]
+        padw push.DEPOSIT_ASSET_KEY add.4 mem_loadw_le
+        padw mem_loadw_le.DEPOSIT_ASSET_KEY
+        exec.asset_utils::compress_asset
+        # => [ASSET, liabilities, reserve, reserve_with_slippage, 0, creator_id_suffix, creator_id_prefix, lp_amount_out]
         call.zoropool::deposit
     end
 
@@ -236,7 +240,8 @@ proc execute_DEPOSIT
     #call.zoropool::set_pool0_state
 end
 
-begin
+@note_script
+pub proc main
     exec.store_args_to_memory
     exec.store_inputs_to_memory
     exec.store_asset_in_to_memory

@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-
-use crate::pool::PoolBalances;
+use zoro_miden::{pool_execution::ExecutionResult, pool_state::PoolBalances};
 
 /// Messages sent from client to server
 #[derive(Debug, Deserialize, Clone)]
@@ -30,7 +29,6 @@ pub enum ServerMessage {
         note_id: String,
         status: OrderStatus,
         timestamp: u64,
-        details: OrderUpdateDetails,
     },
     PoolStateUpdate {
         faucet_id: String,
@@ -136,13 +134,17 @@ pub enum OrderStatus {
     Expired,
 }
 
-/// Details of an order update
-#[derive(Debug, Serialize, Clone)]
-pub struct OrderUpdateDetails {
-    pub amount_in: u64,
-    pub amount_out: Option<u64>,
-    pub asset_in_faucet: String,
-    pub asset_out_faucet: String,
+impl From<ExecutionResult> for OrderStatus {
+    fn from(value: ExecutionResult) -> Self {
+        match value {
+            ExecutionResult::SwapSuccess(_) => OrderStatus::Executed,
+            ExecutionResult::DepositSuccess(_) => OrderStatus::Executed,
+            ExecutionResult::WithdrawSuccess(_) => OrderStatus::Executed,
+            ExecutionResult::PastDeadline => OrderStatus::Expired,
+            ExecutionResult::Failed => OrderStatus::Failed,
+            ExecutionResult::FailedConsuming => OrderStatus::Failed,
+        }
+    }
 }
 
 /// Event types for internal broadcasting
@@ -151,7 +153,6 @@ pub struct OrderUpdateEvent {
     pub order_id: Uuid,
     pub note_id: String,
     pub status: OrderStatus,
-    pub details: OrderUpdateDetails,
     pub timestamp: u64,
 }
 
@@ -206,12 +207,6 @@ mod tests {
             note_id: "0xabcdef123456".to_string(),
             status: OrderStatus::Executed,
             timestamp: 1234567890,
-            details: OrderUpdateDetails {
-                amount_in: 1000,
-                amount_out: Some(2000),
-                asset_in_faucet: "faucet1".to_string(),
-                asset_out_faucet: "faucet2".to_string(),
-            },
         };
 
         let json = serde_json::to_string(&msg).unwrap();

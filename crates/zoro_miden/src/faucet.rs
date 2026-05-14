@@ -1,0 +1,67 @@
+use std::path::PathBuf;
+
+use anyhow::Result;
+use miden_client::{
+    Felt,
+    account::{
+        Account, AccountBuilder, AccountStorageMode, AccountType,
+        component::{AuthControlled, BasicFungibleFaucet},
+    },
+    assembly::CodeBuilder,
+    asset::TokenSymbol,
+    auth::{AuthScheme, AuthSecretKey, AuthSingleSig},
+    keystore::{FilesystemKeyStore, Keystore},
+    transaction::TransactionScript,
+};
+use rand::RngCore;
+
+use crate::client::MidenClient;
+
+/// Creates a basic fungible faucet account.
+///
+/// # Arguments
+/// * `client`: Miden client instance
+/// * `keystore`: Keystore to store the faucet's authentication key
+///
+/// # Returns
+/// The created faucet `Account`
+pub async fn create_basic_faucet(
+    miden_client: &mut MidenClient,
+    keystore: FilesystemKeyStore,
+) -> Result<Account> {
+    let mut init_seed = [0u8; 32];
+    miden_client.client_mut().rng().fill_bytes(&mut init_seed);
+    let key_pair = AuthSecretKey::new_falcon512_poseidon2_with_rng(miden_client.client_mut().rng());
+    let symbol = TokenSymbol::new("MID")
+        .unwrap_or_else(|err| panic!("Failed to create token symbol: {err:?}"));
+    let decimals = 8;
+    let max_supply = Felt::new(1_000_000_000);
+    let builder = AccountBuilder::new(init_seed)
+        .account_type(AccountType::FungibleFaucet)
+        .storage_mode(AccountStorageMode::Public)
+        .with_auth_component(AuthSingleSig::new(
+            key_pair.public_key().to_commitment(),
+            AuthScheme::Falcon512Poseidon2,
+        ))
+        .with_component(BasicFungibleFaucet::new(symbol, decimals, max_supply).unwrap())
+        .with_component(AuthControlled::allow_all());
+
+    let account = builder.build().unwrap();
+    miden_client
+        .client_mut()
+        .add_account(&account, false)
+        .await?;
+    keystore
+        .add_key(&key_pair, account.id())
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to add key: {e:?}"))?;
+    Ok(account)
+}
+
+pub fn compile_mint_script() -> Result<TransactionScript> {
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    let masm_file_path = PathBuf::from_iter(&[manifest_dir, "masm", "scripts", "mint.masm"]);
+    let masm_file = std::fs::read_to_string(masm_file_path)?;
+    let tx_script = CodeBuilder::new().compile_tx_script(masm_file)?;
+    Ok(tx_script)
+}
