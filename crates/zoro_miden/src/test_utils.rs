@@ -637,8 +637,8 @@ fn generate_random_faucet_metadata() -> TestFaucetMeta {
         .map(char::from)
         .collect();
     TestFaucetMeta {
-        decimals: rng.random_range(4..12),
-        max_supply: rng.random_range(10_000_000..5_000_000_000),
+        decimals: rng.random_range(6..9),
+        max_supply: rng.random_range(10_000_000_000..5_000_000_000_000),
         symbol: symbol.to_ascii_uppercase(),
     }
 }

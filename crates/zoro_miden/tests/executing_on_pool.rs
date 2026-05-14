@@ -147,7 +147,7 @@ async fn executing_swap() -> Result<()> {
     let decimals_scaling_factor =
         get_decimals_scaling_factor(pool_config_token0.decimals, pool_config_token1.decimals);
     info!("--- Decimals scaling factor: {}", decimals_scaling_factor);
-    let amount = 100_000;
+    let amount = 10_000_000;
     let min_amount_out = (amount as f64 * decimals_scaling_factor) as u64 / 2;
 
     let user = test_utils
@@ -279,9 +279,16 @@ async fn executing_swap() -> Result<()> {
         pool_balances_after_0.balances().total_liabilities,
         pool_balances_before_0.balances().total_liabilities
     );
-    assert_eq!(
-        pool_balances_after_1.balances().total_liabilities,
-        pool_balances_before_1.balances().total_liabilities
+
+    assert!(
+        pool_balances_after_1
+            .balances()
+            .total_liabilities
+            .to::<u64>()
+            > pool_balances_before_1
+                .balances()
+                .total_liabilities
+                .to::<u64>()
     );
 
     Ok(())

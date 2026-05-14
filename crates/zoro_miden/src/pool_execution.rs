@@ -166,6 +166,19 @@ impl PoolExecution {
                     .get(&instructions.min_asset_out.faucet_id())
                     .ok_or(anyhow!("No price for asset {}", instructions.min_asset_out))?;
                 let price = base_price.quote_with(quote_price.price);
+
+                let (amount_out, new_base_pool_balances, new_quote_pool_balances) =
+                    get_curve_amount_out(
+                        &pool_state_base,
+                        &pool_state_quote,
+                        U256::from(pool_state_base.metadata().asset_decimals),
+                        U256::from(pool_state_quote.metadata().asset_decimals),
+                        U256::from(instructions.asset_in.amount()),
+                        price,
+                    )
+                    .unwrap();
+
+                println!("past_deadline {past_deadline}, amount_out: {amount_out:?}");
                 let (p2id, amount_out, result, counterparty_account) = if !past_deadline
                     && let Ok((amount_out, new_base_pool_balances, new_quote_pool_balances)) =
                         get_curve_amount_out(

@@ -18,7 +18,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [profile.dev]
 incremental = true
-codegen-units = 16
+codegen-units = 256
 
 [profile.dev.package.miden-agglayer]
 opt-level = 3
