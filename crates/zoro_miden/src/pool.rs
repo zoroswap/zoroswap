@@ -17,11 +17,12 @@ use miden_client::{
     asset::AssetVault,
     auth::{AuthScheme, AuthSecretKey, AuthSingleSig},
     keystore::{FilesystemKeyStore, Keystore},
-    note::{NoteId, NoteTag},
+    note::{Note, NoteDetails, NoteId, NoteRecipient, NoteTag},
     rpc::Endpoint,
-    transaction::TransactionRequestBuilder,
+    transaction::{TransactionRequest, TransactionRequestBuilder},
     vm::AdviceMap,
 };
+use miden_tx::NoteConsumptionInfo;
 use rand::RngCore;
 use tokio::time::sleep;
 use tracing::{error, info, warn};
@@ -51,6 +52,29 @@ pub struct ZoroPool {
     pool_states: HashMap<AccountId, PoolState>,
     liquidity_pools: Vec<LiquidityPoolConfig>,
     endpoint: Endpoint,
+}
+
+#[derive(Default)]
+struct BatchExecutionDetails {
+    advice_map: AdviceMap,
+    input_notes: Vec<(Note, Option<Word>)>,
+    expected_future_notes: Vec<(NoteDetails, NoteTag)>,
+    expected_output_recipients: Vec<NoteRecipient>,
+    new_pool_states: HashMap<AccountId, PoolState>,
+}
+
+impl TryFrom<BatchExecutionDetails> for TransactionRequest {
+    type Error = anyhow::Error;
+    fn try_from(value: BatchExecutionDetails) -> std::result::Result<Self, Self::Error> {
+        let consume_req = TransactionRequestBuilder::new()
+            .extend_advice_map(value.advice_map)
+            .input_notes(value.input_notes)
+            .expected_future_notes(value.expected_future_notes)
+            .expected_output_recipients(value.expected_output_recipients)
+            .build()
+            .map_err(|e| anyhow::anyhow!("Failed to build batch transaction request: {}", e))?;
+        Ok(consume_req)
+    }
 }
 
 impl ZoroPool {
@@ -333,26 +357,73 @@ impl ZoroPool {
         &mut self,
         notes: Vec<TrustedNote>,
         prices: HashMap<AccountId, PriceData>,
-    ) -> Result<Vec<(NoteId, ExecutionResult)>> {
+    ) -> Result<HashMap<NoteId, ExecutionResult>> {
         info!("Executing {} notes on the zoro pool", notes.len());
+        if notes.is_empty() {
+            return Ok(HashMap::default());
+        }
         self.miden_client.sync_state().await?;
+        let (note_execution_results, batch_execution_details) =
+            self.prepare_execution_batch(notes, prices).await?;
+        if batch_execution_details.input_notes.is_empty() {
+            // no notes are eligible for execution
+            return Ok(note_execution_results);
+        }
+        let start = Instant::now();
+        let (len_input_notes, len_advice_map, len_future_notes, len_output_recipients) = (
+            batch_execution_details.input_notes.len(),
+            batch_execution_details.advice_map.len(),
+            batch_execution_details.expected_future_notes.len(),
+            batch_execution_details.expected_output_recipients.len(),
+        );
+        let new_pool_states = batch_execution_details.new_pool_states.clone();
+        let tx_id = self
+            .miden_client
+            .client_mut()
+            .submit_new_transaction(
+                *self.miden_account.id(),
+                batch_execution_details.try_into()?,
+            )
+            .await
+            .inspect_err(|e| {
+                error!(
+                    // error = ?e,
+                    error = e.to_string(),
+                    pool_id = %self.miden_account.id().to_hex(),
+                    input_notes = len_input_notes,
+                    advice_map = len_advice_map,
+                    expected_future_notes = len_future_notes,
+                    expected_output_recipients = len_output_recipients,
+                    "Failed to submit batch transaction",
+                );
+            })?;
+        info!(len_notes = len_input_notes, time_elapsed= ?start.elapsed(), "Executed notes");
+        MidenClient::print_transaction_info(&tx_id);
+        self.miden_client.sync_state().await?;
+        self.pool_states = new_pool_states;
+        self.print_pool_states();
+        Ok(note_execution_results)
+    }
+
+    async fn prepare_execution_details(
+        &mut self,
+        notes: Vec<TrustedNote>,
+        prices: HashMap<AccountId, PriceData>,
+    ) -> Result<(HashMap<NoteId, ExecutionResult>, BatchExecutionDetails)> {
+        info!("Preparing execution details for {} notes", notes.len());
         let mut advice_map = AdviceMap::default();
         let mut input_notes = Vec::with_capacity(notes.len());
         let mut expected_future_notes = Vec::with_capacity(notes.len());
         let mut expected_output_recipients = Vec::with_capacity(notes.len());
         let mut pool_states = self.pool_states.clone();
-
-        // self.print_pool_states();
-        // self.miden_account
-        //     .print_vault(self.endpoint.to_network_id())
-        //     .await?;
-
-        let mut results: Vec<(NoteId, ExecutionResult)> = Vec::with_capacity(notes.len());
+        let mut note_execution_results: HashMap<NoteId, ExecutionResult> =
+            HashMap::with_capacity(notes.len());
         for note in notes {
             let note_id = note.note().id();
-            let execution_details = PoolExecution::new(note, &pool_states, &prices)?;
-            execution_details.print_execution_details(self.endpoint.to_network_id());
-            let local_simulation_clone = execution_details.clone();
+            let (execution_result, execution_details) =
+                PoolExecution::new(note, &pool_states, &prices)?;
+            execution_details
+                .print_execution_details(self.endpoint.to_network_id(), &execution_result);
             let PoolExecution {
                 advice_map_value,
                 input_note,
@@ -360,7 +431,6 @@ impl ZoroPool {
                 expected_output_recipient,
                 new_pool_states,
                 counterparty_account,
-                result,
             } = execution_details;
 
             // Import the account if unknown
@@ -376,137 +446,91 @@ impl ZoroPool {
                     .import_account(&counterparty_account)
                     .await?;
             }
-            // Simulate execution first to avoid poisoned notes
-            match self.simulate_note_execution(&local_simulation_clone).await {
-                Err(e) => warn!(
-                    id = note_id.to_hex(),
-                    error = ?e,
-                    note_id = note_id.to_hex(),
-                    "Rejected in the simulation"
-                ),
-                Ok(tx_result) => {
-                    // let proven_tx = self
-                    //     .miden_client
-                    //     .client_mut()
-                    //     .prove_transaction(&tx_result)
-                    //     .await?;
-                    // let tx_id = proven_tx.id();
-                    // let block_num = self
-                    //     .miden_client
-                    //     .client_mut()
-                    //     .submit_proven_transaction(proven_tx, &tx_result)
-                    //     .await?;
-                    // info!(note_id = note_id.to_hex(), time_elapsed = ?start.elapsed(), "Processed note");
-                    // MidenClient::print_transaction_info(&tx_id);
-                    // Add to execution
-                    if let Some(advice_map_value) = advice_map_value {
-                        advice_map.insert(advice_map_value.0, advice_map_value.1);
-                    };
-                    if let Some(input_note) = input_note {
-                        input_notes.push(input_note);
-                    };
-                    if let Some(expected_future_note) = expected_future_note {
-                        expected_future_notes.push(expected_future_note);
-                    };
-                    if let Some(expected_output_recipient) = expected_output_recipient {
-                        expected_output_recipients.push(expected_output_recipient);
-                    };
-                    if let Some(new_pool_states) = new_pool_states {
-                        pool_states = new_pool_states
-                    };
-                }
-            }
-            results.push((note_id, result));
+
+            if let Some(advice_map_value) = advice_map_value {
+                advice_map.insert(advice_map_value.0, advice_map_value.1);
+            };
+            if let Some(input_note) = input_note {
+                input_notes.push(input_note);
+            };
+            if let Some(expected_future_note) = expected_future_note {
+                expected_future_notes.push(expected_future_note);
+            };
+            if let Some(expected_output_recipient) = expected_output_recipient {
+                expected_output_recipients.push(expected_output_recipient);
+            };
+            if let Some(new_pool_states) = new_pool_states {
+                pool_states = new_pool_states
+            };
+
+            note_execution_results.insert(note_id, execution_result);
         }
-        let start = Instant::now();
-        let len_future_notes = expected_future_notes.len();
-        let len_output_recipients = expected_output_recipients.len();
-        let len_input_notes = input_notes.len();
-        let len_advice_map = advice_map.len();
-        let consume_req = TransactionRequestBuilder::new()
-            .extend_advice_map(advice_map)
-            .input_notes(input_notes)
-            .expected_future_notes(expected_future_notes)
-            .expected_output_recipients(expected_output_recipients)
-            .build()
-            .map_err(|e| anyhow::anyhow!("Failed to build batch transaction request: {}", e))?;
-        let mut client = self.miden_client.client_mut();
-        let tx_res = client
-            .execute_transaction(*self.miden_account.id(), consume_req)
-            .await
-            .map_err(|e| {
-                error!(
-                    // error = ?e,
-                    error = e.to_string(),
-                    pool_id = %self.miden_account.id().to_hex(),
-                    input_notes = len_input_notes,
-                    advice_map = len_advice_map,
-                    expected_future_notes = len_future_notes,
-                    expected_output_recipients = len_output_recipients,
-                    "Failed to submit batch transaction",
-                );
-                e
-            })?;
-        let proven_tx = client.prove_transaction(&tx_res).await?;
-        let block_nr = client.submit_proven_transaction(proven_tx, &tx_res).await?;
-        client.apply_transaction(&tx_res, block_nr).await?;
-        info!(len_notes = len_input_notes, time_elapsed= ?start.elapsed(), "Executed notes");
-        info!(
-            "tx_res.delta.storage: {:?}",
-            tx_res.account_delta().storage()
-        );
-        MidenClient::print_transaction_info(&tx_res.id());
-        self.miden_client.sync_state().await?;
-        self.pool_states = pool_states;
-        self.print_pool_states();
-        Ok(results)
+
+        Ok((
+            note_execution_results,
+            BatchExecutionDetails {
+                advice_map,
+                input_notes,
+                expected_future_notes,
+                expected_output_recipients,
+                new_pool_states: pool_states,
+            },
+        ))
     }
 
-    async fn simulate_note_execution(&mut self, execution_details: &PoolExecution) -> Result<()> {
-        let PoolExecution {
-            advice_map_value,
-            input_note,
-            expected_future_note,
-            expected_output_recipient,
-            new_pool_states: _,
-            counterparty_account: _,
-            result: _,
-        } = execution_details;
-        // let mut consume_req = TransactionRequestBuilder::new();
+    async fn prepare_execution_batch(
+        &mut self,
+        notes: Vec<TrustedNote>,
+        prices: HashMap<AccountId, PriceData>,
+    ) -> Result<(HashMap<NoteId, ExecutionResult>, BatchExecutionDetails)> {
+        info!("Preparing batch execution for {} notes", notes.len());
+        let mut note_results = HashMap::with_capacity(notes.len());
+        let mut valid_notes = notes;
+        // simulate until all notes go thru
+        // must do it this way because of the sequential nature of updates to the account and pool states
+        loop {
+            if valid_notes.is_empty() {
+                return Ok((note_results, BatchExecutionDetails::default()));
+            }
 
-        // if let Some(advice_map_value) = advice_map_value {
-        //     let mut advice_map = AdviceMap::default();
-        //     advice_map.insert(advice_map_value.0, advice_map_value.clone().1);
-        //     consume_req = consume_req.extend_advice_map(advice_map);
-        // };
-        // if let Some(input_note) = input_note {
-        //     consume_req = consume_req.input_notes(vec![input_note.clone()]);
-        // };
-        // if let Some(expected_future_note) = expected_future_note {
-        //     consume_req = consume_req.expected_future_notes(vec![expected_future_note.clone()]);
-        // };
-        // if let Some(expected_output_recipient) = expected_output_recipient {
-        //     consume_req =
-        //         consume_req.expected_output_recipients(vec![expected_output_recipient.clone()]);
-        // };
-
-        // let tx = consume_req
-        //     .build()
-        //     .map_err(|e| anyhow::anyhow!("Failed to build batch transaction request: {}", e))?;
-        // let tx_result = self
-        //     .miden_client
-        //     .client_mut()
-        //     .execute_transaction(*self.miden_account.id(), tx)
-        //     .await?;
-
-        // Ok(tx_result)
-        Ok(())
+            // TODO: Are prices still fresh here?
+            let (note_execution_details, batch_execution_details) = self
+                .prepare_execution_details(valid_notes.clone(), prices.clone())
+                .await?;
+            note_results.extend(note_execution_details);
+            let note_screener = self.miden_client.client().note_screener();
+            let raw_notes: Vec<Note> = valid_notes.iter().map(|n| n.note().clone()).collect();
+            let NoteConsumptionInfo { successful, failed } = note_screener
+                .check_notes_consumability(*self.miden_account.id(), raw_notes)
+                .await?;
+            if !failed.is_empty() {
+                for n in &failed {
+                    note_results.insert(n.note.id(), ExecutionResult::FailedConsuming);
+                }
+                let failed_ids = failed.iter().map(|n| n.note.id());
+                let ids_string = failed_ids
+                    .clone()
+                    .map(|id| id.to_hex())
+                    .collect::<Vec<String>>()
+                    .join(", ");
+                valid_notes.retain(|n| successful.contains(n.note()));
+                warn!(
+                    "{} notes cant be consumed. Failed note ids: {}",
+                    failed_ids.len(),
+                    ids_string
+                );
+            } else {
+                return Ok((note_results, batch_execution_details));
+            }
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::test_utils::TestUtils;
+    use miden_client::testing::account_id::ACCOUNT_ID_PUBLIC_FUNGIBLE_FAUCET;
+
+    use crate::test_utils::{PoolWithMeta, TestUtils};
 
     use super::*;
 
@@ -530,6 +554,39 @@ mod tests {
             pool.pool_configs.clone(),
         )
         .await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn execute_empty() -> Result<()> {
+        let mut test_utils = TestUtils::from_cache().await?;
+        let PoolWithMeta {
+            zoro_pool,
+            test_pool: _,
+        } = &mut test_utils.get_initialized_pools(1).await?[..][0];
+        zoro_pool.execute_notes(vec![], HashMap::default()).await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn execute_p2id() -> Result<()> {
+        let mut test_utils = TestUtils::from_cache().await?;
+        let PoolWithMeta {
+            zoro_pool,
+            test_pool,
+        } = &mut test_utils.get_initialized_pools(1).await?[..][0];
+        let p2id = TrustedNote::build_p2id(
+            *test_pool.miden_account.id(),
+            ACCOUNT_ID_PUBLIC_FUNGIBLE_FAUCET.try_into()?,
+            1000,
+            None,
+        )?;
+        let p2id_id = p2id.note().id();
+        let res = zoro_pool
+            .execute_notes(vec![p2id], HashMap::default())
+            .await?;
+        let res_for_note = res.get(&p2id_id).unwrap();
+        assert_eq!(res_for_note, &ExecutionResult::FailedConsuming);
         Ok(())
     }
 }

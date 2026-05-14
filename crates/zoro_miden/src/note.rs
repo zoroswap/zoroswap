@@ -370,7 +370,7 @@ impl TryFrom<TrustedNote> for NoteInstructions {
                 match asset_in {
                     Asset::Fungible(asset_in) => Ok(Self::P2ID(P2IDInstructions {
                         asset_in: *asset_in,
-                        target: AccountId::from_hex("0x0")?,
+                        target: note.note().metadata().sender(),
                         referential_serial_number: None,
                         note_type: note.note().metadata().note_type(),
                     })),
@@ -647,18 +647,17 @@ mod tests {
 
     #[tokio::test]
     async fn test_swap_instructions_to_trusted_note() -> Result<()> {
-        let mut test_utils = TestUtils::from_cache().await?;
-        let ((user, pool), (faucet0, faucet1)) = test_utils.get_two_accounts_two_faucets().await?;
+        let test_utils = TestUtils::from_cache().await?;
         TrustedNote::new(
             NoteInstructions::Swap(SwapInstructions {
-                asset_in: FungibleAsset::new(*faucet0.miden_account.id(), 100_000)?,
-                min_asset_out: FungibleAsset::new(*faucet1.miden_account.id(), 100_000)?,
+                asset_in: FungibleAsset::new(test_utils.faucet_1, 100_000)?,
+                min_asset_out: FungibleAsset::new(test_utils.faucet_2, 100_000)?,
                 creator: *user.id(),
                 beneficiary: None,
                 note_type: NoteType::Public,
                 deadline: Utc::now().timestamp_millis() as u64,
-                p2id_tag: user.tag(),
-                pool_tag: pool.tag(),
+                p2id_tag: NoteTag::with_account_target(test_utils.user_2),
+                pool_tag: NoteTag::with_account_target(test_utils.pool_1),
             }),
             test_utils.miden_client().client().code_builder(),
         )?;
@@ -667,18 +666,18 @@ mod tests {
 
     #[tokio::test]
     async fn test_swap_same_asset_in() -> Result<()> {
-        let mut test_utils = TestUtils::from_cache().await?;
-        let ((user, pool), (faucet0, _)) = test_utils.get_two_accounts_two_faucets().await?;
+        let test_utils = TestUtils::from_cache().await?;
         let res = TrustedNote::new(
             NoteInstructions::Swap(SwapInstructions {
-                asset_in: FungibleAsset::new(*faucet0.miden_account.id(), 100_000)?,
-                min_asset_out: FungibleAsset::new(*faucet0.miden_account.id(), 100_000)?,
+                asset_in: FungibleAsset::new(test_utils.faucet_1, 100_000)?,
+                min_asset_out: FungibleAsset::new(test_utils.faucet_1, 100_000)?,
                 creator: *user.id(),
                 beneficiary: None,
                 note_type: NoteType::Public,
+                creator: test_utils.user_1,
                 deadline: Utc::now().timestamp_millis() as u64,
-                p2id_tag: user.tag(),
-                pool_tag: pool.tag(),
+                p2id_tag: NoteTag::with_account_target(test_utils.user_2),
+                pool_tag: NoteTag::with_account_target(test_utils.pool_1),
             }),
             test_utils.miden_client().client().code_builder(),
         );
@@ -688,33 +687,33 @@ mod tests {
 
     #[tokio::test]
     async fn test_zero_amounts() -> Result<()> {
-        let mut test_utils = TestUtils::from_cache().await?;
-        let ((user, pool), (faucet0, faucet1)) = test_utils.get_two_accounts_two_faucets().await?;
+        let test_utils = TestUtils::from_cache().await?;
         let res = TrustedNote::new(
             NoteInstructions::Swap(SwapInstructions {
-                asset_in: FungibleAsset::new(*faucet0.miden_account.id(), 0)?,
-                min_asset_out: FungibleAsset::new(*faucet1.miden_account.id(), 100_000)?,
+                asset_in: FungibleAsset::new(test_utils.faucet_1, 0)?,
+                min_asset_out: FungibleAsset::new(test_utils.faucet_2, 100_000)?,
                 creator: *user.id(),
                 beneficiary: None,
                 note_type: NoteType::Public,
                 deadline: Utc::now().timestamp_millis() as u64,
-
-                p2id_tag: user.tag(),
-                pool_tag: pool.tag(),
+                creator: test_utils.user_1,
+                p2id_tag: NoteTag::with_account_target(test_utils.user_2),
+                pool_tag: NoteTag::with_account_target(test_utils.pool_1),
             }),
             test_utils.miden_client().client().code_builder(),
         );
         assert!(res.is_err(), "Should have rejected constructing the note.");
         let res = TrustedNote::new(
             NoteInstructions::Swap(SwapInstructions {
-                asset_in: FungibleAsset::new(*faucet0.miden_account.id(), 100_000)?,
-                min_asset_out: FungibleAsset::new(*faucet1.miden_account.id(), 0)?,
+                asset_in: FungibleAsset::new(test_utils.faucet_1, 100_000)?,
+                min_asset_out: FungibleAsset::new(test_utils.faucet_2, 0)?,
                 creator: *user.id(),
                 beneficiary: None,
                 note_type: NoteType::Public,
                 deadline: Utc::now().timestamp_millis() as u64,
-                p2id_tag: user.tag(),
-                pool_tag: pool.tag(),
+                creator: test_utils.user_1,
+                p2id_tag: NoteTag::with_account_target(test_utils.user_2),
+                pool_tag: NoteTag::with_account_target(test_utils.pool_1),
             }),
             test_utils.miden_client().client().code_builder(),
         );
@@ -724,17 +723,16 @@ mod tests {
 
     #[tokio::test]
     async fn test_deposit_instructions_to_trusted_note() -> Result<()> {
-        let mut test_utils = TestUtils::from_cache().await?;
-        let ((user, pool), (faucet0, _)) = test_utils.get_two_accounts_two_faucets().await?;
+        let test_utils = TestUtils::from_cache().await?;
         TrustedNote::new(
             NoteInstructions::Deposit(DepositInstructions {
-                asset_in: FungibleAsset::new(*faucet0.miden_account.id(), 10_000)?,
+                asset_in: FungibleAsset::new(test_utils.faucet1, 10_000)?,
                 min_lp_amount_out: 10_000,
-                creator: *user.id(),
                 note_type: NoteType::Public,
                 deadline: Utc::now().timestamp_millis() as u64,
-                p2id_tag: user.tag(),
-                pool_tag: pool.tag(),
+                creator: test_utils.user_1,
+                p2id_tag: NoteTag::with_account_target(test_utils.user_2),
+                pool_tag: NoteTag::with_account_target(test_utils.pool_1),
             }),
             test_utils.miden_client().client().code_builder(),
         )?;
@@ -743,30 +741,29 @@ mod tests {
 
     #[tokio::test]
     async fn test_deposit_instructions_zero_amounts() -> Result<()> {
-        let mut test_utils = TestUtils::from_cache().await?;
-        let ((user, pool), (faucet0, _)) = test_utils.get_two_accounts_two_faucets().await?;
+        let test_utils = TestUtils::from_cache().await?;
         let res = TrustedNote::new(
             NoteInstructions::Deposit(DepositInstructions {
-                asset_in: FungibleAsset::new(*faucet0.miden_account.id(), 0)?,
+                asset_in: FungibleAsset::new(test_utils.faucet0, 0)?,
                 min_lp_amount_out: 10_000,
-                creator: *user.id(),
                 note_type: NoteType::Public,
                 deadline: Utc::now().timestamp_millis() as u64,
-                p2id_tag: user.tag(),
-                pool_tag: pool.tag(),
+                creator: test_utils.user_1,
+                p2id_tag: NoteTag::with_account_target(test_utils.user_2),
+                pool_tag: NoteTag::with_account_target(test_utils.pool_1),
             }),
             test_utils.miden_client().client().code_builder(),
         );
         assert!(res.is_err(), "Should have rejected constructing the note.");
         let res = TrustedNote::new(
             NoteInstructions::Deposit(DepositInstructions {
-                asset_in: FungibleAsset::new(*faucet0.miden_account.id(), 10_000)?,
+                asset_in: FungibleAsset::new(test_utils.faucet0, 10_000)?,
                 min_lp_amount_out: 0,
-                creator: *user.id(),
                 note_type: NoteType::Public,
                 deadline: Utc::now().timestamp_millis() as u64,
-                p2id_tag: user.tag(),
-                pool_tag: pool.tag(),
+                creator: test_utils.user_1,
+                p2id_tag: NoteTag::with_account_target(test_utils.user_2),
+                pool_tag: NoteTag::with_account_target(test_utils.pool_1),
             }),
             test_utils.miden_client().client().code_builder(),
         );
@@ -776,17 +773,16 @@ mod tests {
 
     #[tokio::test]
     async fn test_withdraw_instructions_to_trusted_note() -> Result<()> {
-        let mut test_utils = TestUtils::from_cache().await?;
-        let ((user, pool), (faucet0, _)) = test_utils.get_two_accounts_two_faucets().await?;
+        let test_utils = TestUtils::from_cache().await?;
         TrustedNote::new(
             NoteInstructions::Withdraw(WithdrawInstructions {
-                min_asset_out: FungibleAsset::new(*faucet0.miden_account.id(), 10_000)?,
+                min_asset_out: FungibleAsset::new(test_utils.faucet0, 10_000)?,
                 lp_amount_in: 10_000,
-                creator: *user.id(),
                 note_type: NoteType::Public,
                 deadline: Utc::now().timestamp_millis() as u64,
-                p2id_tag: user.tag(),
-                pool_tag: pool.tag(),
+                creator: test_utils.user_1,
+                p2id_tag: NoteTag::with_account_target(test_utils.user_2),
+                pool_tag: NoteTag::with_account_target(test_utils.pool_1),
             }),
             test_utils.miden_client().client().code_builder(),
         )?;
@@ -795,30 +791,29 @@ mod tests {
 
     #[tokio::test]
     async fn test_withdraw_instructions_zero_amounts() -> Result<()> {
-        let mut test_utils = TestUtils::from_cache().await?;
-        let ((user, pool), (faucet0, _)) = test_utils.get_two_accounts_two_faucets().await?;
+        let test_utils = TestUtils::from_cache().await?;
         let res = TrustedNote::new(
             NoteInstructions::Withdraw(WithdrawInstructions {
-                min_asset_out: FungibleAsset::new(*faucet0.miden_account.id(), 10_000)?,
+                min_asset_out: FungibleAsset::new(test_utils.faucet0, 10_000)?,
                 lp_amount_in: 0,
-                creator: *user.id(),
                 note_type: NoteType::Public,
                 deadline: Utc::now().timestamp_millis() as u64,
-                p2id_tag: user.tag(),
-                pool_tag: pool.tag(),
+                creator: test_utils.user_1,
+                p2id_tag: NoteTag::with_account_target(test_utils.user_2),
+                pool_tag: NoteTag::with_account_target(test_utils.pool_1),
             }),
             test_utils.miden_client().client().code_builder(),
         );
         assert!(res.is_err(), "Should have rejected constructing the note.");
         let res = TrustedNote::new(
             NoteInstructions::Withdraw(WithdrawInstructions {
-                min_asset_out: FungibleAsset::new(*faucet0.miden_account.id(), 0)?,
+                min_asset_out: FungibleAsset::new(test_utils.faucet0, 0)?,
                 lp_amount_in: 10_000,
-                creator: *user.id(),
                 note_type: NoteType::Public,
                 deadline: Utc::now().timestamp_millis() as u64,
-                p2id_tag: user.tag(),
-                pool_tag: pool.tag(),
+                creator: test_utils.user_1,
+                p2id_tag: NoteTag::with_account_target(test_utils.user_2),
+                pool_tag: NoteTag::with_account_target(test_utils.pool_1),
             }),
             test_utils.miden_client().client().code_builder(),
         );

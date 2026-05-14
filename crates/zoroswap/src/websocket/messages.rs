@@ -142,6 +142,7 @@ impl From<ExecutionResult> for OrderStatus {
             ExecutionResult::WithdrawSuccess(_) => OrderStatus::Executed,
             ExecutionResult::PastDeadline => OrderStatus::Expired,
             ExecutionResult::Failed => OrderStatus::Failed,
+            ExecutionResult::FailedConsuming => OrderStatus::Failed,
         }
     }
 }
