@@ -112,7 +112,6 @@ proc store_note_storage_to_memory
     # make sure the number of note_storage is N
     eq.NUMBER_OF_NOTE_STORAGE_ITEMS assert.err=ERR_WITHDRAW_WRONG_NUMBER_OF_NOTE_STORAGE_ITEMS
     # => [note_storage_ptr]
-    debug.mem.NOTE_STORAGE_POINTER.NOTE_STORAGE_WORD_3
     drop
 end
 

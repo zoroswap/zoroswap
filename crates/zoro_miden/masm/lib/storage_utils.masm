@@ -1,0 +1,133 @@
+use miden::protocol::active_account
+use miden::protocol::native_account
+use miden::core::sys
+
+use zoro_miden::lib::math
+
+
+@locals(3)
+pub proc add_to_storage_item(slot_id_prefix: felt, slot_id_suffix: felt, increment_by: felt) -> felt
+    # loc.0: slot_id_prefix
+    # loc.1: slot_id_suffix
+    # loc.2: new_value
+    loc_store.0 loc_store.1
+    # => [increment_by]
+    loc_load.1 loc_load.0 exec.active_account::get_item
+    movdn.3 drop drop drop
+    # => [current_value, increment_by]
+    exec.math::safe_add
+    # => [new_value]
+    loc_store.2
+    ### get current value
+    push.0.0.0 loc_load.2 
+    # => [NEW_VALUE]
+    loc_load.1 loc_load.0 exec.native_account::set_item
+    dropw
+    # => []
+    loc_load.2
+    # => [new_value]
+    exec.sys::truncate_stack
+end
+
+@locals(3)
+pub proc sub_from_storage_item(slot_id_prefix: felt, slot_id_suffix: felt, decrement_by: felt) -> felt
+    # loc.0: slot_id_prefix
+    # loc.1: slot_id_suffix
+    # loc.2: new_value
+    loc_store.0 loc_store.1
+    # => [sub_by]
+    loc_load.1 loc_load.0 exec.active_account::get_item
+    movdn.3 drop drop drop
+    # => [current_value, sub_by]
+    swap
+    exec.math::safe_sub
+    # => [new_value]
+    loc_store.2
+    ### get current value
+    push.0.0.0 loc_load.2 
+    # => [NEW_VALUE]
+    loc_load.1 loc_load.0 exec.native_account::set_item
+    dropw
+    # => []
+    loc_load.2
+    # => [new_value]
+    exec.sys::truncate_stack
+end
+
+
+
+
+#! Atomically increments a storage map entry: map[KEY] += VALUE.
+#! Reads the current value via get_map_item, adds VALUE, writes back via set_map_item.
+#!
+#! Inputs: [slot_id_prefix, slot_id_suffix, KEY, VALUE]
+#! Outputs: []
+@locals(9)
+pub proc sub_from_map_item (slot_id_prefix: felt, slot_id_suffix: felt, key: word, sub_by: felt) -> felt
+    # loc.0: slot_id_prefix
+    # loc.1: slot_id_suffix
+    # loc.4-7: key
+    # loc.8: sub_by
+    ### save inputs 
+    loc_store.0 loc_store.1 loc_storew_be.4 movup.4 loc_store.8
+    # => [KEY]
+    loc_load.1 loc_load.0 
+    # => [slot_id_prefix, slot_id_suffix, KEY]
+    exec.active_account::get_map_item
+    movdn.3 drop drop drop
+    # => [old_value]
+    loc_load.8
+    # => [sub_by,old_value]
+    exec.math::safe_sub
+    # => [new_value]
+    loc_store.8
+
+    ### set
+    loc_load.8 padw loc_loadw_be.4 loc_load.1 loc_load.0 exec.set_map_item
+    exec.sys::truncate_stack
+    # => [old_value]
+end
+
+@locals(9)
+pub proc add_to_map_item #(slot_id_prefix: felt, slot_id_suffix: felt, key: Word, increment_by: felt) -> felt
+    # loc.0: slot_id_prefix
+    # loc.1: slot_id_suffix
+    # loc.4-7: key
+    # loc.8: new_value
+    ### save inputs 
+    loc_store.0 loc_store.1 loc_storew_be.4 movup.4 loc_store.8
+    # => [KEY]
+    loc_load.1 loc_load.0 
+    # => [slot_id_prefix, slot_id_suffix, KEY]
+    exec.active_account::get_map_item
+    movdn.3 drop drop drop
+    # => [old_value]
+    loc_load.8
+    # => [old_value]
+    exec.math::safe_add
+    # => [new_value]
+    loc_store.8
+
+    ### set
+    loc_load.8 padw loc_loadw_be.4 loc_load.1 loc_load.0 exec.set_map_item
+    exec.sys::truncate_stack
+    # => [old_value]
+end
+
+
+@locals(9)
+pub proc set_map_item #(slot_id_prefix: felt, slot_id_suffix: felt, key: Word, value: felt) -> felt
+    # loc.0: slot_id_prefix
+    # loc.1: slot_id_suffix
+    # loc.4-7: key
+    # loc.8: value
+    loc_store.0 loc_store.1 loc_storew_be.4 dropw loc_store.8
+    ### fill out value with 0 to full word
+    push.0.0.0 loc_load.8
+    ### load slot id and key
+    padw loc_loadw_be.4 loc_load.1 loc_load.0
+    exec.native_account::set_map_item 
+    ### remove trailing zeros
+    dropw
+    loc_load.8
+end
