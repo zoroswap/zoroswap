@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     str::FromStr,
     time::{Duration, Instant},
 };
@@ -18,7 +18,7 @@ use miden_client::{
     keystore::{FilesystemKeyStore, Keystore},
     note::{Note, NoteDetails, NoteId, NoteRecipient, NoteTag},
     rpc::Endpoint,
-    transaction::{TransactionRequest, TransactionRequestBuilder},
+    transaction::{TransactionArgs, TransactionRequest, TransactionRequestBuilder},
     vm::AdviceMap,
 };
 use miden_tx::NoteConsumptionInfo;
@@ -486,41 +486,53 @@ impl ZoroPool {
         let mut valid_notes = notes;
         // simulate until all notes go thru
         // must do it this way because of the sequential nature of updates to the account and pool states
-        loop {
-            if valid_notes.is_empty() {
-                return Ok((note_results, BatchExecutionDetails::default()));
-            }
+        // loop {
+        if valid_notes.is_empty() {
+            return Ok((note_results, BatchExecutionDetails::default()));
+        }
 
-            // TODO: Are prices still fresh here?
-            let (note_execution_details, batch_execution_details) = self
-                .prepare_execution_details(valid_notes.clone(), prices.clone())
-                .await?;
-            note_results.extend(note_execution_details);
-            let note_screener = self.miden_client.client().note_screener();
-            let raw_notes: Vec<Note> = valid_notes.iter().map(|n| n.note().clone()).collect();
-            let NoteConsumptionInfo { successful, failed } = note_screener
-                .check_notes_consumability(*self.miden_account.id(), raw_notes)
-                .await?;
-            if !failed.is_empty() {
-                for n in &failed {
-                    note_results.insert(n.note.id(), ExecutionResult::FailedConsuming);
-                }
-                let failed_ids = failed.iter().map(|n| n.note.id());
-                let ids_string = failed_ids
-                    .clone()
-                    .map(|id| id.to_hex())
-                    .collect::<Vec<String>>()
-                    .join(", ");
-                valid_notes.retain(|n| successful.contains(n.note()));
-                warn!(
-                    "{} notes cant be consumed. Failed note ids: {}",
-                    failed_ids.len(),
-                    ids_string
-                );
-            } else {
-                return Ok((note_results, batch_execution_details));
+        // TODO: Are prices still fresh here?
+        let (note_execution_details, batch_execution_details) = self
+            .prepare_execution_details(valid_notes.clone(), prices.clone())
+            .await?;
+        note_results.extend(note_execution_details);
+        // let note_screener = self.miden_client.client().note_screener();
+
+        let mut note_args = BTreeMap::new();
+        for (note, args) in &batch_execution_details.input_notes {
+            if let Some(args) = args {
+                note_args.insert(note.id(), *args);
             }
         }
+        Ok((note_results, batch_execution_details))
+
+        // let tx_args = TransactionArgs::new(batch_execution_details.advice_map.clone())
+        //     .with_note_args(note_args);
+        // let note_screener = note_screener.with_transaction_args(tx_args);
+        // let raw_notes: Vec<Note> = valid_notes.iter().map(|n| n.note().clone()).collect();
+        // let NoteConsumptionInfo { successful, failed } = note_screener
+        //     .check_notes_consumability(*self.miden_account.id(), raw_notes)
+        //     .await?;
+        // if !failed.is_empty() {
+        //     for n in &failed {
+        //         note_results.insert(n.note.id(), ExecutionResult::FailedConsuming);
+        //     }
+        //     let failed_ids = failed.iter().map(|n| n.note.id());
+        //     let ids_string = failed_ids
+        //         .clone()
+        //         .map(|id| id.to_hex())
+        //         .collect::<Vec<String>>()
+        //         .join(", ");
+        //     valid_notes.retain(|n| successful.contains(n.note()));
+        //     warn!(
+        //         "{} notes cant be consumed. Failed note ids: {}",
+        //         failed_ids.len(),
+        //         ids_string
+        //     );
+        // } else {
+        //     return Ok((note_results, batch_execution_details));
+        // }
+        // }
     }
 }
 
