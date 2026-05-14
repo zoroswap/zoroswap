@@ -43,11 +43,11 @@ mod tests {
         let word = asset_to_word(asset);
         assert_eq!(
             word[0].as_canonical_u64(),
-            asset.faucet_id().prefix().as_u64()
+            asset.faucet_id().suffix().as_canonical_u64()
         );
         assert_eq!(
             word[1].as_canonical_u64(),
-            asset.faucet_id().suffix().as_canonical_u64()
+            asset.faucet_id().prefix().as_u64()
         );
         assert_eq!(word[2].as_canonical_u64() as u8, asset.callbacks().as_u8());
         assert_eq!(word[3].as_canonical_u64(), asset.amount());
@@ -62,8 +62,8 @@ mod tests {
         let suffix = faucet_id_parsed.suffix().as_canonical_u64();
         let amount = 10000;
         let word: Word = [
-            Felt::new(prefix),
             Felt::new(suffix),
+            Felt::new(prefix),
             Felt::ZERO,
             Felt::new(amount),
         ]
@@ -89,11 +89,11 @@ mod tests {
         let word = asset_to_word(asset);
         assert_eq!(
             word[0].as_canonical_u64(),
-            asset.faucet_id().prefix().as_u64()
+            asset.faucet_id().suffix().as_canonical_u64()
         );
         assert_eq!(
             word[1].as_canonical_u64(),
-            asset.faucet_id().suffix().as_canonical_u64()
+            asset.faucet_id().prefix().as_u64()
         );
         assert_eq!(1, asset.callbacks().as_u8());
         assert_eq!(word[3].as_canonical_u64(), asset.amount());
@@ -108,8 +108,8 @@ mod tests {
         let suffix = faucet_id_parsed.suffix().as_canonical_u64();
         let amount = 10000;
         let word: Word = [
-            Felt::new(prefix),
             Felt::new(suffix),
+            Felt::new(prefix),
             Felt::new(1),
             Felt::new(amount),
         ]

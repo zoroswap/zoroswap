@@ -1,6 +1,5 @@
 use std::{
     collections::HashMap,
-    path::{Path, PathBuf},
     str::FromStr,
     time::{Duration, Instant},
 };
@@ -528,7 +527,9 @@ impl ZoroPool {
 
 #[cfg(test)]
 mod tests {
-    use miden_client::testing::account_id::ACCOUNT_ID_PUBLIC_FUNGIBLE_FAUCET;
+    use miden_client::{
+        asset::FungibleAsset, testing::account_id::ACCOUNT_ID_PUBLIC_FUNGIBLE_FAUCET,
+    };
 
     use crate::test_utils::{PoolWithMeta, TestUtils};
 
@@ -577,8 +578,7 @@ mod tests {
         } = &mut test_utils.get_initialized_pools(1).await?[..][0];
         let p2id = TrustedNote::build_p2id(
             *test_pool.miden_account.id(),
-            ACCOUNT_ID_PUBLIC_FUNGIBLE_FAUCET.try_into()?,
-            1000,
+            FungibleAsset::new(ACCOUNT_ID_PUBLIC_FUNGIBLE_FAUCET.try_into()?, 1000)?,
             None,
         )?;
         let p2id_id = p2id.note().id();

@@ -652,7 +652,7 @@ mod tests {
             NoteInstructions::Swap(SwapInstructions {
                 asset_in: FungibleAsset::new(test_utils.faucet_1, 100_000)?,
                 min_asset_out: FungibleAsset::new(test_utils.faucet_2, 100_000)?,
-                creator: *user.id(),
+                creator: test_utils.user_1,
                 beneficiary: None,
                 note_type: NoteType::Public,
                 deadline: Utc::now().timestamp_millis() as u64,
@@ -671,7 +671,6 @@ mod tests {
             NoteInstructions::Swap(SwapInstructions {
                 asset_in: FungibleAsset::new(test_utils.faucet_1, 100_000)?,
                 min_asset_out: FungibleAsset::new(test_utils.faucet_1, 100_000)?,
-                creator: *user.id(),
                 beneficiary: None,
                 note_type: NoteType::Public,
                 creator: test_utils.user_1,
@@ -692,7 +691,6 @@ mod tests {
             NoteInstructions::Swap(SwapInstructions {
                 asset_in: FungibleAsset::new(test_utils.faucet_1, 0)?,
                 min_asset_out: FungibleAsset::new(test_utils.faucet_2, 100_000)?,
-                creator: *user.id(),
                 beneficiary: None,
                 note_type: NoteType::Public,
                 deadline: Utc::now().timestamp_millis() as u64,
@@ -707,7 +705,6 @@ mod tests {
             NoteInstructions::Swap(SwapInstructions {
                 asset_in: FungibleAsset::new(test_utils.faucet_1, 100_000)?,
                 min_asset_out: FungibleAsset::new(test_utils.faucet_2, 0)?,
-                creator: *user.id(),
                 beneficiary: None,
                 note_type: NoteType::Public,
                 deadline: Utc::now().timestamp_millis() as u64,
@@ -726,7 +723,7 @@ mod tests {
         let test_utils = TestUtils::from_cache().await?;
         TrustedNote::new(
             NoteInstructions::Deposit(DepositInstructions {
-                asset_in: FungibleAsset::new(test_utils.faucet1, 10_000)?,
+                asset_in: FungibleAsset::new(test_utils.faucet_1, 10_000)?,
                 min_lp_amount_out: 10_000,
                 note_type: NoteType::Public,
                 deadline: Utc::now().timestamp_millis() as u64,
@@ -744,7 +741,7 @@ mod tests {
         let test_utils = TestUtils::from_cache().await?;
         let res = TrustedNote::new(
             NoteInstructions::Deposit(DepositInstructions {
-                asset_in: FungibleAsset::new(test_utils.faucet0, 0)?,
+                asset_in: FungibleAsset::new(test_utils.faucet_1, 0)?,
                 min_lp_amount_out: 10_000,
                 note_type: NoteType::Public,
                 deadline: Utc::now().timestamp_millis() as u64,
@@ -757,7 +754,7 @@ mod tests {
         assert!(res.is_err(), "Should have rejected constructing the note.");
         let res = TrustedNote::new(
             NoteInstructions::Deposit(DepositInstructions {
-                asset_in: FungibleAsset::new(test_utils.faucet0, 10_000)?,
+                asset_in: FungibleAsset::new(test_utils.faucet_1, 10_000)?,
                 min_lp_amount_out: 0,
                 note_type: NoteType::Public,
                 deadline: Utc::now().timestamp_millis() as u64,
@@ -776,7 +773,7 @@ mod tests {
         let test_utils = TestUtils::from_cache().await?;
         TrustedNote::new(
             NoteInstructions::Withdraw(WithdrawInstructions {
-                min_asset_out: FungibleAsset::new(test_utils.faucet0, 10_000)?,
+                min_asset_out: FungibleAsset::new(test_utils.faucet_1, 10_000)?,
                 lp_amount_in: 10_000,
                 note_type: NoteType::Public,
                 deadline: Utc::now().timestamp_millis() as u64,
@@ -794,7 +791,7 @@ mod tests {
         let test_utils = TestUtils::from_cache().await?;
         let res = TrustedNote::new(
             NoteInstructions::Withdraw(WithdrawInstructions {
-                min_asset_out: FungibleAsset::new(test_utils.faucet0, 10_000)?,
+                min_asset_out: FungibleAsset::new(test_utils.faucet_1, 10_000)?,
                 lp_amount_in: 0,
                 note_type: NoteType::Public,
                 deadline: Utc::now().timestamp_millis() as u64,
@@ -807,7 +804,7 @@ mod tests {
         assert!(res.is_err(), "Should have rejected constructing the note.");
         let res = TrustedNote::new(
             NoteInstructions::Withdraw(WithdrawInstructions {
-                min_asset_out: FungibleAsset::new(test_utils.faucet0, 0)?,
+                min_asset_out: FungibleAsset::new(test_utils.faucet_1, 0)?,
                 lp_amount_in: 10_000,
                 note_type: NoteType::Public,
                 deadline: Utc::now().timestamp_millis() as u64,
