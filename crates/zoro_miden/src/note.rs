@@ -10,7 +10,7 @@ use miden_client::{
     assembly::CodeBuilder,
     asset::{Asset, FungibleAsset},
     note::{Note, NoteAssets, NoteMetadata, NoteRecipient, NoteStorage, NoteTag, NoteType},
-    store::InputNoteRecord,
+    store::{InputNoteRecord, OutputNoteRecord},
 };
 use miden_protocol::note::NoteScript;
 use miden_standards::note::P2idNoteStorage;
@@ -146,6 +146,26 @@ impl TrustedNote {
                 .ok_or(anyhow!("Missing note metadata"))?
                 .clone(),
             input_note_record.details().recipient().clone(),
+        );
+        let root = note.script().root();
+        let known_roots = get_note_roots();
+        let note_kind = known_roots.get_order_type(&root)?;
+        let serial_number = note.serial_num();
+        Ok(Self {
+            note,
+            note_kind,
+            serial_number,
+            created_at: Utc::now().timestamp_millis(),
+        })
+    }
+    pub fn from_output_note(output_note_record: &OutputNoteRecord) -> Result<Self> {
+        let note = Note::new(
+            output_note_record.assets().clone(),
+            output_note_record.metadata().clone(),
+            output_note_record
+                .recipient()
+                .ok_or(anyhow!("Note missing recipient"))?
+                .clone(),
         );
         let root = note.script().root();
         let known_roots = get_note_roots();

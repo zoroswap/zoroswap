@@ -433,7 +433,7 @@ impl ZoroPool {
         let tx_res = client
             .execute_transaction(*self.miden_account.id(), consume_req)
             .await
-            .map_err(|e| {
+            .inspect_err(|e| {
                 error!(
                     // error = ?e,
                     error = e.to_string(),
@@ -444,7 +444,6 @@ impl ZoroPool {
                     expected_output_recipients = len_output_recipients,
                     "Failed to submit batch transaction",
                 );
-                e
             })?;
         let proven_tx = client.prove_transaction(&tx_res).await?;
         let block_nr = client.submit_proven_transaction(proven_tx, &tx_res).await?;

@@ -12,7 +12,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tracing::{info, warn};
-use zoro_miden::{note::TrustedNote, pool::ZoroPool};
+use zoro_miden::{note::TrustedNote, note_roots::get_note_roots, pool::ZoroPool};
 
 pub struct TradingEngine {
     state: Arc<AmmState>,
