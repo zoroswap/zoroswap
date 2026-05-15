@@ -28,7 +28,7 @@ const ERR_ZTD_RECLAIM_NOT_INITIATED="failed to reclaim ZTD note because the recl
 #!
 #! Checks if ZTD reclaim is enabled and if true, if reclaim height has been reached.
 #!
-#! Inputs:  [account_id_suffix, account_id_prefix]
+#! Inputs:  []
 #! Outputs: []
 #!
 #! Panics if:
@@ -36,8 +36,8 @@ const ERR_ZTD_RECLAIM_NOT_INITIATED="failed to reclaim ZTD note because the recl
 #! - the reclaim block height is not reached yet.
 #! - the account attempting to reclaim the note is not the sender account.
 proc reclaim_note
-    exec.active_note::get_sender
-    # => [sender_account_id_suffix, sender_account_id_prefix, account_id_suffix, account_id_prefix]
+    push.0.0 exec.get_beneficiary_id
+    # => [creator_account_id_suffix, creator_account_id_prefix]
 
     # ensure active account ID = sender account ID
     exec.is_active_account assert.err=ERR_ZTD_RECLAIM_ACCT_IS_NOT_SENDER
@@ -87,7 +87,10 @@ proc validate_signature
     exec.sys::truncate_stack
 end
 
-proc has_reclaim_been_initiated
+#! Outputs: [bool]
+#! Outputs if recalim is possible
+#! At this points it's a stub and always returns true
+proc has_reclaim_been_initiated() -> bool
     push.1
     exec.sys::truncate_stack
 end
@@ -159,6 +162,7 @@ end
 # To be factored out into one or more libraries.
 # =================================================================================================
 
+#########  ACTIVE ACCOUNT UTILS  #########
 
 #! Library: (Active) Account Utils
 #! Inputs:  [AccountID]
@@ -178,6 +182,8 @@ end
 # ====================================================
 
 
+#########  ZORO NOTE UTILS  #########
+  
 const ARGS_POINTER = 96
 #! Library: Zoro Note Utils
 #! Inputs:  [AccountID]
@@ -197,13 +203,34 @@ end
 
 
 const STORAGE_POINTER = 32
-const NUMBER_OF_STORAGE_ITEMS = 4
+const STORAGE_END     = STORAGE_WORD_3 + 15
+const NUMBER_OF_STORAGE_ITEMS = 16
+
+const STORAGE_WORD_0 = STORAGE_POINTER
+const STORAGE_WORD_1 = STORAGE_POINTER + 4
+const STORAGE_WORD_2 = STORAGE_POINTER + 8     
+const STORAGEBENEFICIARY_WORD = STORAGE_WORD_2         # BENEFICIARY  [beneficiary_id_suffix, beneficiary_id_prefix, 0, 0]
+const STORAGE_WORD_3 = STORAGE_POINTER + 12             
+
+
+## BENEFICIARY
+const BENEFICIARY_ID_SUFFIX = STORAGE_WORD_2
+const BENEFICIARY_ID_PREFIX = STORAGE_WORD_2 + 1
+
+
 
 # const ERR_UNEXPECTED_NUMBER_OF_STORAGE_ITEMS = "unexpected number of storage items"
 
+### SETTERS
 proc store_storage_to_memory() -> felt
     push.STORAGE_POINTER exec.active_note::get_storage
     # make sure the number of storage items is 4
     eq.NUMBER_OF_STORAGE_ITEMS assert.err=ERR_ZTD_UNEXPECTED_NUMBER_OF_STORAGE_ITEMS
 end
 
+
+### GETTERS
+proc get_beneficiary_id() -> (account_id)
+    push.BENEFICIARY_ID_SUFFIX
+    push.BENEFICIARY_ID_PREFIX
+end
