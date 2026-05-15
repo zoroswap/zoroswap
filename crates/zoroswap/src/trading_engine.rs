@@ -12,7 +12,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tracing::{info, warn};
-use zoro_miden::{note::TrustedNote, pool::ZoroPool};
+use zoro_miden::{note::TrustedNote, note_roots::get_note_roots, pool::ZoroPool};
 
 pub struct TradingEngine {
     state: Arc<AmmState>,
@@ -32,6 +32,8 @@ impl TradingEngine {
     }
 
     pub async fn start(&mut self) -> Result<()> {
+        // init note_roots
+        get_note_roots();
         let min_match_interval = Duration::from_millis(100); // Debounce
         let max_match_interval = Duration::from_millis(1000); // Max wait (event-driven)
         let config = self.state.config();

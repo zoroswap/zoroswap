@@ -26,10 +26,9 @@ pub struct PoolExecution {
     pub expected_output_recipient: Option<NoteRecipient>,
     pub new_pool_states: Option<HashMap<AccountId, PoolState>>,
     pub counterparty_account: Option<AccountId>,
-    pub result: ExecutionResult,
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub enum ExecutionResult {
     SwapSuccess(u64),
     DepositSuccess(u64),
@@ -37,6 +36,7 @@ pub enum ExecutionResult {
     #[default]
     Failed,
     PastDeadline,
+    FailedConsuming,
 }
 
 impl PoolExecution {
@@ -44,8 +44,8 @@ impl PoolExecution {
         note: TrustedNote,
         pool_states: &HashMap<AccountId, PoolState>,
         prices: &HashMap<AccountId, PriceData>,
-    ) -> Result<Self> {
-        let note_instructions: NoteInstructions = note.clone().try_into()?;
+    ) -> Result<(ExecutionResult, Self)> {
+        let note_instructions = NoteInstructions::try_from(note.clone())?;
         let now = Utc::now().timestamp_millis();
         let mut new_pool_states = pool_states.clone();
         match note_instructions {
@@ -60,18 +60,20 @@ impl PoolExecution {
                 {
                     pool_state.update_state(new_pool_balances, new_lp_total_supply);
                     new_pool_states.insert(instructions.asset_in.faucet_id(), pool_state);
-                    Ok(PoolExecution {
-                        advice_map_value: None,
-                        input_note: Some((
-                            note.note().clone(),
-                            Some(pool_state.to_lp_note_args(instructions.asset_in.amount())), // amount 0 will reject the deposit in masm
-                        )),
-                        expected_future_note: None,
-                        new_pool_states: Some(new_pool_states),
-                        expected_output_recipient: None,
-                        result: ExecutionResult::DepositSuccess(lp_amount.to::<u64>()),
-                        counterparty_account: Some(instructions.creator),
-                    })
+                    Ok((
+                        ExecutionResult::DepositSuccess(lp_amount.to::<u64>()),
+                        PoolExecution {
+                            advice_map_value: None,
+                            input_note: Some((
+                                note.note().clone(),
+                                Some(pool_state.to_lp_note_args(instructions.asset_in.amount())), // amount 0 will reject the deposit in masm
+                            )),
+                            expected_future_note: None,
+                            new_pool_states: Some(new_pool_states),
+                            expected_output_recipient: None,
+                            counterparty_account: Some(instructions.creator),
+                        },
+                    ))
                 } else {
                     // Return the asset back to the creator of this failed deposit
                     let p2id = TrustedNote::build_p2id(
@@ -79,25 +81,27 @@ impl PoolExecution {
                         instructions.asset_in,
                         Some(note.serial_number()),
                     )?;
-                    Ok(PoolExecution {
-                        advice_map_value: None,
-                        input_note: Some((
-                            note.note().clone(),
-                            Some(pool_state.to_lp_note_args(0)), // amount 0 will reject the deposit in masm
-                        )),
-                        expected_future_note: Some((
-                            p2id.note().clone().into(),
-                            p2id.note().metadata().tag(),
-                        )),
-                        new_pool_states: None,
-                        expected_output_recipient: Some(p2id.note().recipient().clone()),
-                        counterparty_account: Some(instructions.creator),
-                        result: if past_deadline {
+                    Ok((
+                        if past_deadline {
                             ExecutionResult::PastDeadline
                         } else {
                             ExecutionResult::Failed
                         },
-                    })
+                        PoolExecution {
+                            advice_map_value: None,
+                            input_note: Some((
+                                note.note().clone(),
+                                Some(pool_state.to_lp_note_args(0)), // amount 0 will reject the deposit in masm
+                            )),
+                            expected_future_note: Some((
+                                p2id.note().clone().into(),
+                                p2id.note().metadata().tag(),
+                            )),
+                            new_pool_states: None,
+                            expected_output_recipient: Some(p2id.note().recipient().clone()),
+                            counterparty_account: Some(instructions.creator),
+                        },
+                    ))
                 }
             }
             NoteInstructions::Withdraw(instructions) => {
@@ -119,30 +123,32 @@ impl PoolExecution {
                     )?;
                     pool_state.update_state(new_pool_balances, new_lp_total_supply);
                     new_pool_states.insert(instructions.min_asset_out.faucet_id(), pool_state);
-                    Ok(PoolExecution {
-                        advice_map_value: None,
-                        input_note: Some((
-                            note.note().clone(),
-                            Some(pool_state.to_lp_note_args(amount_out.to::<u64>())),
-                        )),
-                        expected_future_note: Some((
-                            p2id.note().clone().into(),
-                            p2id.note().metadata().tag(),
-                        )),
-                        new_pool_states: Some(new_pool_states),
-                        expected_output_recipient: Some(p2id.note().recipient().clone()),
-                        result: ExecutionResult::WithdrawSuccess(amount_out.to::<u64>()),
-                        counterparty_account: Some(instructions.creator),
-                    })
+                    Ok((
+                        ExecutionResult::WithdrawSuccess(amount_out.to::<u64>()),
+                        PoolExecution {
+                            advice_map_value: None,
+                            input_note: Some((
+                                note.note().clone(),
+                                Some(pool_state.to_lp_note_args(amount_out.to::<u64>())),
+                            )),
+                            expected_future_note: Some((
+                                p2id.note().clone().into(),
+                                p2id.note().metadata().tag(),
+                            )),
+                            new_pool_states: Some(new_pool_states),
+                            expected_output_recipient: Some(p2id.note().recipient().clone()),
+                            counterparty_account: Some(instructions.creator),
+                        },
+                    ))
                 } else {
-                    Ok(PoolExecution {
-                        result: if past_deadline {
+                    Ok((
+                        if past_deadline {
                             ExecutionResult::PastDeadline
                         } else {
                             ExecutionResult::Failed
                         },
-                        ..Default::default()
-                    })
+                        PoolExecution::default(),
+                    ))
                 }
             }
             NoteInstructions::Swap(instructions) => {
@@ -160,6 +166,19 @@ impl PoolExecution {
                     .get(&instructions.min_asset_out.faucet_id())
                     .ok_or(anyhow!("No price for asset {}", instructions.min_asset_out))?;
                 let price = base_price.quote_with(quote_price.price);
+
+                let (amount_out, new_base_pool_balances, new_quote_pool_balances) =
+                    get_curve_amount_out(
+                        &pool_state_base,
+                        &pool_state_quote,
+                        U256::from(pool_state_base.metadata().asset_decimals),
+                        U256::from(pool_state_quote.metadata().asset_decimals),
+                        U256::from(instructions.asset_in.amount()),
+                        price,
+                    )
+                    .unwrap();
+
+                println!("past_deadline {past_deadline}, amount_out: {amount_out:?}");
                 let (p2id, amount_out, result, counterparty_account) = if !past_deadline
                     && let Ok((amount_out, new_base_pool_balances, new_quote_pool_balances)) =
                         get_curve_amount_out(
@@ -251,24 +270,27 @@ impl PoolExecution {
                     ),
                     Felt::new(0),
                 ];
-                Ok(PoolExecution {
-                    advice_map_value: Some((note.serial_number(), advice_map_value)),
-                    input_note: Some((note.note().clone(), None)),
-                    expected_future_note: Some((
-                        p2id.note().clone().into(),
-                        p2id.note().metadata().tag(),
-                    )),
-                    new_pool_states: Some(new_pool_states),
-                    expected_output_recipient: Some(p2id.note().recipient().clone()),
+
+                Ok((
                     result,
-                    counterparty_account,
-                })
+                    PoolExecution {
+                        advice_map_value: Some((note.serial_number(), advice_map_value)),
+                        input_note: Some((note.note().clone(), None)),
+                        expected_future_note: Some((
+                            p2id.note().clone().into(),
+                            p2id.note().metadata().tag(),
+                        )),
+                        new_pool_states: Some(new_pool_states),
+                        expected_output_recipient: Some(p2id.note().recipient().clone()),
+                        counterparty_account,
+                    },
+                ))
             }
-            NoteInstructions::P2ID(_) => Err(anyhow!("Cant execute a P2ID against zoro pool.")),
+            NoteInstructions::P2ID(_) => Ok((ExecutionResult::Failed, PoolExecution::default())),
         }
     }
 
-    pub fn print_execution_details(&self, network_id: NetworkId) {
+    pub fn print_execution_details(&self, network_id: NetworkId, result: &ExecutionResult) {
         let acc = if let Some(acc) = self.counterparty_account {
             acc.to_bech32(network_id)
         } else {
@@ -281,7 +303,7 @@ impl PoolExecution {
         };
         info!(
             account = acc,
-            result = ?self.result,
+            result = ?result,
             note_id = input_note_id,
             "Execution details"
         )

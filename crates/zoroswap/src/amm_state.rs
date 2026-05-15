@@ -7,10 +7,7 @@ use crate::{
 use anyhow::{Result, anyhow};
 use chrono::Utc;
 use dashmap::DashMap;
-use miden_client::{
-    account::AccountId,
-    note::{Note, NoteId},
-};
+use miden_client::{account::AccountId, note::NoteId};
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
@@ -48,9 +45,8 @@ impl AmmState {
         }
     }
 
-    pub fn add_order(&self, note: Note) -> Result<(String, Uuid, Order)> {
-        let hex = note.id().to_hex();
-        let note = TrustedNote::from_note(note.clone())?;
+    pub fn add_order(&self, note: TrustedNote) -> Result<(String, Uuid, Order)> {
+        let hex = note.note().id().to_hex();
         let order = Order::from_trusted_note(note.clone())?;
         let order_id = order.id;
         if !order.instructions.involves_faucets(&self.valid_faucets) {

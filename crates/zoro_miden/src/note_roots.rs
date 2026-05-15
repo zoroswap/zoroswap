@@ -16,6 +16,7 @@ pub fn get_note_roots() -> &'static NoteRoots {
     })
 }
 
+#[derive(Debug)]
 pub struct NoteRoots {
     deposit: Word,
     withdraw: Word,
@@ -25,6 +26,17 @@ pub struct NoteRoots {
 
 impl NoteRoots {
     pub fn generate_from_notes() -> Result<Self> {
+        let deposit = get_script_root_for_local_script("DEPOSIT.masm")?;
+        let withdraw = get_script_root_for_local_script("WITHDRAW.masm")?;
+        let swap = get_script_root_for_local_script("ZOROSWAP.masm")?;
+        let p2id = StandardNote::P2ID.script_root();
+        info!(
+            deposit = deposit.to_hex(),
+            withdraw = withdraw.to_hex(),
+            swap = swap.to_hex(),
+            p2id = p2id.to_hex(),
+            "Note roots"
+        );
         Ok(Self {
             deposit: get_script_root_for_local_script("DEPOSIT.masm")?,
             withdraw: get_script_root_for_local_script("WITHDRAW.masm")?,
@@ -58,10 +70,10 @@ pub fn get_script_root_for_local_script(masm_name: &str) -> Result<Word> {
 
 #[cfg(test)]
 mod tests {
-    use crate::note_roots::NoteRoots;
+    use crate::note_roots::get_note_roots;
 
     #[test]
     pub fn create_note_roots() {
-        NoteRoots::generate_from_notes().unwrap();
+        get_note_roots();
     }
 }
