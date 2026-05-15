@@ -71,6 +71,13 @@ pub fn link_zoropool(code_builder: CodeBuilder) -> Result<CodeBuilder> {
     Ok(code_builder)
 }
 
+pub fn link_note_common_lib(code_builder: CodeBuilder) -> Result<CodeBuilder> {
+    let mut code_builder = code_builder.clone();
+    let note_common_lib_code = read_masm_file(&["notes", "lib", "common.masm"])?;
+    code_builder.link_module("zoro_miden::note::common", &note_common_lib_code)?;
+    Ok(code_builder)
+}
+
 pub fn link_all_libraries(code_builder: CodeBuilder) -> Result<CodeBuilder> {
-    link_zoropool(code_builder)
+    link_note_common_lib(link_zoropool(code_builder)?)
 }

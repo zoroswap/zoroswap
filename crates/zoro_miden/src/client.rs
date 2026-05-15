@@ -338,6 +338,24 @@ impl MidenClient {
         MidenClient::print_transaction_info(&tx_id);
         Ok(())
     }
+    pub async fn send_note_untrusted(
+        &mut self,
+        account_id: &AccountId,
+        // target_account_id: &AccountId,
+        note: Note,
+    ) -> Result<()> {
+        // self.import_account(target_account_id).await?;
+        let note_req = TransactionRequestBuilder::new()
+            .own_output_notes(vec![note.clone().into()])
+            .build()
+            .unwrap();
+        let tx_id = self
+            .client_mut()
+            .submit_new_transaction(*account_id, note_req)
+            .await?;
+        MidenClient::print_transaction_info(&tx_id);
+        Ok(())
+    }
 
     pub fn print_transaction_info(tx: &TransactionId) {
         info!(

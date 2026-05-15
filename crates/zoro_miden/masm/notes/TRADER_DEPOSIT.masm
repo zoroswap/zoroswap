@@ -6,6 +6,12 @@ use miden::standards::wallets::basic->basic_wallet
 
 use miden::core::sys
 
+use zoro_miden::note::common
+
+use common::AccountId
+use common::bool
+use common::DEFAULT_NUMBER_OF_STORAGE_ITEMS
+
 
 # META
 # =================================================================================================
@@ -14,11 +20,15 @@ use miden::core::sys
 # ERRORS
 # =================================================================================================
 
-const ERR_UNEXPECTED_NUMBER_OF_STORAGE_ITEMS="ZTD note expects exactly XXX note storage items"
-
 const ERR_ZTD_RECLAIM_ACCT_IS_NOT_SENDER="failed to reclaim ZTD note because the reclaiming account is not the sender"
 
 const ERR_ZTD_RECLAIM_NOT_INITIATED="failed to reclaim ZTD note because the reclaim has not been initiated"
+
+
+# CONSTANTS
+# =================================================================================================
+const NUMBER_OF_STORAGE_ITEMS = 2
+
 
 # HELPER PROCEDURES
 # =================================================================================================
@@ -36,7 +46,7 @@ const ERR_ZTD_RECLAIM_NOT_INITIATED="failed to reclaim ZTD note because the recl
 #! - the reclaim block height is not reached yet.
 #! - the account attempting to reclaim the note is not the sender account.
 proc reclaim_note
-    push.0.0 exec.get_beneficiary_id
+    push.0.0 exec.common::get_beneficiary_id
     # => [creator_account_id_suffix, creator_account_id_prefix]
 
     # ensure active account ID = sender account ID
@@ -51,7 +61,7 @@ proc reclaim_note
 end
 
 
-proc get_beneficiary_id() -> (account_id)
+proc get_beneficiary_id() -> (AccountId)
     nop
 end
 
@@ -82,8 +92,9 @@ end
 
 #! Inputs:  [SIG...]
 #! Outputs: [bool]
+#! this is a stub and always returns true
 proc validate_signature
-    push.1
+    push.0
     exec.sys::truncate_stack
 end
 
@@ -133,10 +144,10 @@ end
 #!   greater than 2^63.
 @note_script
 pub proc main
-    exec.store_storage_to_memory
-    # => [storage_ptr]
+    push.DEFAULT_NUMBER_OF_STORAGE_ITEMS exec.common::store_storage_to_memory
+    
 
-    exec.store_args_to_memory
+    #exec.store_args_to_memory
 
     # can active account consume the note
     exec.is_note_consumption_permitted
@@ -171,7 +182,7 @@ end
 #! Panics if:
 #! - the account_id is not valid.
 
-proc is_active_account(account_id: account_id) -> bool
+proc is_active_account(account_id: AccountId) -> bool
     exec.active_account::get_id
     exec.account_id::is_equal
 end
@@ -202,35 +213,4 @@ proc store_args_to_memory
 end
 
 
-const STORAGE_POINTER = 32
-const STORAGE_END     = STORAGE_WORD_3 + 15
-const NUMBER_OF_STORAGE_ITEMS = 16
 
-const STORAGE_WORD_0 = STORAGE_POINTER
-const STORAGE_WORD_1 = STORAGE_POINTER + 4
-const STORAGE_WORD_2 = STORAGE_POINTER + 8     
-const STORAGEBENEFICIARY_WORD = STORAGE_WORD_2         # BENEFICIARY  [beneficiary_id_suffix, beneficiary_id_prefix, 0, 0]
-const STORAGE_WORD_3 = STORAGE_POINTER + 12             
-
-
-## BENEFICIARY
-const BENEFICIARY_ID_SUFFIX = STORAGE_WORD_2
-const BENEFICIARY_ID_PREFIX = STORAGE_WORD_2 + 1
-
-
-
-# const ERR_UNEXPECTED_NUMBER_OF_STORAGE_ITEMS = "unexpected number of storage items"
-
-### SETTERS
-proc store_storage_to_memory() -> felt
-    push.STORAGE_POINTER exec.active_note::get_storage
-    # make sure the number of storage items is 4
-    eq.NUMBER_OF_STORAGE_ITEMS assert.err=ERR_ZTD_UNEXPECTED_NUMBER_OF_STORAGE_ITEMS
-end
-
-
-### GETTERS
-proc get_beneficiary_id() -> (account_id)
-    push.BENEFICIARY_ID_SUFFIX
-    push.BENEFICIARY_ID_PREFIX
-end
