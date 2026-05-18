@@ -4,7 +4,7 @@ use std::{collections::HashMap, time::Duration};
 use anyhow::Result;
 use chrono::Utc;
 use miden_client::transaction::TransactionRequestBuilder;
-use miden_client::{Felt, account::AccountId, asset::FungibleAsset, note::NoteType};
+use miden_client::{Felt, Word, account::AccountId, asset::FungibleAsset, note::NoteType};
 use tracing::info;
 use zoro_miden::{
     assembly_utils::link_all_libraries,
@@ -34,30 +34,33 @@ async fn note_storage_default_unit_test() -> Result<()> {
     let faucet_id = test_utils.faucet_1;
     let faucet_cb_enabled = Felt::new(0);
     let amount = 12_345;
-    let asset_compact = vec![
+    let asset_compact: Word = [
         faucet_id.suffix(),
         faucet_id.prefix().into(),
         faucet_cb_enabled,
         Felt::new(amount),
-    ];
+    ]
+    .into();
     // METADATA
     let deadline = Utc::now().timestamp_millis() as u64 + 5000;
     let p2id_tag = 45677789;
     let metadata_item_2 = amount * 1000 / 9500;
-    let metadata_storage = vec![
+    let metadata_storage: Word = [
         Felt::new(deadline),
         Felt::new(p2id_tag),
         Felt::new(metadata_item_2),
         Felt::ZERO,
-    ];
+    ]
+    .into();
     // BENEFICIARY
     let beneficiary_id = test_utils.user_1;
-    let beneficiary = vec![
+    let beneficiary: Word = [
         beneficiary_id.suffix(),
         beneficiary_id.prefix().into(),
         Felt::ZERO,
         Felt::ZERO,
-    ];
+    ]
+    .into();
 
     let note_storage = NoteStorage::new(vec![
         asset_compact[0],
@@ -74,20 +77,55 @@ async fn note_storage_default_unit_test() -> Result<()> {
         beneficiary[3],
     ])?;
 
-    //@todo add getter tests
+    //@todo write a base test note with all generic imports
     let test_note_code = format!(
         "use zoro_miden::note::common\n\
              use common::AccountId\n\
              use common::bool\n\
              use common::DEFAULT_NUMBER_OF_STORAGE_ITEMS\n\
-             use common::STORAGE_POINTER\n\
-             use common::DEFAULT_STORAGE_END\n\
+             #use common::STORAGE_POINTER\n\
+             use common::STORAGE_EXPECTED_ASSET_WORD\n\
+             use common::STORAGE_METADATA_WORD\n\
+             use common::STORAGE_BENEFICIARY_WORD\n\
+             \n\
+             const ERR_ASSET = \"Issue with asset in note storage\"\n\
+             const ERR_METADATA = \"Issue with metadata in note storage\"\n\
+             const ERR_BENEFICIARY = \"Issue with beneficiary in note storage\"\n\
+             const ERR_G_ASSET = \"Issue with expected asset getter\"\n\
+             const ERR_G_METADATA = \"Issue with expected metadata getter\"\n\
+             const ERR_G_BENEFICIARY = \"Issue with expected beneficiary getter\"\n\
+             const ERR_G_DEADLINE = \"Issue with expected deadline getter\"\n\
+             const ERR_G_P2ID_TAG = \"Issue with expected p2id tag getter\"\n\
+             const ERR_G_METADATA_ITEM_2 = \"Issue with expected metadata item 2 getter\"\n\
+             const ERR_G_METADATA_ITEM_3 = \"Issue with expected metadata item 3 getter\"\n\
+             \n\
+             \n\
              \n\
              @note_script\n\
              pub proc main\n\
                  push.DEFAULT_NUMBER_OF_STORAGE_ITEMS exec.common::store_storage_to_memory\n\
-                 debug.mem.STORAGE_POINTER.DEFAULT_STORAGE_END\n\
-             end"
+                 drop padw mem_loadw_le.STORAGE_EXPECTED_ASSET_WORD {}\n\
+                 assert_eqw.err=ERR_ASSET dropw dropw\n\
+                 padw mem_loadw_le.STORAGE_METADATA_WORD {}\n\
+                 assert_eqw.err=ERR_METADATA dropw dropw\n\
+                 padw mem_loadw_le.STORAGE_BENEFICIARY_WORD {}\n\
+                 assert_eqw.err=ERR_BENEFICIARY dropw dropw\n\
+                 padw exec.common::get_expected_asset padw mem_loadw_le.STORAGE_EXPECTED_ASSET_WORD\n\
+                 assert_eqw.err=ERR_G_ASSET dropw dropw\n\
+                 padw exec.common::get_metadata padw mem_loadw_le.STORAGE_METADATA_WORD\n\
+                 assert_eqw.err=ERR_G_METADATA dropw dropw\n\
+                 exec.common::get_deadline push.{deadline} assert_eq.err=ERR_G_DEADLINE\n\
+                 exec.common::get_p2id_tag push.{p2id_tag} assert_eq.err=ERR_G_P2ID_TAG\n\
+                 exec.common::get_beneficiary_id push.{} assert_eq.err=ERR_G_BENEFICIARY\n\
+                 push.{} assert_eq.err=ERR_G_BENEFICIARY\n\
+                 exec.common::get_metadata_item_2 push.{metadata_item_2} assert_eq.err=ERR_G_METADATA_ITEM_2\n\
+                 exec.common::get_metadata_item_3 push.0 assert_eq.err=ERR_G_METADATA_ITEM_3\n\
+             end",
+        format_word_to_masm_string(asset_compact),
+        format_word_to_masm_string(metadata_storage),
+        format_word_to_masm_string(beneficiary),
+        beneficiary_id.suffix(),
+        beneficiary_id.prefix(),
     );
 
     let code_builder =
@@ -105,8 +143,7 @@ async fn note_storage_default_unit_test() -> Result<()> {
         .send_note_untrusted(user.miden_account.id(), test_note.clone())
         .await?;
 
-    info!("Note storage in rust: {:?}", note_storage.items());
-    /// consume as unauthenticated note @note move consumption into client (or test utils) with args/advice map
+    // consume as unauthenticated note @note move consumption into client (or test utils) with args/advice map
     let transaction_request =
         TransactionRequestBuilder::new().build_consume_notes(vec![test_note.clone()])?;
     let tx_id = test_utils
@@ -116,6 +153,10 @@ async fn note_storage_default_unit_test() -> Result<()> {
         .await?;
 
     Ok(())
+}
+
+fn format_word_to_masm_string(word: Word) -> String {
+    format!("push.{}.{}.{}.{}", word[3], word[2], word[1], word[0])
 }
 
 #[tokio::test]

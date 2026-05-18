@@ -46,7 +46,7 @@ const NUMBER_OF_STORAGE_ITEMS = 2
 #! - the reclaim block height is not reached yet.
 #! - the account attempting to reclaim the note is not the sender account.
 proc reclaim_note
-    push.0.0 exec.common::get_beneficiary_id
+    exec.common::get_beneficiary_id
     # => [creator_account_id_suffix, creator_account_id_prefix]
 
     # ensure active account ID = sender account ID

@@ -6,8 +6,11 @@ pub type bool = i1
 
 ###  TYPES END
 
+################################### NOTE STORAGE LIBRARY ##########################################
+# =================================================================================================
+
 const STORAGE_POINTER = 32
-const STORAGE_END     = STORAGE_WORD_3 + 15
+const STORAGE_END     = STORAGE_WORD_3 + 63
 const MAXNUMBER_OF_STORAGE_WORDS = 16
 
 const DEFAULT_NUMBER_OF_STORAGE_ITEMS = 12
@@ -62,23 +65,58 @@ end
 ### GETTERS
 #! Expected word padding
 proc get_expected_asset() -> word
-    mem_loadw_be.STORAGE_EXPECTED_ASSET_WORD
+    mem_loadw_le.STORAGE_EXPECTED_ASSET_WORD
 end
 
 #! Expected word padding
 proc get_metadata() -> word
-    mem_loadw_be.STORAGE_METADATA_WORD
+    mem_loadw_le.STORAGE_METADATA_WORD
 end
 
-proc get_deadline() -> u64
+proc get_deadline() -> felt
     mem_load.METADATA_DEADLINE
 end
-proc get_p2id_tag() -> u64
+proc get_p2id_tag() -> felt
     mem_load.METADATA_P2ID_TAG
 end
+proc get_metadata_item_2() -> felt
+    mem_load.METADATA_ITEM_2
+end
+proc get_metadata_item_3() -> felt
+    mem_load.METADATA_ITEM_3
+end
 
-#! Expected 2xfelt padding
 proc get_beneficiary_id() -> AccountId
     mem_load.BENEFICIARY_ID_PREFIX
     mem_load.BENEFICIARY_ID_SUFFIX
 end
+
+
+
+################################### NOTE ARGUMENTS LIBRARY ##########################################
+# =================================================================================================
+
+const ARGUMENTS_POINTER = STORAGE_END + 16
+
+const ARGUMENTS_END     = ARGUMENTS_POINTER + 63
+const MAXNUMBER_OF_ARGUMENTS_WORDS = 16
+
+const ARGUMENTS_WORD_0 = ARGUMENTS_POINTER  
+const ARGUMNETS_WORD_1 = ARGUMENTS_POINTER + 4      
+const ARGUMNETS_WORD_2 = ARGUMENTS_POINTER + 8      
+const ARGUMNETS_WORD_3 = ARGUMENTS_POINTER + 12     
+
+
+# ====================================================
+proc store_arguments_from_stack_to_memory
+    mem_storew_be.ARGUMENTS_WORD_0
+    dropw
+end
+
+proc store_arguments_from_advicemap_to_memory
+    nop
+end
+
+
+# semantic names for note_storage
+# ====================================================
