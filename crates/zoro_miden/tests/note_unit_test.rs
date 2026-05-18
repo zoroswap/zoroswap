@@ -19,6 +19,106 @@ use zoro_miden::{
 use miden_protocol::note::{Note, NoteAssets, NoteMetadata, NoteRecipient, NoteStorage};
 
 #[tokio::test]
+async fn note_storage_default_unit_test() -> Result<()> {
+    let mut test_utils = TestUtils::from_cache().await?;
+    let user = test_utils.get_accounts(1).await?.first().unwrap().clone();
+
+    let serial_number = TrustedNote::random_word()?;
+
+    //// NOTE STORAGE
+    //   @todo move storage creation into note.rs
+    //
+    // ASSET
+    //   @todo user proper asset createion and asset compression
+    //
+    let faucet_id = test_utils.faucet_1;
+    let faucet_cb_enabled = Felt::new(0);
+    let amount = 12_345;
+    let asset_compact = vec![
+        faucet_id.suffix(),
+        faucet_id.prefix().into(),
+        faucet_cb_enabled,
+        Felt::new(amount),
+    ];
+    // METADATA
+    let deadline = Utc::now().timestamp_millis() as u64 + 5000;
+    let p2id_tag = 45677789;
+    let metadata_item_2 = amount * 1000 / 9500;
+    let metadata_storage = vec![
+        Felt::new(deadline),
+        Felt::new(p2id_tag),
+        Felt::new(metadata_item_2),
+        Felt::ZERO,
+    ];
+    // BENEFICIARY
+    let beneficiary_id = test_utils.user_1;
+    let beneficiary = vec![
+        beneficiary_id.suffix(),
+        beneficiary_id.prefix().into(),
+        Felt::ZERO,
+        Felt::ZERO,
+    ];
+
+    let note_storage = NoteStorage::new(vec![
+        asset_compact[0],
+        asset_compact[1],
+        asset_compact[2],
+        asset_compact[3],
+        metadata_storage[0],
+        metadata_storage[1],
+        metadata_storage[2],
+        metadata_storage[3],
+        beneficiary[0],
+        beneficiary[1],
+        beneficiary[2],
+        beneficiary[3],
+    ])?;
+
+    //@todo add getter tests
+    let test_note_code = format!(
+        "use zoro_miden::note::common\n\
+             use common::AccountId\n\
+             use common::bool\n\
+             use common::DEFAULT_NUMBER_OF_STORAGE_ITEMS\n\
+             use common::STORAGE_POINTER\n\
+             use common::DEFAULT_STORAGE_END\n\
+             \n\
+             @note_script\n\
+             pub proc main\n\
+                 push.DEFAULT_NUMBER_OF_STORAGE_ITEMS exec.common::store_storage_to_memory\n\
+                 debug.mem.STORAGE_POINTER.DEFAULT_STORAGE_END\n\
+             end"
+    );
+
+    let code_builder =
+        link_all_libraries(test_utils.miden_client().client().code_builder().clone())?;
+    let test_note_script = code_builder.compile_note_script(test_note_code)?;
+
+    let recipient = NoteRecipient::new(serial_number, test_note_script, note_storage.clone());
+
+    let metadata = NoteMetadata::new(user.miden_account.id().clone(), NoteType::Public);
+    let assets = NoteAssets::new(vec![])?;
+    let test_note = Note::new(assets, metadata, recipient);
+
+    test_utils
+        .miden_client_mut()
+        .send_note_untrusted(user.miden_account.id(), test_note.clone())
+        .await?;
+
+    info!("Note storage in rust: {:?}", note_storage.items());
+    /// consume as unauthenticated note @note move consumption into client (or test utils) with args/advice map
+    let transaction_request =
+        TransactionRequestBuilder::new().build_consume_notes(vec![test_note.clone()])?;
+    let tx_id = test_utils
+        .miden_client_mut()
+        .client_mut()
+        .submit_new_transaction(user.miden_account.id().clone(), transaction_request)
+        .await?;
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn reclaim_unit_test() -> Result<()> {
     let mut test_utils = TestUtils::from_cache().await?;
     let faucets = test_utils.get_faucets(2).await?;
@@ -37,7 +137,6 @@ async fn reclaim_unit_test() -> Result<()> {
         .await?;
     let mut user = user.first().unwrap().clone();
     let user_id = *user.miden_account.id();
-    let user2_id = test_utils.user_2.clone();
 
     let user_balance0_at_start = user
         .miden_account
