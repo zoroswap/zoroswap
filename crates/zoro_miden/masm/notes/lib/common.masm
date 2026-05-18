@@ -8,22 +8,40 @@ pub type bool = i1
 
 const STORAGE_POINTER = 32
 const STORAGE_END     = STORAGE_WORD_3 + 15
-const NUMBER_OF_STORAGE_ITEMS = 16
+const MAXNUMBER_OF_STORAGE_WORDS = 16
 
 const STORAGE_WORD_0 = STORAGE_POINTER
-const STORAGE_WORD_1 = STORAGE_POINTER + 4
-const STORAGE_WORD_2 = STORAGE_POINTER + 8     
-const STORAGE_BENEFICIARY_WORD = STORAGE_WORD_2         # BENEFICIARY  [beneficiary_id_suffix, beneficiary_id_prefix, 0, 0]
+const STORAGE_WORD_1 = STORAGE_POINTER + 4              
+const STORAGE_WORD_2 = STORAGE_POINTER + 8             
 const STORAGE_WORD_3 = STORAGE_POINTER + 12        
 
 
+const STORAGE_EXPECTED_ASSET_WORD = STORAGE_WORD_0      # EXPECTED_ASSET [asset_id_suffix, asset_id_prefix, cb, amount]
+const STORAGE_METADATA_WORD = STORAGE_WORD_1            # METADATA  [deadline, p2id_tag, metadata_2, metadata_3]
+const STORAGE_BENEFICIARY_WORD = STORAGE_WORD_2         # BENEFICIARY  [beneficiary_id_suffix, beneficiary_id_prefix, 0, 0]
 
-const DEFAULT_NUMBER_OF_STORAGE_ITEMS = 12
+## EXPECTED ASSET
+const EXPECTED_ASSET_ID_SUFFIX = STORAGE_EXPECTED_ASSET_WORD
+const EXPECTED_ASSET_ID_PREFIX = STORAGE_EXPECTED_ASSET_WORD + 1
+const EXPECTED_ASSET_CB = STORAGE_EXPECTED_ASSET_WORD + 2
+const EXPECTED_ASSET_AMOUNT = STORAGE_EXPECTED_ASSET_WORD + 3
 
+## METADATA
+const METADATA_DEADLINE = STORAGE_METADATA_WORD
+const METADATA_P2ID_TAG = STORAGE_METADATA_WORD + 1
+const METADATA_ITEM_2 = STORAGE_METADATA_WORD + 2
+const METADATA_ITEM_3 = STORAGE_METADATA_WORD + 3
 
 ## BENEFICIARY
 const BENEFICIARY_ID_SUFFIX = STORAGE_BENEFICIARY_WORD
 const BENEFICIARY_ID_PREFIX = STORAGE_BENEFICIARY_WORD + 1
+const BENEFICIARY_2_ID_SUFFIX = STORAGE_BENEFICIARY_WORD + 2  # default empty
+const BENEFICIARY_2_ID_PREFIX = STORAGE_BENEFICIARY_WORD + 3  # default empty
+
+const DEFAULT_NUMBER_OF_STORAGE_ITEMS = 12
+
+
+
 
 
 
@@ -41,6 +59,24 @@ end
 
 
 ### GETTERS
+#! Expected word padding
+proc get_expected_asset() -> word
+    mem_loadw_be.STORAGE_EXPECTED_ASSET_WORD
+end
+
+#! Expected word padding
+proc get_metadata() -> word
+    mem_loadw_be.STORAGE_METADATA_WORD
+end
+
+proc get_deadline() -> u64
+    mem_load.METADATA_DEADLINE
+end
+proc get_p2id_tag() -> u64
+    mem_load.METADATA_P2ID_TAG
+end
+
+#! Expected 2xfelt padding
 proc get_beneficiary_id() -> AccountId
     mem_load.BENEFICIARY_ID_PREFIX
     mem_load.BENEFICIARY_ID_SUFFIX
