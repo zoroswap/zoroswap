@@ -102,9 +102,20 @@ const ARGUMENTS_END     = ARGUMENTS_POINTER + 63
 const MAXNUMBER_OF_ARGUMENTS_WORDS = 16
 
 const ARGUMENTS_WORD_0 = ARGUMENTS_POINTER  
-const ARGUMNETS_WORD_1 = ARGUMENTS_POINTER + 4      
-const ARGUMNETS_WORD_2 = ARGUMENTS_POINTER + 8      
-const ARGUMNETS_WORD_3 = ARGUMENTS_POINTER + 12     
+const ARGUMENTS_WORD_1 = ARGUMENTS_POINTER + 4      
+const ARGUMENTS_WORD_2 = ARGUMENTS_POINTER + 8      
+const ARGUMENTS_WORD_3 = ARGUMENTS_POINTER + 12     
+
+
+const AMOUNT_OUT = ARGUMENTS_WORD_0   
+const LIABILITIES_0 = ARGUMENTS_WORD_0 + 1  
+const RESERVE_0 = ARGUMENTS_WORD_0 + 2
+const RESERVE_WITH_SLIPPAGE_0 = ARGUMENTS_WORD_0 + 3
+
+const EMPTY_ARGUMENT_1 = ARGUMENTS_WORD_1   # 0x0040
+const LIABILITIES_1 = ARGUMENTS_WORD_1 + 1  # 0x0041
+const RESERVE_1 = ARGUMENTS_WORD_1 + 2  # 0x0042
+const RESERVE_WITH_SLIPPAGE_1 = ARGUMENTS_WORD_1 + 3  # 0x0043
 
 
 # ====================================================
@@ -114,7 +125,13 @@ proc store_arguments_from_stack_to_memory
 end
 
 proc store_arguments_from_advicemap_to_memory
-    nop
+    exec.active_note::get_serial_number
+    adv.push_mapval
+    swap.3 drop push.ARGUMENTS_POINTER 
+    padw padw padw
+    adv_pipe
+
+    dropw swapw dropw swapw dropw
 end
 
 

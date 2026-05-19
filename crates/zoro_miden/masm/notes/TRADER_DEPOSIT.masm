@@ -187,30 +187,6 @@ proc is_active_account(account_id: AccountId) -> bool
     exec.account_id::is_equal
 end
 
-#! Library: Zoro Note Utils
-# argument memory XXX WORDS 
-# 0x0060 - 0x00XX
-# ====================================================
-
-
-#########  ZORO NOTE UTILS  #########
-  
-const ARGS_POINTER = 96
-#! Library: Zoro Note Utils
-#! Inputs:  [AccountID]
-#! Outputs: [bool]
-#!
-#! Panics if:
-#! - the account_id is not valid.
-proc store_args_to_memory
-    exec.active_note::get_serial_number
-    adv.push_mapval
-    swap.3 drop push.ARGS_POINTER 
-    padw padw padw
-    adv_pipe
-
-    dropw swapw dropw swapw dropw
-end
 
 
 
