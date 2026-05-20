@@ -121,7 +121,7 @@ end
 ################################### OUTPUT NOTE LIBRARY ##########################################
 # =================================================================================================
 
-const OUTPUT_NOTE_START = ARGUMENTS_END + 17
+const OUTPUT_NOTE_START = ARGUMENTS_END + 16
 const OUTPUT_ASSET_TARGET_PREFIX = OUTPUT_NOTE_START
 const OUTPUT_ASSET_TARGET_SUFFIX = OUTPUT_NOTE_START + 1
 const OUTPUT_ASSET_KEY = OUTPUT_NOTE_START + 2
@@ -132,11 +132,11 @@ proc get_output_asset_key_location() -> felt
 end
 
 proc get_output_asset_key() -> word
-   mem_load.OUTPUT_ASSET_KEY 
+   padw mem_loadw_be.OUTPUT_ASSET_KEY 
 end
 
 proc get_output_asset_value() -> word
-   mem_load.OUTPUT_ASSET_VALUE
+   padw mem_loadw_be.OUTPUT_ASSET_VALUE
 end
 
 #! Stores beneficiary AccountId to memory for creating output notes
