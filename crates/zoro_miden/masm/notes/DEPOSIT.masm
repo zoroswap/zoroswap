@@ -6,7 +6,8 @@ use miden::protocol::asset
 
 use zoroswap::zoropool
 use zoro_miden::lib::asset_utils
-use zoro_miden::lib::p2id_utils
+use zoro_miden::lib::output_note_utils
+use zoro_miden::note::common
 
 # ERRORS
 # =================================================================================================

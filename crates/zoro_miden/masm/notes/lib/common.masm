@@ -121,19 +121,33 @@ end
 ################################### OUTPUT NOTE LIBRARY ##########################################
 # =================================================================================================
 
-const OUTPUT_NOTE_POINTER = ARGUMENTS_END + 17
-const OUTPUT_ASSET = OUTPUT_NOTE_POINTER = 16
-const OUTPUT_NOTE_END = OUTPUT_ASSET + 8
+const OUTPUT_NOTE_START = ARGUMENTS_END + 17
+const OUTPUT_ASSET_TARGET_PREFIX = OUTPUT_NOTE_START
+const OUTPUT_ASSET_TARGET_SUFFIX = OUTPUT_NOTE_START + 1
+const OUTPUT_ASSET_KEY = OUTPUT_NOTE_START + 2
+const OUTPUT_ASSET_VALUE = OUTPUT_ASSET_KEY + 4
+
+proc get_output_asset_key_location() -> felt
+   push.OUTPUT_ASSET_KEY
+end
+
+proc get_output_asset_key() -> word
+   mem_load.OUTPUT_ASSET_KEY 
+end
+
+proc get_output_asset_value() -> word
+   mem_load.OUTPUT_ASSET_VALUE
+end
 
 #! Stores beneficiary AccountId to memory for creating output notes
 #!
 #! Inputs: []_
 #! Outputs: []
 #!
-proc load_beneficiary_to_memory
+proc set_beneficiary_as_output_note_target
     exec.get_beneficiary_id
     # [prefix, suffix]
-    mem_store.OUTPUT_NOTE_PTR mem_store.OUTPUT_NOTE_PTR + 1
+    mem_store.OUTPUT_ASSET_TARGET_PREFIX mem_store.OUTPUT_ASSET_TARGET_SUFFIX
     # []
 end
 
@@ -142,10 +156,10 @@ end
 #! Inputs: []
 #! Outputs: []
 #!
-proc load_sender_to_memory
+proc set_sender_as_output_note_target
     exec.active_note::get_sender
     # [prefix, suffix]
-    mem_store.OUTPUT_NOTE_PTR mem_store.OUTPUT_NOTE_PTR + 1
+    mem_store.OUTPUT_ASSET_TARGET_PREFIX mem_store.OUTPUT_ASSET_TARGET_SUFFIX
     # []
 end
 
@@ -155,6 +169,6 @@ end
 #! Outputs: []
 #!
 proc store_asset_in_to_memory
-    push.OUTPUT_ASSET exec.active_note::get_assets assert.err=ERR_WRONG_NUMBER_OF_ASSETS
+    push.OUTPUT_ASSET_KEY exec.active_note::get_assets assert.err=ERR_WRONG_NUMBER_OF_ASSETS
     drop
 end

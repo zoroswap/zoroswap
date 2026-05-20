@@ -1,5 +1,8 @@
-use zoro_miden::note::common
 use miden::protocol::note
+use miden::protocol::active_note
+use miden::protocol::output_note
+
+use zoro_miden::note::common
 
 # CONSTANTS
 # =================================================================================================
@@ -26,8 +29,7 @@ proc create_p2id_output_note
     # => [THIS_SERIAL_NUM, P2ID_SCRIPT_HASH, pad(8)]
     exec.increment_serial_num
     # => [P2ID_SERIAL_NUM, P2ID_SCRIPT_HASH, pad(8)]
-    ## store note storage into memory and push pointer and size
-    push.2.common::OUTPUT_NOTE_PTR
+    push.2 exec.common::get_output_asset_key
     ## => [inputs_ptr, number_of_inputs, P2ID_SERIAL_NUM, P2ID_SCRIPT_HASH]
     exec.note::build_recipient 
     # => [P2ID_RECIPIENT, pad(8)]
@@ -44,10 +46,10 @@ end
 #! Inputs: []
 #! Outputs: []
 #!
-proc create_p2id_note_from_memory
+proc create_p2id_from_memory
     exec.create_p2id_output_note
     # => [note_idx]
-    mem_loadw_be.common::OUTPUT_ASSET
+    exec.common::get_output_asset_key exec.common::get_output_asset_value 
     # => [ASSET_KEY, ASSET_VALUE, note_idx] 
     exec.output_note::add_asset drop
     # => []
@@ -59,19 +61,20 @@ end
 #! Outputs: [note_idx]
 #!
 proc create_p2id_bounce_to_sender
-    exec.common::load_sender_to_memory
+    exec.common::set_sender_as_output_note_target
     # => []
     exec.create_p2id_from_memory
     # => []
 end
 
 #! Returns the active note as a p2id back to the sender
+#! Asset should be set at this point.
 #!
 #! Inputs: []
 #! Outputs: []
 #!
 proc create_p2id_beneficiary_note
-    exec.common::load_beneficiary_to_memory
+    exec.common::set_beneficiary_as_output_note_target
     # => []
     exec.create_p2id_from_memory
     # => []
