@@ -1,26 +1,25 @@
+use miden_protocol::word::LexicographicWord;
 use num_traits::pow::Pow;
 use std::{collections::HashMap, time::Duration};
 
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use chrono::Utc;
 use miden_client::transaction::TransactionRequestBuilder;
 use miden_client::{Felt, Word, account::AccountId, asset::FungibleAsset, note::NoteType};
 use tracing::info;
 use zoro_miden::{
     assembly_utils::link_all_libraries,
+    asset_utils::{asset_to_word, word_to_asset},
     note::{
-        DepositInstructions, NoteInstructions, SwapInstructions, TrustedNote, WithdrawInstructions,
+        DepositInstructions, NoteInstructions, NoteStorageBuilder, SwapInstructions, TrustedNote,
+        WithdrawInstructions,
     },
     pool::ZoroPool,
     price::PriceData,
-    test_utils::{PoolWithMeta, TestUtils},
+    test_utils::{PoolWithMeta, TestUtils, format_word_to_masm_string},
 };
 
 use miden_protocol::note::{Note, NoteAssets, NoteMetadata, NoteRecipient, NoteStorage};
-
-fn format_word_to_masm_string(word: Word) -> String {
-    format!("push.{}.{}.{}.{}", word[3], word[2], word[1], word[0])
-}
 
 #[tokio::test]
 async fn note_arguments_unit_test() -> Result<()> {
@@ -137,28 +136,11 @@ async fn note_storage_default_unit_test() -> Result<()> {
     .into();
     // BENEFICIARY
     let beneficiary_id = test_utils.user_1;
-    let beneficiary: Word = [
-        beneficiary_id.suffix(),
-        beneficiary_id.prefix().into(),
-        Felt::ZERO,
-        Felt::ZERO,
-    ]
-    .into();
 
-    let note_storage = NoteStorage::new(vec![
-        asset_compact[0],
-        asset_compact[1],
-        asset_compact[2],
-        asset_compact[3],
-        metadata_storage[0],
-        metadata_storage[1],
-        metadata_storage[2],
-        metadata_storage[3],
-        beneficiary[0],
-        beneficiary[1],
-        beneficiary[2],
-        beneficiary[3],
-    ])?;
+    let note_storage = NoteStorageBuilder::new(beneficiary_id)
+        .with_asset_compact(asset_compact)
+        .with_metadata(metadata_storage)
+        .build()?;
 
     //@todo write a base test note with all generic imports
     let test_note_code = format!(
@@ -206,7 +188,15 @@ async fn note_storage_default_unit_test() -> Result<()> {
              end",
         format_word_to_masm_string(asset_compact),
         format_word_to_masm_string(metadata_storage),
-        format_word_to_masm_string(beneficiary),
+        format_word_to_masm_string(
+            [
+                beneficiary_id.suffix(),
+                beneficiary_id.prefix().into(),
+                Felt::ZERO,
+                Felt::ZERO,
+            ]
+            .into(),
+        ),
         beneficiary_id.suffix(),
         beneficiary_id.prefix(),
     );
