@@ -62,7 +62,7 @@ proc store_storage_to_memory(expected_num_storage_items: u16) -> felt
 end
 
 
-### GETTERS
+### GETTERS ###
 #! Expected word padding
 proc get_expected_asset() -> word
     mem_loadw_le.STORAGE_EXPECTED_ASSET_WORD
@@ -96,7 +96,7 @@ end
 ################################### NOTE ARGUMENTS LIBRARY ##########################################
 # =================================================================================================
 
-const ARGUMENTS_POINTER = STORAGE_END + 16
+const ARGUMENTS_POINTER = STORAGE_END + 17
 
 const ARGUMENTS_END     = ARGUMENTS_POINTER + 63
 const MAXNUMBER_OF_ARGUMENTS_WORDS = 16
@@ -120,7 +120,7 @@ const RESERVE_WITH_SLIPPAGE_1 = ARGUMENTS_WORD_1 + 3  # 0x0043
 
 # ====================================================
 proc store_arguments_from_stack_to_memory
-    mem_storew_be.ARGUMENTS_WORD_0
+    mem_storew_le.ARGUMENTS_WORD_0
     dropw
 end
 
@@ -135,5 +135,41 @@ proc store_arguments_from_advicemap_to_memory
 end
 
 
-# semantic names for note_storage
-# ====================================================
+### GETTERS ###
+proc get_amount_out_argument() -> felt
+    mem_load.AMOUNT_OUT
+end
+
+#! Returns POOL 0 STATE, expexts padding
+proc get_pool_0_state() -> (felt, felt, felt)
+    mem_loadw_le.ARGUMENTS_WORD_0
+    # => [amount_out, liabilities_0, reserve_0, reserve_with_slippage_0]
+    drop
+    # => [liabilities_0, reserve_0, reserve_with_slippage_0]
+end
+proc get_pool_0_liabilities() -> felt
+    mem_load.LIABILITIES_0
+end
+proc get_pool_0_reserve() -> felt
+    mem_load.RESERVE_0
+end
+proc get_pool_0_reserve_with_slippage() -> felt
+    mem_load.RESERVE_WITH_SLIPPAGE_0
+end
+
+#! Returns POOL 0 STATE, expexts padding
+proc get_pool_1_state() -> (felt, felt, felt)
+    mem_loadw_le.ARGUMENTS_WORD_1
+    # => [amount_out, liabilities_1, reserve_1, reserve_with_slippage_1]
+    drop
+    # => [liabilities_1, reserve_1, reserve_with_slippage_1]
+end
+proc get_pool_1_liabilities() -> felt
+    mem_load.LIABILITIES_1
+end
+proc get_pool_1_reserve() -> felt
+    mem_load.RESERVE_1
+end
+proc get_pool_1_reserve_with_slippage() -> felt
+    mem_load.RESERVE_WITH_SLIPPAGE_1
+end
