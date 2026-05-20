@@ -223,6 +223,51 @@ async fn note_arguments_advicemap_unit_test() -> Result<()> {
 }
 
 #[tokio::test]
+async fn note_arguments_advicemap_wrong_key_unit_test() -> Result<()> {
+    let mut test_utils = TestUtils::from_cache().await?;
+    let user = test_utils.get_accounts(1).await?.first().unwrap().clone();
+
+    let serial_number = TrustedNote::random_word()?;
+
+    let test_note_code = format!(
+        "use zoro_miden::note::common\n\
+            const ERR_HAS_ARGUMENTS_FROM_ADVICE_MAP = \"Issue with has_arguments_from_advicemap: key found where no arguments expected\"\n\
+            \n\
+            @note_script\n\
+            pub proc main\n\
+                exec.common::has_arguments_from_advicemap\n\
+                assertz.err=ERR_HAS_ARGUMENTS_FROM_ADVICE_MAP\n\
+                dropw\n\
+            end"
+    );
+
+    let code_builder =
+        link_all_libraries(test_utils.miden_client().client().code_builder().clone())?;
+    let test_note_script = code_builder.compile_note_script(test_note_code)?;
+
+    let recipient = NoteRecipient::new(serial_number, test_note_script, NoteStorage::new(vec![])?);
+    let metadata = NoteMetadata::new(user.miden_account.id().clone(), NoteType::Public);
+    let assets = NoteAssets::new(vec![])?;
+    let test_note = Note::new(assets, metadata, recipient);
+
+    test_utils
+        .miden_client_mut()
+        .send_note_untrusted(user.miden_account.id(), test_note.clone())
+        .await?;
+
+    let consume_transaction_request = TransactionRequestBuilder::new()
+        .input_notes(vec![(test_note.clone(), None)])
+        .build()?;
+    let _tx_id = test_utils
+        .miden_client_mut()
+        .client_mut()
+        .submit_new_transaction(user.miden_account.id().clone(), consume_transaction_request)
+        .await?;
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn note_storage_default_unit_test() -> Result<()> {
     let mut test_utils = TestUtils::from_cache().await?;
     let user = test_utils.get_accounts(1).await?.first().unwrap().clone();

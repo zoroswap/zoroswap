@@ -124,14 +124,22 @@ proc store_arguments_from_stack_to_memory
     dropw
 end
 
+
 proc store_arguments_from_advicemap_to_memory
     exec.active_note::get_serial_number
+
     adv.push_mapval
     swap.3 drop push.ARGUMENTS_POINTER 
     padw padw padw
     adv_pipe
 
     dropw swapw dropw swapw dropw
+end
+
+proc has_arguments_from_advicemap() -> bool
+    exec.active_note::get_serial_number
+    adv.has_mapkey
+    adv_push.1
 end
 
 

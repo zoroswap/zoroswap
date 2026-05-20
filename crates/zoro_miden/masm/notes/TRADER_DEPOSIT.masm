@@ -77,17 +77,21 @@ end
 #! - the reclaim of the active note is disabled.
 #! - the reclaim block height is not reached yet.
 #! - the account attempting to reclaim the note is not the sender account.
-proc is_note_consumption_permitted
+proc is_note_consumption_permitted() -> bool
+    exec.common::has_arguments_from_advicemap
+    if.true
+        ## read arguments from memory stack to memory using ARGSS_POINTER
 
-    ## read arguments from memory stack to memory using ARGSS_POINTER
+        ## validate signature
+        # => [SIG...]
+        exec.validate_signature
+        # => [is signature valid]
+        ## maybe other checks
+    else
+        push.0
+    end
 
-    ## validate signature
-    # => [SIG...]
-    exec.validate_signature
-    # => [is signature valid]
     exec.sys::truncate_stack
-    ## maybe other checks
-
 end
 
 #! Inputs:  [SIG...]
