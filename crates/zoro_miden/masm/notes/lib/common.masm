@@ -44,11 +44,8 @@ const BENEFICIARY_ID_PREFIX = STORAGE_BENEFICIARY_WORD + 1
 const BENEFICIARY_2_ID_SUFFIX = STORAGE_BENEFICIARY_WORD + 2  # default empty
 const BENEFICIARY_2_ID_PREFIX = STORAGE_BENEFICIARY_WORD + 3  # default empty
 
-
-
-
-
-
+# ZOROSWAP script requires exactly one note asset
+const ERR_WRONG_NUMBER_OF_ASSETS="Note has too the wrong number of assets"
 const ERR_UNEXPECTED_NUMBER_OF_STORAGE_ITEMS = "unexpected number of storage items"
 
 ### SETTERS
@@ -120,3 +117,44 @@ end
 
 # semantic names for note_storage
 # ====================================================
+
+################################### OUTPUT NOTE LIBRARY ##########################################
+# =================================================================================================
+
+const OUTPUT_NOTE_POINTER = ARGUMENTS_END + 17
+const OUTPUT_ASSET = OUTPUT_NOTE_POINTER = 16
+const OUTPUT_NOTE_END = OUTPUT_ASSET + 8
+
+#! Stores beneficiary AccountId to memory for creating output notes
+#!
+#! Inputs: []_
+#! Outputs: []
+#!
+proc load_beneficiary_to_memory
+    exec.get_beneficiary_id
+    # [prefix, suffix]
+    mem_store.OUTPUT_NOTE_PTR mem_store.OUTPUT_NOTE_PTR + 1
+    # []
+end
+
+#! Stores creator AccountId to memory for creating output notes
+#!
+#! Inputs: []
+#! Outputs: []
+#!
+proc load_sender_to_memory
+    exec.active_note::get_sender
+    # [prefix, suffix]
+    mem_store.OUTPUT_NOTE_PTR mem_store.OUTPUT_NOTE_PTR + 1
+    # []
+end
+
+#! Stores 
+#!
+#! Inputs: []
+#! Outputs: []
+#!
+proc store_asset_in_to_memory
+    push.OUTPUT_ASSET exec.active_note::get_assets assert.err=ERR_WRONG_NUMBER_OF_ASSETS
+    drop
+end

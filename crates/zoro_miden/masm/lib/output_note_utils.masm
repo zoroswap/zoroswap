@@ -1,0 +1,83 @@
+use zoro_miden::note::common
+use miden::protocol::note
+
+# CONSTANTS
+# =================================================================================================
+const PUBLIC_NOTE=1
+
+# input: [SERIAL_NUM,...]
+# ouput: [P2ID_SERIAL_NUM, ...]
+proc increment_serial_num
+    add.1
+end
+
+#! Creates a P2ID note to creator
+#!
+#! Inputs: [AccountId]
+#! Outputs: [note_idx]
+#!
+proc create_p2id_output_note
+    # tag(1) + note_type(1) + RECIPIENT(4) + pad(10) = 16
+    padw padw push.0.0
+    # => [pad(10)]
+    padw exec.get_p2id_script_hash
+    # => [P2ID_SCRIPT_HASH, pad(8)]
+    exec.active_note::get_serial_number
+    # => [THIS_SERIAL_NUM, P2ID_SCRIPT_HASH, pad(8)]
+    exec.increment_serial_num
+    # => [P2ID_SERIAL_NUM, P2ID_SCRIPT_HASH, pad(8)]
+    ## store note storage into memory and push pointer and size
+    push.2.common::OUTPUT_NOTE_PTR
+    ## => [inputs_ptr, number_of_inputs, P2ID_SERIAL_NUM, P2ID_SCRIPT_HASH]
+    exec.note::build_recipient 
+    # => [P2ID_RECIPIENT, pad(8)]
+    push.PUBLIC_NOTE
+    # => [note_type, P2ID_RECIPIENT, pad(8)]
+    exec.common::get_p2id_tag
+    # => [tag, note_type, P2ID_RECIPIENT, pad(8)]
+    call.output_note::create
+    # => [note_idx, pad(15)]
+end
+
+#! Returns the active note as a p2id back to the sender
+#!
+#! Inputs: []
+#! Outputs: []
+#!
+proc create_p2id_note_from_memory
+    exec.create_p2id_output_note
+    # => [note_idx]
+    mem_loadw_be.common::OUTPUT_ASSET
+    # => [ASSET_KEY, ASSET_VALUE, note_idx] 
+    exec.output_note::add_asset drop
+    # => []
+end
+
+#! Returns the active note as a p2id back to the sender
+#!
+#! Inputs: []
+#! Outputs: [note_idx]
+#!
+proc create_p2id_bounce_to_sender
+    exec.common::load_sender_to_memory
+    # => []
+    exec.create_p2id_from_memory
+    # => []
+end
+
+#! Returns the active note as a p2id back to the sender
+#!
+#! Inputs: []
+#! Outputs: []
+#!
+proc create_p2id_beneficiary_note
+    exec.common::load_beneficiary_to_memory
+    # => []
+    exec.create_p2id_from_memory
+    # => []
+end
+
+proc get_p2id_script_hash
+    # P2ID script root from miden-standards v0.14 StandardNote::P2ID.script_root()
+    push.3672480923625915098.9159872301314598941.4201800931930002347.17479343943140556328
+end
