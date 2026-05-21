@@ -29,7 +29,7 @@ proc create_p2id_output_note
     # => [THIS_SERIAL_NUM, P2ID_SCRIPT_HASH, pad(8)]
     exec.increment_serial_num
     # => [P2ID_SERIAL_NUM, P2ID_SCRIPT_HASH, pad(8)]
-    push.2 exec.common::get_output_asset_key
+    push.2 exec.common::get_output_asset_target_pointer
     ## => [inputs_ptr, number_of_inputs, P2ID_SERIAL_NUM, P2ID_SCRIPT_HASH]
     exec.note::build_recipient 
     # => [P2ID_RECIPIENT, pad(8)]
@@ -50,7 +50,7 @@ proc create_p2id_from_memory
     exec.create_p2id_output_note
     # => [note_idx]
     exec.common::get_output_asset_key exec.common::get_output_asset_value 
-    # => [ASSET_KEY, ASSET_VALUE, note_idx] 
+    # => [ASSET_KEY, ASSET_VALUE, note_idx]
     exec.output_note::add_asset drop
     # => []
 end
@@ -61,6 +61,7 @@ end
 #! Outputs: [note_idx]
 #!
 proc create_p2id_bounce_to_sender
+    push.100 debug.stack.1 drop    
     exec.common::set_sender_as_output_note_target
     # => []
     exec.create_p2id_from_memory

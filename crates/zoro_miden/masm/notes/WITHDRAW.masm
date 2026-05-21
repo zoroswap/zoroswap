@@ -4,7 +4,6 @@ use miden::core::crypto::hashes::poseidon2
 use miden::core::sys
 
 use zoroswap::zoropool
-use zoro_miden::lib::asset_utils::expand_asset  
 use zoro_miden::lib::asset_utils::compress_asset    
 
 

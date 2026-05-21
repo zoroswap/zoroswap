@@ -1,4 +1,5 @@
 use miden::protocol::active_note
+use miden::core::sys
 
 #### TODO move types to generic library
 pub type AccountId = u64
@@ -118,17 +119,70 @@ end
 # semantic names for note_storage
 # ====================================================
 
+###################################### INPUT ASSET ################################################
+# =================================================================================================
+
+const INPUT_ASSET_START = ARGUMENTS_END + 18
+const INPUT_ASSET_KEY = INPUT_ASSET_START
+const INPUT_ASSET_VALUE = INPUT_ASSET_KEY + 4
+const INPUT_ASSET_END = INPUT_ASSET_VALUE + 4
+
+proc get_input_asset_key_pointer() -> felt
+   push.INPUT_ASSET_KEY
+end
+
+proc get_input_asset_key
+   padw mem_loadw_be.INPUT_ASSET_KEY
+end
+
+proc get_input_asset_value 
+   padw mem_loadw_be.INPUT_ASSET_VALUE
+end
+
+proc get_input_asset_key_le
+   padw mem_loadw_le.INPUT_ASSET_KEY
+end
+
+proc get_input_asset_value_le 
+   padw mem_loadw_le.INPUT_ASSET_VALUE
+end
+
+#! Will write to INPUT_ASSET_KEY and INPUT_ASSET_VALUE if there is exactly 1 asset attached to the note
+#!
+#! Inputs: []
+#! Outputs: []
+#!
+#! Panics is there is more than one asset in the active note.
+#!
+proc store_asset_in_to_memory
+    push.INPUT_ASSET_KEY exec.active_note::get_assets assert.err=ERR_WRONG_NUMBER_OF_ASSETS
+    drop
+    exec.sys::truncate_stack
+end
+
 ################################### OUTPUT NOTE LIBRARY ##########################################
 # =================================================================================================
 
-const OUTPUT_NOTE_START = ARGUMENTS_END + 16
+const OUTPUT_NOTE_START = INPUT_ASSET_END + 4
 const OUTPUT_ASSET_TARGET_PREFIX = OUTPUT_NOTE_START
 const OUTPUT_ASSET_TARGET_SUFFIX = OUTPUT_NOTE_START + 1
-const OUTPUT_ASSET_KEY = OUTPUT_NOTE_START + 2
+const OUTPUT_ASSET_KEY = OUTPUT_NOTE_START + 4
 const OUTPUT_ASSET_VALUE = OUTPUT_ASSET_KEY + 4
+const OUTPUT_ASSET_END = OUTPUT_ASSET_VALUE + 4
 
-proc get_output_asset_key_location() -> felt
+proc set_output_asset_is_input_asset
+    padw padw mem_loadw_be.INPUT_ASSET_VALUE mem_loadw_be.INPUT_ASSET_KEY
+    # => [ASSET_KEY, ASSET_VALUE]
+    mem_storew_be.OUTPUT_ASSET_KEY mem_storew_be.OUTPUT_ASSET_VALUE
+    # => []
+end
+
+proc get_output_asset_key_pointer() -> felt
    push.OUTPUT_ASSET_KEY
+end
+
+proc get_output_asset_target_pointer() -> felt
+   push.OUTPUT_ASSET_TARGET_PREFIX
 end
 
 proc get_output_asset_key() -> word
@@ -161,14 +215,4 @@ proc set_sender_as_output_note_target
     # [prefix, suffix]
     mem_store.OUTPUT_ASSET_TARGET_PREFIX mem_store.OUTPUT_ASSET_TARGET_SUFFIX
     # []
-end
-
-#! Stores 
-#!
-#! Inputs: []
-#! Outputs: []
-#!
-proc store_asset_in_to_memory
-    push.OUTPUT_ASSET_KEY exec.active_note::get_assets assert.err=ERR_WRONG_NUMBER_OF_ASSETS
-    drop
 end
