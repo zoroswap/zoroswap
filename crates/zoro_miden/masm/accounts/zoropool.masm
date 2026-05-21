@@ -243,17 +243,13 @@ end
 #! Invocation: call
 @locals(4)
 pub proc receive_asset
-    push.10000 debug.stack.9 drop
     loc_storew_be.0 exec.expand_asset
-    push.10001 debug.stack.9 drop
     # => [ASSET_KEY, ASSET_VALUE,  reserve_with_slippage, liabilities, 0, pad(8)]
     exec.native_account::add_asset
-    push.10002 debug.stack.5 drop
     # => [ASSET_VALUE', reserve, reserve_with_slippage, liabilities, 0, pad(8)]
     loc_loadw_be.0
     # => [ASSET, reserve, reserve_with_slippage, liabilities, 0, pad(8)]
     procref.validate_and_update_state reversew mem_storew_be.DYNAMIC_PROC_ADDR dropw push.DYNAMIC_PROC_ADDR
-    push.10003 debug.stack.1 drop
     dynexec
     # => [pad(16)]
 end
@@ -330,10 +326,8 @@ end
 #! Outputs: [share_amount]
 #!
 pub proc deposit
-    push.101 debug.stack.5 drop
     mem_storew_le.DEPOSIT_ASSET_LOC
     exec.receive_asset
-    push.102 debug.stack.1 drop
     padw mem_loadw_le.DEPOSIT_ASSET_LOC
     # => [ASSET, beneficiary_suffix, beneficiary_prefix, lp_amount_out]
     exec.get_user_deposit_key

@@ -195,7 +195,7 @@ impl MidenClient {
                 notes.len(),
                 account_id.to_bech32(self.endpoint.to_network_id())
             );
-            sleep(Duration::from_secs(1)).await;
+            sleep(Duration::from_millis(500)).await;
         }
     }
 

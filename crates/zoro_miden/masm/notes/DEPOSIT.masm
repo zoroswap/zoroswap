@@ -100,7 +100,6 @@ proc execute_DEPOSIT
     lt
     # min amount out is not met
     if.true
-        push.10 debug.stack.1 drop    
         exec.common::set_output_asset_is_input_asset
         exec.output_note_utils::create_p2id_bounce_to_sender
     else

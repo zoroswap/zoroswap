@@ -61,7 +61,6 @@ end
 #! Outputs: [note_idx]
 #!
 proc create_p2id_bounce_to_sender
-    push.100 debug.stack.1 drop    
     exec.common::set_sender_as_output_note_target
     # => []
     exec.create_p2id_from_memory

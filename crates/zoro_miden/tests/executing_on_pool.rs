@@ -39,6 +39,7 @@ async fn executing_deposit() -> Result<()> {
         .miden_account
         .get_balance(&pool_config.faucet_id)
         .await?;
+
     let pool_balances_before = *zoro_pool.pool_states().get(&pool_config.faucet_id).unwrap();
 
     let deposit_note = TrustedNote::new(

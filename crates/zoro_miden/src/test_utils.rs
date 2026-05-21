@@ -1,4 +1,4 @@
-use std::{collections::HashMap, path::PathBuf};
+use std::{collections::HashMap, path::PathBuf, time::Duration};
 
 use anyhow::{Result, anyhow};
 use chrono::Utc;
@@ -340,6 +340,11 @@ impl TestUtils {
         let mut accounts = self.get_accounts(n).await?;
         for acc in accounts.iter_mut() {
             for (faucet_id, min_amount, mint_amount) in &desired_minimal_amounts {
+                let balance = acc.miden_account.get_balance(faucet_id).await?;
+                info!(
+                    "Preparing account {} with balance: {balance}",
+                    acc.miden_account.id().to_hex()
+                );
                 if acc.miden_account.get_balance(faucet_id).await? < *min_amount {
                     info!(
                         "[get_funded_accounts] minting for acc {}",
@@ -352,9 +357,13 @@ impl TestUtils {
                         "[get_funded_accounts] minted {mint_amount} for acc {}",
                         acc.miden_account.id().to_hex()
                     );
+                } else {
+                    info!("Skipping funding the account. Account has more than {min_amount}");
                 }
             }
         }
+        // Wait so it gets recognized on the node
+        tokio::time::sleep(Duration::from_millis(3100)).await;
         info!("Funded accounts ready.");
         Ok(accounts.to_vec())
     }
@@ -417,7 +426,7 @@ impl TestUtils {
                     let mint_amount = test_faucet.meta.max_supply / 10;
                     let acc = &self
                         .get_funded_accounts(
-                            n,
+                            1,
                             vec![(liq_config.faucet_id, mint_amount, mint_amount)],
                         )
                         .await?[..][0];
