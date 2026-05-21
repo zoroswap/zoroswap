@@ -297,6 +297,9 @@ async fn executing_swap() -> Result<()> {
 
 #[tokio::test]
 async fn executing_deposit_withdraw() -> Result<()> {
+    info!(
+        "--- \n\nExecuting deposit and then withdraw and checking if the values for balances and pool states are correct.\n"
+    );
     let mut test_utils = TestUtils::from_cache().await?;
     let PoolWithMeta {
         zoro_pool,

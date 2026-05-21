@@ -405,6 +405,7 @@ impl TestUtils {
         let mut pools = self.get_pools(n).await?;
         let mut res = Vec::new();
         for pool in pools.iter_mut() {
+            info!("Creating a new pool ...");
             let mut zoro_pool = ZoroPool::new_from_existing_pool(
                 self.miden_endpoint(),
                 &self.miden_client().keystore_dir(),
@@ -413,6 +414,13 @@ impl TestUtils {
                 pool.pool_configs.clone(),
             )
             .await?;
+            info!(
+                pool_id = zoro_pool
+                    .miden_account()
+                    .id()
+                    .to_bech32(self.miden_endpoint.to_network_id()),
+                "New pool created"
+            );
             for (liq_config, test_faucet) in pool.pool_configs.iter().zip(&pool.faucets) {
                 if zoro_pool
                     .pool_states()
@@ -463,6 +471,7 @@ impl TestUtils {
                 test_pool: pool.clone(),
             });
         }
+        info!("Funded pools ready.");
         Ok(res)
     }
     pub fn miden_endpoint(&self) -> Endpoint {

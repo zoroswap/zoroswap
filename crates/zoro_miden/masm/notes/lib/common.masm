@@ -170,6 +170,12 @@ const OUTPUT_ASSET_KEY = OUTPUT_NOTE_START + 4
 const OUTPUT_ASSET_VALUE = OUTPUT_ASSET_KEY + 4
 const OUTPUT_ASSET_END = OUTPUT_ASSET_VALUE + 4
 
+proc set_output_asset(key: word, value: word)
+    # => [ASSET_KEY, ASSET_VALUE]
+    mem_storew_be.OUTPUT_ASSET_KEY mem_storew_be.OUTPUT_ASSET_VALUE
+    # => []
+end
+
 proc set_output_asset_is_input_asset
     padw padw mem_loadw_be.INPUT_ASSET_VALUE mem_loadw_be.INPUT_ASSET_KEY
     # => [ASSET_KEY, ASSET_VALUE]
