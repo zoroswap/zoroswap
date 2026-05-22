@@ -18,17 +18,19 @@ use miden_client::{
     keystore::{FilesystemKeyStore, Keystore},
     note::{Note, NoteDetails, NoteId, NoteRecipient, NoteTag},
     rpc::Endpoint,
-    transaction::{TransactionArgs, TransactionRequest, TransactionRequestBuilder},
+    transaction::{TransactionRequest, TransactionRequestBuilder},
     vm::AdviceMap,
 };
-use miden_tx::NoteConsumptionInfo;
 use rand::RngCore;
 use tokio::time::sleep;
-use tracing::{error, info, warn};
+use tracing::{error, info};
 
 use crate::{
     account::MidenAccount,
-    assembly_utils::{link_asset_utils, link_storage_utils, read_masm_file},
+    assembly_utils::{
+        link_asset_utils, link_note_common_lib, link_output_note_utils_lib, link_storage_utils,
+        read_masm_file,
+    },
     client::MidenClient,
     note::TrustedNote,
     pool_execution::{ExecutionResult, PoolExecution},
@@ -177,6 +179,8 @@ impl ZoroPool {
 
         let code_builder = link_asset_utils(miden_client.client_mut().code_builder())?;
         let code_builder = link_storage_utils(code_builder)?;
+        let code_builder = link_note_common_lib(code_builder)?;
+        let code_builder = link_output_note_utils_lib(code_builder)?;
         let pool_library = code_builder.compile_component_code("zoroswap::zoropool", &pool_code)?;
         let pool_metadata = AccountComponentMetadata::new("zoroswap::zoropool", AccountType::all());
 

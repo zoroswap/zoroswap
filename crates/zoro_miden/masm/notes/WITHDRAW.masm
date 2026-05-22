@@ -102,26 +102,20 @@ proc store_args_to_memory
 end
 
 proc execute_WITHDRAW
-    mem_load.MIN_ASSET_AMOUNT_OUT
-    mem_load.WITHDRAW_AMOUNT_OUT
-    drop drop 
     # min amount out is not met
     mem_load.RESERVE_WITH_SLIPPAGE
     mem_load.RESERVE
     mem_load.LIABILITIES
-    # => [liabilities,reserve, reserve,reserve_with_slippage, 0]
+    # => [liabilities, reserve, reserve_with_slippage]
     mem_load.RESERVE_WITH_SLIPPAGE mem_load.RESERVE mem_load.LIABILITIES
-    # => [liabilities,reserve, reserve,reserve_with_slippage, note_idx]
-    movup.4 push.0.0.0 swap.3
-    # => [note_idx, 0, 0, 0, liabilities,reserve, reserve,reserve_with_slippage]
+    # => [liabilities, reserve, reserve_with_slippage]
     mem_load.WITHDRAW_AMOUNT_OUT push.0 mem_load.ASSET_ID_PREFIX mem_load.ASSET_ID_SUFFIX
-    # => [ASSET, note_idx, 0, 0, 0, liabilities,reserve, reserve,reserve_with_slippage]
-    push.0 mem_load.LP_WITHDRAW_AMOUNT mem_load.CREATOR_ID_PREFIX mem_load.CREATOR_ID_SUFFIX
-    # => [user_id_suffix, user_id_prefix, lp_withdraw_amount, 0, ASSET, noteid, 0,0,0, liabilities, reserve, reserve_with_slippage]
-    exec.common::
-    exec.common::output_note_utils.set_beneficiary_as_output_note_target
+    # => [ASSET, liabilities,reserve, reserve,reserve_with_slippage]
+    mem_load.LP_WITHDRAW_AMOUNT mem_load.CREATOR_ID_PREFIX mem_load.CREATOR_ID_SUFFIX
+    # => [user_id_suffix, user_id_prefix, lp_withdraw_amount, ASSET, liabilities, reserve, reserve_with_slippage]
     call.zoropool::withdraw
-    exec.common::output_note_utils.create_p2id_beneficiary_note
+    exec.common::set_beneficiary_as_output_note_target
+    exec.output_note_utils::create_p2id_beneficiary_note
 end
 
 @note_script

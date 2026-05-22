@@ -79,8 +79,8 @@ pub fn link_note_common_lib(code_builder: CodeBuilder) -> Result<CodeBuilder> {
 
 pub fn link_output_note_utils_lib(code_builder: CodeBuilder) -> Result<CodeBuilder> {
     let mut code_builder = code_builder.clone();
-    let note_common_lib_code = read_masm_file(&["lib", "output_note_utils.masm"])?;
-    code_builder.link_module("zoro_miden::lib::output_note_utils", &note_common_lib_code)?;
+    let lib_code = read_masm_file(&["lib", "output_note_utils.masm"])?;
+    code_builder.link_module("zoro_miden::lib::output_note_utils", &lib_code)?;
     Ok(code_builder)
 }
 

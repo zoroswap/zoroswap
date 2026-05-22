@@ -441,6 +441,7 @@ impl TestUtils {
                     self.miden_client_mut()
                         .mint_asset(liq_config.faucet_id, *acc.miden_account.id(), mint_amount)
                         .await?;
+                    info!("Creating a deposit note");
                     let deposit_note = TrustedNote::new(
                         NoteInstructions::Deposit(DepositInstructions {
                             asset_in: FungibleAsset::new(liq_config.faucet_id, mint_amount)?,
