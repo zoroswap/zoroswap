@@ -54,6 +54,17 @@ const ERR_ZTD_RECLAIM_NOT_INITIATED="failed to reclaim ZTD note because the recl
 const NUMBER_OF_STORAGE_ITEMS = DEFAULT_NUMBER_OF_STORAGE_ITEMS
 
 
+# SETTERS
+# =================================================================================================
+proc set_sell_asset(key: word)
+    mem_storew_be.SELL_ASSET_KEY
+end
+
+proc set_buy_asset(key: word)
+    mem_storew_be.BUY_ASSET_KEY
+end
+
+
 # HELPER PROCEDURES
 # =================================================================================================
 
@@ -226,9 +237,15 @@ proc recreate_note(note_type: u16, tag: felt)
         loc_load.ASSET_END_POINTER_LOCAL lt
         # => [should_loop]
     end
-    ### add buy asset to note if not previously in the note
-    loc_load.BUY_TOKEN_PREVIOUSLY_IN_THE_NOTE
-    if.false
+    ### add buy asset to note if not previously in the note there is buy asset 
+    ## does buy asset need to be handled?
+    loc_load.BUY_TOKEN_PREVIOUSLY_IN_THE_NOTE not
+    # => [buy_asset_needs_to_be_handled]
+    padw mem_loadw_le.BUY_ASSET_POINTER exec.asset_utils::has_amount_c
+    # => [has_amount, buy_asset_needs_to_be_handled]
+    ### if asset has no amount, there is no need to addit 
+    and
+    if.true
         padw mem_loadw_le.BUY_ASSET_POINTER exec.asset_utils::expand_asset
         # => [BUY_ASSET_KEY, BUY_ASSET_VALUE]
         loc_load.RECREATED_NOTE_IDX_LOCAL exec.output_note::add_asset
@@ -248,7 +265,7 @@ proc add_asset_to_recreated_note(note_idx: u16, asset_key: word, asset_value: wo
     loc_store.NOTE_IDX_LOCAL loc_storew_be.ASSET_KEY_LOCAL swapw loc_storew_be.ASSET_VALUE_LOCAL swapw
     # => [ASSET_KEY, ASSET_VALUE]
     ### check if asset is buy asset
-    exec.asset_utils::compress_asset padw mem_loadw_le.BUY_ASSET_POINTER exec.asset_utils::is_token_the_same
+    exec.asset_utils::compress_asset padw mem_loadw_le.BUY_ASSET_POINTER exec.asset_utils::is_asset_the_same_c
     if.true 
         # substract buy amount from buy asset
         padw loc_loadw_be.ASSET_VALUE_LOCAL mem_load.SELL_ASSET_VALUE_POINTER add
