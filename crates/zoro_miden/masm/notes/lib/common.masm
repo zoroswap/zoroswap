@@ -166,13 +166,13 @@ end
 const OUTPUT_NOTE_START = INPUT_ASSET_END + 4
 const OUTPUT_ASSET_TARGET_PREFIX = OUTPUT_NOTE_START
 const OUTPUT_ASSET_TARGET_SUFFIX = OUTPUT_NOTE_START + 1
-const OUTPUT_ASSET_KEY = OUTPUT_NOTE_START + 4
+const OUTPUT_ASSET_KEY = OUTPUT_ASSET_TARGET_SUFFIX + 3
 const OUTPUT_ASSET_VALUE = OUTPUT_ASSET_KEY + 4
 const OUTPUT_ASSET_END = OUTPUT_ASSET_VALUE + 4
 
 proc set_output_asset(key: word, value: word)
     # => [ASSET_KEY, ASSET_VALUE]
-    mem_storew_be.OUTPUT_ASSET_KEY mem_storew_be.OUTPUT_ASSET_VALUE
+    mem_storew_be.OUTPUT_ASSET_KEY dropw mem_storew_be.OUTPUT_ASSET_VALUE dropw
     # => []
 end
 
@@ -192,7 +192,7 @@ proc get_output_asset_target_pointer() -> felt
 end
 
 proc get_output_asset_key() -> word
-   padw mem_loadw_be.OUTPUT_ASSET_KEY 
+   padw mem_loadw_be.OUTPUT_ASSET_KEY
 end
 
 proc get_output_asset_value() -> word
@@ -207,7 +207,8 @@ end
 proc set_beneficiary_as_output_note_target
     exec.get_beneficiary_id
     # [prefix, suffix]
-    mem_store.OUTPUT_ASSET_TARGET_PREFIX mem_store.OUTPUT_ASSET_TARGET_SUFFIX
+    push.900 debug.stack.9 drop
+    mem_store.OUTPUT_ASSET_TARGET_PREFIX drop mem_store.OUTPUT_ASSET_TARGET_SUFFIX drop
     # []
 end
 
@@ -219,6 +220,6 @@ end
 proc set_sender_as_output_note_target
     exec.active_note::get_sender
     # [prefix, suffix]
-    mem_store.OUTPUT_ASSET_TARGET_PREFIX mem_store.OUTPUT_ASSET_TARGET_SUFFIX
+    mem_store.OUTPUT_ASSET_TARGET_PREFIX drop mem_store.OUTPUT_ASSET_TARGET_SUFFIX drop
     # []
 end

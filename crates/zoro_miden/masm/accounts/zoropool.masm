@@ -8,6 +8,7 @@ use miden::core::sys
 use zoro_miden::lib::asset_utils::compress_asset
 use zoro_miden::lib::asset_utils::expand_asset
 use zoro_miden::lib::storage_utils
+use zoro_miden::lib::output_note_utils
 use zoro_miden::note::common
 
 
@@ -254,8 +255,6 @@ pub proc get_pool_curve
     swap.2 drop
 end
 
-
-
 # WALLET FUNCTIONS
 
 #! Adds the provided asset to the active account.
@@ -378,8 +377,12 @@ pub proc withdraw
     # => [USER_LP_KEY]
     exec.get_user_deposit loc_store.11 loc_load.11 loc_load.2
     # => [lp_withdraw_amount, old_user_lp]
-    sub dup loc_load.11 swap
-    # => [old_lp_amount, new_lp_amount]
+    debug.stack.4
+    sub
+    # => [new_lp_amount]
+    dup loc_load.11 swap
+    # => [old_lp_amount, new_lp_amount, new_lp_amount]
+    debug.stack.3
     lt assert.err=ERR_LP_WITHDRAW_AMOUNT_EXCEEDS_USER_LP_SHARES drop
     # => [new_lp_amount]
     padw mem_loadw_be.WITHDRAW_KEY_LOC push.USER_DEPOSITS_MAPPING_SLOT[0..2]
@@ -396,14 +399,23 @@ pub proc withdraw
     # => []
     loc_loadw_le.4
     # => [ASSET_OUT, ASSET_OUT]
-    exec.expand_asset dupw dupw.2
-    # => [ASSET_OUT_KEY, ASSET_OUT_VALUE, ASSET_OUT_KEY, ASSET_OUT_VALUE]
-    exec.native_account::remove_asset exec.common::set_output_asset
+    exec.expand_asset
+    # => [ASSET_OUT_KEY, ASSET_OUT_VALUE]
+    exec.native_account::remove_asset dropw
+    # => []
+    loc_loadw_le.4
+    # => [ASSET_OUT, ASSET_OUT]
+    exec.expand_asset
+    # => [ASSET_OUT_KEY, ASSET_OUT_VALUE]
+    exec.common::set_output_asset
     # => []
     loc_load.10 loc_load.9 loc_load.8 loc_loadw_le.4 
     # => [ASSET_OUT, liabilities, reserve, reserve_with_slippage]
     exec.set_pool_state
     # => []
+    exec.output_note_utils::create_p2id_beneficiary_note
+    # => []
+    exec.sys::truncate_stack
 end
 
 

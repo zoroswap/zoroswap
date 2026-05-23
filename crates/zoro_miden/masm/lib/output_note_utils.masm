@@ -3,6 +3,7 @@ use miden::protocol::active_note
 use miden::protocol::output_note
 
 use zoro_miden::note::common
+use common::STORAGE_BENEFICIARY_WORD
 
 # CONSTANTS
 # =================================================================================================
@@ -30,8 +31,10 @@ proc create_p2id_output_note
     exec.increment_serial_num
     # => [P2ID_SERIAL_NUM, P2ID_SCRIPT_HASH, pad(8)]
     push.2 exec.common::get_output_asset_target_pointer
+    push.799 debug.stack.12 drop
     ## => [inputs_ptr, number_of_inputs, P2ID_SERIAL_NUM, P2ID_SCRIPT_HASH]
-    exec.note::build_recipient 
+    exec.note::build_recipient
+    push.800 debug.stack.5 drop
     # => [P2ID_RECIPIENT, pad(8)]
     push.PUBLIC_NOTE
     # => [note_type, P2ID_RECIPIENT, pad(8)]
@@ -49,7 +52,7 @@ end
 proc create_p2id_from_memory
     exec.create_p2id_output_note
     # => [note_idx]
-    exec.common::get_output_asset_key exec.common::get_output_asset_value 
+    exec.common::get_output_asset_value exec.common::get_output_asset_key
     # => [ASSET_KEY, ASSET_VALUE, note_idx]
     exec.output_note::add_asset drop
     # => []
@@ -70,10 +73,12 @@ end
 #! Returns the active note as a p2id back to the sender
 #! Asset should be set at this point.
 #!
-#! Inputs: []
+#! Inputs: [suffix, prefix]
 #! Outputs: []
 #!
 proc create_p2id_beneficiary_note
+    padw push.STORAGE_BENEFICIARY_WORD mem_loadw_be
+    push.999 debug.stack.5 drop dropw
     exec.common::set_beneficiary_as_output_note_target
     # => []
     exec.create_p2id_from_memory

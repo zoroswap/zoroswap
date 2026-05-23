@@ -7,61 +7,12 @@ use zoroswap::zoropool
 use zoro_miden::lib::asset_utils::compress_asset    
 use zoro_miden::lib::output_note_utils    
 use zoro_miden::note::common
+use common::DEFAULT_NUMBER_OF_STORAGE_ITEMS
 
-
-# ERRORS
-# =================================================================================================
-
-# WITHDRAW script expects exactly 9 note note_storage
-const ERR_WITHDRAW_WRONG_NUMBER_OF_NOTE_STORAGE_ITEMS="WITHDRAW wrong number of note storage items"
-# WITHDRAW script requires exactly one note asset
-const ERR_WITHDRAW_WRONG_NUMBER_OF_ASSETS="WITHDRAW wrong number of assets"
-const ERR_WITHDRAW_MIN_ASSET_OUT_NOT_MET="WITHDRAW min asset out not met"
-
-# CONSTANTS
-# =================================================================================================
-
-# MEMORY
-# =================================================================================================
-
-# first 4 WORDS reserved as scratch space
-# ====================================================
-# next 8  WORDS reserved for note_storage
-# ====================================================
-# next 4  WORDS reserved for arguments
-# ====================================================
-
-const NOTE_STORAGE_POINTER = 0x0010
-const NOTE_STORAGE_WORD_0 = NOTE_STORAGE_POINTER        # [MIN_ASSET_OUT]
-const NOTE_STORAGE_WORD_1 = NOTE_STORAGE_POINTER + 4    # [PARAMS] = [lp_withdraw_amount, deadline, p2id_tag, empty]
-const NOTE_STORAGE_WORD_2 = NOTE_STORAGE_POINTER + 8    # [CREATOR_ID_WORD] = [empty, empty, creator_id_suffix, creator_id_prefix]
-const NOTE_STORAGE_WORD_3 = NOTE_STORAGE_POINTER + 12 
-
-# first 2 WORDS of input space used for note_storage
-# ====================================================
-const NUMBER_OF_NOTE_STORAGE_ITEMS = 0x000C # 12
-
-# semantic names for note_storage
-# ====================================================
-# [min_lp_amount_outdeadline, p2id_tag, empty, empty]
-const MIN_ASSET_OUT= NOTE_STORAGE_WORD_0
-const STORAGE_ITEM_PARAMS = NOTE_STORAGE_WORD_1
-const CREATOR_ID_WORD = NOTE_STORAGE_WORD_2
-
-# WITHDRAW Note Inputs (10 to 22)
-# [asset_id_prefix, asset_id_suffix, empty, min_asset_amount_out]
-const ASSET_ID_SUFFIX = MIN_ASSET_OUT
-const ASSET_ID_PREFIX = MIN_ASSET_OUT + 1
-const MIN_ASSET_AMOUNT_OUT = MIN_ASSET_OUT + 3
-
-# [lp_withdraw_amount, deadline, p2id_tag, 0]
-const LP_WITHDRAW_AMOUNT = STORAGE_ITEM_PARAMS
-const DEADLINE = STORAGE_ITEM_PARAMS + 1
-const P2ID_TAG = STORAGE_ITEM_PARAMS + 2
-
-# [empty, empty, creator_id_suffix, creator_id_prefix]
-const CREATOR_ID_PREFIX = CREATOR_ID_WORD + 3
-const CREATOR_ID_SUFFIX = CREATOR_ID_WORD + 2
+# Expected Note storage:
+# [MIN_ASSET_OUT]
+# [PARAMS] = [deadline, p2id_tag, lp_withdraw_amount, empty]
+# [CREATOR_ID_WORD] = [empty, empty, creator_id_suffix, creator_id_prefix]
 
 # EMPTY  5WORDS 0X001C- 0x00
 
@@ -84,17 +35,8 @@ const LIABILITIES = ARGS_WORD_0 + 1  # 0x0041
 const RESERVE = ARGS_WORD_0 + 2  # 0x0042
 const RESERVE_WITH_SLIPPAGE = ARGS_WORD_0 + 3  # 0x0043
 
-proc store_note_storage_to_memory
-    # store note note_storage into memory starting at address 0
-    push.NOTE_STORAGE_POINTER exec.active_note::get_storage
-    # => [num_note_storage, note_storage_ptr]
-    # make sure the number of note_storage is N
-    eq.NUMBER_OF_NOTE_STORAGE_ITEMS assert.err=ERR_WITHDRAW_WRONG_NUMBER_OF_NOTE_STORAGE_ITEMS
-    # => [note_storage_ptr]
-    drop
-end
-
 proc store_args_to_memory
+    push.101 debug.stack.5 drop
     mem_store.WITHDRAW_AMOUNT_OUT
     mem_store.RESERVE_WITH_SLIPPAGE
     mem_store.RESERVE
@@ -102,26 +44,21 @@ proc store_args_to_memory
 end
 
 proc execute_WITHDRAW
-    # min amount out is not met
-    mem_load.RESERVE_WITH_SLIPPAGE
-    mem_load.RESERVE
-    mem_load.LIABILITIES
-    # => [liabilities, reserve, reserve_with_slippage]
-    mem_load.RESERVE_WITH_SLIPPAGE mem_load.RESERVE mem_load.LIABILITIES
-    # => [liabilities, reserve, reserve_with_slippage]
-    mem_load.WITHDRAW_AMOUNT_OUT push.0 mem_load.ASSET_ID_PREFIX mem_load.ASSET_ID_SUFFIX
-    # => [ASSET, liabilities,reserve, reserve,reserve_with_slippage]
-    mem_load.LP_WITHDRAW_AMOUNT mem_load.CREATOR_ID_PREFIX mem_load.CREATOR_ID_SUFFIX
+    exec.common::get_expected_asset
+    # => [ASSET]
+    push.0 mem_load.RESERVE_WITH_SLIPPAGE mem_load.RESERVE mem_load.LIABILITIES swapw
+    # => [ASSET, liabilities, reserve, reserve,reserve_with_slippage]
+    exec.common::get_metadata_item_2 exec.common::get_beneficiary_id 
     # => [user_id_suffix, user_id_prefix, lp_withdraw_amount, ASSET, liabilities, reserve, reserve_with_slippage]
+    push.105 debug.stack.12 drop
     call.zoropool::withdraw
-    exec.common::set_beneficiary_as_output_note_target
-    exec.output_note_utils::create_p2id_beneficiary_note
 end
 
 @note_script
 pub proc main
     exec.store_args_to_memory
-    exec.store_note_storage_to_memory
+    # TODO: replace with exec.common::store_arguments_from_stack_to_memory
+    push.DEFAULT_NUMBER_OF_STORAGE_ITEMS exec.common::store_storage_to_memory
     exec.execute_WITHDRAW
     exec.sys::truncate_stack
 end

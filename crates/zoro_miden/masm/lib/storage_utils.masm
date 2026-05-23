@@ -78,7 +78,6 @@ pub proc sub_from_map_item (slot_id_prefix: felt, slot_id_suffix: felt, key: wor
     # => [old_value]
     loc_load.8
     # => [sub_by,old_value]
-    push.777 debug.stack.3 drop
     exec.math::safe_sub
     # => [new_value]
     loc_store.8

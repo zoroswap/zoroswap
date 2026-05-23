@@ -319,6 +319,8 @@ async fn executing_deposit_withdraw() -> Result<()> {
     let mut prices: HashMap<AccountId, PriceData> = HashMap::with_capacity(2);
     prices.insert(pool_config.faucet_id, PriceData::new_at_now(1));
 
+    info!("Using faucet id: {:?}", pool_config.faucet_id);
+
     let user_balance_before = user
         .miden_account
         .get_balance(&pool_config.faucet_id)
