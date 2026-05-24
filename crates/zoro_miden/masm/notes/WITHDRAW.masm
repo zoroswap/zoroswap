@@ -4,7 +4,7 @@ use miden::core::crypto::hashes::poseidon2
 use miden::core::sys
 
 use zoroswap::zoropool
-use zoro_miden::lib::asset_utils::compress_asset    
+use zoro_miden::lib::asset_utils    
 use zoro_miden::lib::output_note_utils    
 use zoro_miden::note::common
 use common::DEFAULT_NUMBER_OF_STORAGE_ITEMS
@@ -36,7 +36,6 @@ const RESERVE = ARGS_WORD_0 + 2  # 0x0042
 const RESERVE_WITH_SLIPPAGE = ARGS_WORD_0 + 3  # 0x0043
 
 proc store_args_to_memory
-    push.101 debug.stack.5 drop
     mem_store.WITHDRAW_AMOUNT_OUT
     mem_store.RESERVE_WITH_SLIPPAGE
     mem_store.RESERVE
@@ -50,8 +49,22 @@ proc execute_WITHDRAW
     # => [ASSET, liabilities, reserve, reserve,reserve_with_slippage]
     exec.common::get_metadata_item_2 exec.common::get_beneficiary_id 
     # => [user_id_suffix, user_id_prefix, lp_withdraw_amount, ASSET, liabilities, reserve, reserve_with_slippage]
-    push.105 debug.stack.12 drop
     call.zoropool::withdraw
+    # => []
+    exec.common::get_expected_asset mem_load.WITHDRAW_AMOUNT_OUT 
+    # => [amount_out, MIN_ASSET_OUT]
+    push.5010 debug.stack.6 drop
+    movdn.4 movup.3 drop
+    # => [ACTUAL_ASSET_OUT]
+    push.5011 debug.stack.5 drop
+    exec.asset_utils::expand_asset
+    # => [ASSET_OUT_KEY, ASSET_OUT_VALUE]
+    push.502 debug.stack.1 drop
+    exec.common::set_output_asset
+    # => []
+    push.503 debug.stack.1 drop
+    exec.output_note_utils::create_p2id_beneficiary_note
+    # => []
 end
 
 @note_script

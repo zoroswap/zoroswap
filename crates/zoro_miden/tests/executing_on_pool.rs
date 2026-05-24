@@ -320,6 +320,7 @@ async fn executing_deposit_withdraw() -> Result<()> {
     prices.insert(pool_config.faucet_id, PriceData::new_at_now(1));
 
     info!("Using faucet id: {:?}", pool_config.faucet_id);
+    info!("Using user id: {:?}", user_id);
 
     let user_balance_before = user
         .miden_account

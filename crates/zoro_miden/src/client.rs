@@ -175,6 +175,7 @@ impl MidenClient {
         loop {
             self.sync_state().await?;
             let consumable_notes = self.client.get_consumable_notes(Some(*account_id)).await?;
+            info!("{} notes available", consumable_notes.len());
             let notes: Vec<Note> = consumable_notes
                 .iter()
                 .filter_map(|(rec, _)| {

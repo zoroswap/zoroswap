@@ -111,6 +111,10 @@ impl PoolExecution {
                     .ok_or(anyhow!(
                         "Trying to execute withdrawal for an unknown asset."
                     ))?;
+                info!(
+                   amount_out=?pool_state.get_withdraw_asset_amount_out(U256::from(instructions.lp_amount_in)),
+                    "amount_out"
+                );
                 if !past_deadline
                     && let Ok((amount_out, new_lp_total_supply, new_pool_balances)) = pool_state
                         .get_withdraw_asset_amount_out(U256::from(instructions.lp_amount_in))
@@ -123,6 +127,7 @@ impl PoolExecution {
                     )?;
                     pool_state.update_state(new_pool_balances, new_lp_total_supply);
                     new_pool_states.insert(instructions.min_asset_out.faucet_id(), pool_state);
+                    info!(amount_out=?amount_out, "amount_out");
                     Ok((
                         ExecutionResult::WithdrawSuccess(amount_out.to::<u64>()),
                         PoolExecution {
