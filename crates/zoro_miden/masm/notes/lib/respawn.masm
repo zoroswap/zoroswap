@@ -1,0 +1,146 @@
+use miden::protocol::active_account
+use miden::protocol::account_id
+use miden::protocol::note
+use miden::protocol::active_note
+use miden::protocol::output_note
+use miden::protocol::tx
+use miden::protocol::asset
+use miden::protocol::asset::ASSET_VALUE_MEMORY_OFFSET
+use miden::protocol::asset::ASSET_SIZE
+use miden::standards::wallets::basic->basic_wallet
+
+
+use miden::core::sys
+
+use zoro_miden::note::common
+
+use common::AccountId
+use common::bool
+use common::DEFAULT_NUMBER_OF_STORAGE_ITEMS
+use common::STORAGE_POINTER
+use common::INPUT_ASSETS_POINTER
+use common::OUTPUT_NOTE_STORAGE_START
+use common::OUTPUT_NOTE_ASSETS_START
+
+
+
+##################################### NOTE RECREACTION LOGIC ##########################################
+const NUMBER_OF_ASSETS_LOCAL = 0
+const NUMBER_OF_STORAGE_ITEMS_LOCAL = 1
+const RECREATED_NOTE_IDX_LOCAL = 2
+
+#! Inputs:  [number_of_assets, note_type, tag]
+#! Outputs: [note_idx]
+#!
+#! Panics if:
+#! - the note is not valid
+@locals(3)
+proc recreate_note(number_of_assets: u16, number_of_storage_items: felt, note_type: u16, tag: felt) -> (u16)
+    loc_store.NUMBER_OF_ASSETS_LOCAL loc_store.NUMBER_OF_STORAGE_ITEMS_LOCAL
+    exec.active_note::get_script_root
+    # => [SCRIPT_ROOT, note_type, tag]
+
+    # Derive remainder serial: increment most significant element
+    exec.active_note::get_serial_number
+    # => [s0, s1, s2, s3, SCRIPT_ROOT, note_type, tag]
+    
+    # @todo use crate_serial from our library
+    movup.3 add.1 movdn.3
+    # => [s0, s1, s2, s3+1, SCRIPT_ROOT, note_type, tag]
+
+    # Build recipient from all note storage items ()
+    loc_load.NUMBER_OF_STORAGE_ITEMS_LOCAL push.OUTPUT_NOTE_STORAGE_START
+    # => [storage_ptr, num_storage_items, SERIAL_NUM', SCRIPT_ROOT, note_type, tag]
+
+    ### will be renamed to in next release exec.note::compute_and_store_recipient
+    exec.note::build_recipient
+    # => [RECIPIENT, note_type, tag]
+
+    movup.4 movup.5
+    # => [tag, note_type, RECIPIENT]
+
+    exec.output_note::create
+    # => [note_idx]
+
+    dup loc_store.RECREATED_NOTE_IDX_LOCAL
+    # => [note_idx]
+    loc_load.NUMBER_OF_ASSETS_LOCAL exec.move_all_assets_to_note
+
+    #push.ATTACHMENT_SCHEME_NONE
+    # => [attachment_scheme_none, [amt_payout, 0, 0, 0], note_idx]
+
+    #exec.output_note::add_word_attachment
+    # => []
+    loc_load.RECREATED_NOTE_IDX_LOCAL
+end
+
+const NOTE_IDX_LOCAL = 0
+const LOOP_POINTER_0_LOCAL = 1
+const ASSET_END_POINTER_LOCAL = 2
+#! Notice: assumes all assets are stored in memory from OUTPUT_NOTE_ASSETS_START
+@locals(3)
+proc move_all_assets_to_note(num_assets: u16, note_idx: u16)
+    swap loc_store.NOTE_IDX_LOCAL push.OUTPUT_NOTE_ASSETS_START swap
+    # => [num_assets, assets_ptr]
+    mul.ASSET_SIZE 
+    # => [assets_allocation_size, assets_ptr]
+    dup.1 add
+    # => [end_ptr, assets_ptr]
+    loc_store.ASSET_END_POINTER_LOCAL dup loc_store.LOOP_POINTER_0_LOCAL
+    # => [ptr]
+    # loop if the amount of assets is non-zero
+    loc_load.ASSET_END_POINTER_LOCAL
+    # => [end_ptr, ptr]
+    lt
+    # => [should_loop]
+
+    while.true
+        # => []
+        #  pad the stack andload the pointer
+        padw padw loc_load.LOOP_POINTER_0_LOCAL
+        # => [ptr, pad(8)]
+        # load the asset value
+        add.ASSET_VALUE_MEMORY_OFFSET mem_loadw_le swapw
+         # => [EMPTY_WORD, ASSET_VALUE]
+
+        # load the asset key
+        loc_load.LOOP_POINTER_0_LOCAL mem_loadw_le
+        # => [ASSET_KEY, ASSET_VALUE]
+
+        loc_load.NOTE_IDX_LOCAL movdn.8
+        # => [ASSET_KEY, ASSET_VALUE, note_idx]
+
+        exec.output_note::add_asset
+        # => []
+
+        ### increment the pointer
+        loc_load.LOOP_POINTER_0_LOCAL add.ASSET_SIZE dup loc_store.LOOP_POINTER_0_LOCAL
+        # => [ptr']
+        # continue looping if ptr != end_ptr
+        loc_load.ASSET_END_POINTER_LOCAL lt
+        # => [should_loop]
+    end
+
+end
+
+
+
+
+proc get_note_type_and_tag_from_active_note() -> (u16, felt)
+    exec.active_note::get_metadata dupw
+    # => [METADATA, METADATA]
+    #exec.note::metadata_into_tag movdn.4
+#pub proc metadata_into_tag
+    drop drop swap drop
+    # => [tag_element]
+    # extract the lower 32 bits as the tag
+    u32split swap drop
+    # => [tag, METADATA]
+    movdn.4
+    # => [METADATA, tag]
+    #exec.note::metadata_into_note_type
+    # @todo use proc above in v15. now it will always be public
+    dropw push.1
+    # => [note_type, tag]
+    exec.sys::truncate_stack
+end
