@@ -310,7 +310,7 @@ async fn executing_deposit_withdraw() -> Result<()> {
     let amount = 10_000;
     let faucet_id = pool_config.faucet_id;
     let mut user = test_utils
-        .get_funded_accounts(1, vec![(faucet_id, amount, amount)])
+        .get_funded_accounts(1, vec![(faucet_id, amount, amount * 30)])
         .await?
         .first()
         .cloned()
