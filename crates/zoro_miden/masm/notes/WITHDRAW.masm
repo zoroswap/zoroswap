@@ -13,7 +13,9 @@ use common::DEFAULT_NUMBER_OF_STORAGE_ITEMS
 # [MIN_ASSET_OUT]
 # [PARAMS] = [deadline, p2id_tag, lp_withdraw_amount, empty]
 # [CREATOR_ID_WORD] = [empty, empty, creator_id_suffix, creator_id_prefix]
-
+#
+# loc 0-3 ACTUAL_ASSET_OUT
+@locals(4)
 proc execute_WITHDRAW
     exec.common::get_pool_0_reserve_with_slippage exec.common::get_pool_0_reserve exec.common::get_pool_0_liabilities
     # => [liabilities, reserve, reserve,reserve_with_slippage]
@@ -25,11 +27,17 @@ proc execute_WITHDRAW
     # => []
     exec.common::get_expected_asset exec.common::get_amount_out_argument 
     # => [amount_out, MIN_ASSET_OUT]
-    movdn.4 movup.3 drop
+    movdn.4 movup.3 drop loc_storew_le.0
     # => [ACTUAL_ASSET_OUT]
     exec.asset_utils::expand_asset
     # => [ASSET_OUT_KEY, ASSET_OUT_VALUE]
     exec.common::set_output_asset
+    # => []
+    exec.common::get_pool_0_reserve_with_slippage exec.common::get_pool_0_reserve exec.common::get_pool_0_liabilities
+    # => [liabilities, reserve, reserve,reserve_with_slippage]
+    padw loc_loadw_le.0
+    # => [ACTUAL_ASSET_OUT, liabilities, reserve, reserve,reserve_with_slippage]
+    call.zoropool::remove_asset_from_pool
     # => []
     exec.output_note_utils::create_p2id_beneficiary_note
     # => []

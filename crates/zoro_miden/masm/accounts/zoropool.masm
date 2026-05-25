@@ -235,7 +235,7 @@ end
 @locals(4)
 pub proc receive_asset
     loc_storew_be.0 exec.expand_asset
-    # => [ASSET_KEY, ASSET_VALUE,  reserve_with_slippage, liabilities, 0, pad(8)]
+    # => [ASSET_KEY, ASSET_VALUE, reserve, reserve_with_slippage, liabilities, 0, pad(8)]
     exec.native_account::add_asset
     # => [ASSET_VALUE', reserve, reserve_with_slippage, liabilities, 0, pad(8)]
     loc_loadw_be.0
@@ -251,23 +251,18 @@ end
 #! Returns: []
 #!
 #! loc.0-3: ASSET
-#! loc 4-6 pool_state0 (liabilities, reserve, reserve_with_slippage)
-@locals(7)
+@locals(4)
 pub proc remove_asset_from_pool
-    loc_storew_le.0 dropw loc_store.4 loc_store.5 loc_store.6
-    
-    # Add asset to account
-    padw loc_loadw_le.0
-    # => [ASSET]
+    loc_storew_le.0
+    # => [ASSET, liabilities, reserve, reserve_with_slippage]
     exec.expand_asset
-    # => [ASSET_KEY, ASSET_VALUE]
-    exec.native_account::remove_asset dropw
-    # => []
-
-    # Set pool1 state
-    loc_load.6 loc_load.5 loc_load.6 padw loc_loadw_le.0
+    # => [ASSET_KEY, ASSET_VALUE, liabilities, reserve, reserve_with_slippage]
+    exec.native_account::remove_asset
+    # => [ASSET', liabilities, reserve, reserve_with_slippage]
+    loc_loadw_le.0
     # => [ASSET, liabilities, reserve, reserve_with_slippage]
     exec.set_pool_state
+    # => []
 end
 
 #proc validate_and_update_state
@@ -280,7 +275,7 @@ end
 
 #! add new deposit: receive asset, update deposit mapping
 #!
-#! Inputs: [ASSET, POOL_STATE,user_id_suffix, user_id_prefix, lp_amount_out]
+#! Inputs: [ASSET, POOL_STATE, user_id_suffix, user_id_prefix, lp_amount_out]
 #! Outputs: [share_amount]
 #!
 pub proc deposit
@@ -318,12 +313,10 @@ end
 #! Inputs: [user_id_suffix, user_id_prefix, lp_withdraw_amount, ASSET, liabilities, reserve, reserve_with_slippage]
 #! loc.0: old_user_lp_shares
 #!
-#! Panics if: @TODO
-#!
 #! loc.0: user_id_suffix
 #! loc.1: user_id_prefix
 #! loc.2: lp_withdraw_amount
-#! loc.4-7: ASSET_OUT
+#! loc.4-7: MIN_ASSET_OUT
 #! loc.8: liabilities
 #! loc.9: reserve
 #! loc.10: reserve_with_slippage
@@ -363,19 +356,6 @@ pub proc withdraw
     push.USER_DEPOSITS_MAPPING_SLOT[0..2]
     # => [slot_id_prefix, slot_id_suffix, TOTAL_SUPPLY_KEY, lp_withdraw_amount]
     exec.storage_utils::sub_from_map_item drop
-    
-    # => []
-    loc_loadw_le.4 loc_load.2
-    # => [lp_withdraw_amount, MIN_ASSET_OUT]
-    movdn.4 movup.3 drop
-    # => [ASSET_OUT]
-    exec.expand_asset
-    # => [ASSET_OUT_KEY, ASSET_OUT_VALUE]
-    exec.native_account::remove_asset dropw
-    # => []
-    loc_load.10 loc_load.9 loc_load.8 padw loc_loadw_le.4
-    # => [ASSET, liabilities, reserve, reserve_with_slippage]
-    exec.set_pool_state
     # => []
     exec.sys::truncate_stack
 end
