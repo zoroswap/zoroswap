@@ -838,3 +838,55 @@ mod tests {
         Ok(())
     }
 }
+
+#[derive(Clone, Debug)]
+pub struct NoteStorageBuilder {
+    beneficiary: AccountId,
+    asset: Option<Word>,
+    metadata: Option<Word>,
+}
+
+impl NoteStorageBuilder {
+    pub fn new(beneficiary: AccountId) -> Self {
+        Self {
+            beneficiary,
+            asset: None,
+            metadata: None,
+        }
+    }
+
+    pub fn with_asset(mut self, asset: FungibleAsset) -> Self {
+        self.asset = Some(asset_to_word(asset));
+        self
+    }
+    pub fn with_asset_compact(mut self, asset: Word) -> Self {
+        self.asset = Some(asset);
+        self
+    }
+
+    pub fn with_metadata(mut self, metadata: Word) -> Self {
+        self.metadata = Some(metadata);
+        self
+    }
+
+    pub fn build(self) -> Result<NoteStorage> {
+        let asset = self.asset.unwrap_or(Word::new([Felt::ZERO; 4]));
+        let metadata = self.metadata.unwrap_or(Word::new([Felt::ZERO; 4]));
+        let beneficiary = self.beneficiary;
+
+        Ok(NoteStorage::new(vec![
+            asset[0],
+            asset[1],
+            asset[2],
+            asset[3],
+            metadata[0],
+            metadata[1],
+            metadata[2],
+            metadata[3],
+            beneficiary.suffix(),
+            beneficiary.prefix().into(),
+            Felt::ZERO,
+            Felt::ZERO,
+        ])?)
+    }
+}

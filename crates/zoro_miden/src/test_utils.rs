@@ -4,6 +4,7 @@ use anyhow::{Result, anyhow};
 use chrono::Utc;
 use dotenv::dotenv;
 use miden_client::{
+    Word,
     account::AccountId,
     asset::FungibleAsset,
     rpc::Endpoint,
@@ -674,4 +675,9 @@ fn load_faucet_by_uuid(uuid: Uuid) -> Result<TestFaucetRaw> {
     } else {
         Err(anyhow!("Error reading faucet"))
     }
+}
+
+// ##### helpers
+pub fn format_word_to_masm_string(word: Word) -> String {
+    format!("push.{}.{}.{}.{}", word[3], word[2], word[1], word[0])
 }

@@ -1,22 +1,271 @@
+use miden_protocol::word::LexicographicWord;
 use num_traits::pow::Pow;
 use std::{collections::HashMap, time::Duration};
 
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use chrono::Utc;
 use miden_client::transaction::TransactionRequestBuilder;
 use miden_client::{Felt, Word, account::AccountId, asset::FungibleAsset, note::NoteType};
 use tracing::info;
 use zoro_miden::{
     assembly_utils::link_all_libraries,
+    asset_utils::{asset_to_word, word_to_asset},
     note::{
-        DepositInstructions, NoteInstructions, SwapInstructions, TrustedNote, WithdrawInstructions,
+        DepositInstructions, NoteInstructions, NoteStorageBuilder, SwapInstructions, TrustedNote,
+        WithdrawInstructions,
     },
     pool::ZoroPool,
     price::PriceData,
-    test_utils::{PoolWithMeta, TestUtils},
+    test_utils::{PoolWithMeta, TestUtils, format_word_to_masm_string},
 };
 
 use miden_protocol::note::{Note, NoteAssets, NoteMetadata, NoteRecipient, NoteStorage};
+
+#[tokio::test]
+async fn note_arguments_unit_test() -> Result<()> {
+    let mut test_utils = TestUtils::from_cache().await?;
+    let user = test_utils.get_accounts(1).await?.first().unwrap().clone();
+
+    let serial_number = TrustedNote::random_word()?;
+
+    let amount_out = 9_999_u64;
+    let liabilities_0 = 123_u64;
+    let reserve_0 = 456_u64;
+    let reserve_with_slippage_0 = 478_u64;
+    let arguments_word_0: Word = [
+        Felt::new(amount_out),
+        Felt::new(liabilities_0),
+        Felt::new(reserve_0),
+        Felt::new(reserve_with_slippage_0),
+    ]
+    .into();
+
+    let test_note_code = format!(
+        "use zoro_miden::note::common\n\
+            use common::AMOUNT_OUT\n\
+            use common::LIABILITIES_0\n\
+            use common::RESERVE_0\n\
+            use common::RESERVE_WITH_SLIPPAGE_0\n\
+            \n\
+            const ERR_A_AMOUNT_OUT = \"Issue with amount_out argument in memory\"\n\
+            const ERR_A_LIABILITIES_0 = \"Issue with liabilities_0 argument in memory\"\n\
+            const ERR_A_RESERVE_0 = \"Issue with reserve_0 argument in memory\"\n\
+            const ERR_A_RESERVE_WS_0 = \"Issue with reserve_with_slippage_0 argument in memory\"\n\
+            const ERR_G_AMOUNT_OUT = \"Issue with amount_out getter\"\n\
+            const ERR_G_LIABILITIES_0 = \"Issue with liabilities_0 getter\"\n\
+            const ERR_G_RESERVE_0 = \"Issue with reserve_0 getter\"\n\
+            const ERR_G_RESERVE_WS_0 = \"Issue with reserve_with_slippage_0 getter\"\n\
+            const ERR_G_POOL_0_STATE = \"Issue with pool_0_state getter\"\n\
+            \n\
+            @note_script\n\
+            pub proc main\n\
+                exec.common::store_arguments_from_stack_to_memory\n\
+                mem_load.AMOUNT_OUT push.{amount_out} assert_eq.err=ERR_A_AMOUNT_OUT\n\
+                mem_load.LIABILITIES_0 push.{liabilities_0} assert_eq.err=ERR_A_LIABILITIES_0\n\
+                mem_load.RESERVE_0 push.{reserve_0} assert_eq.err=ERR_A_RESERVE_0\n\
+                mem_load.RESERVE_WITH_SLIPPAGE_0 push.{reserve_with_slippage_0} assert_eq.err=ERR_A_RESERVE_WS_0\n\
+                exec.common::get_amount_out_argument push.{amount_out} assert_eq.err=ERR_G_AMOUNT_OUT\n\
+                exec.common::get_pool_0_liabilities push.{liabilities_0} assert_eq.err=ERR_G_LIABILITIES_0\n\
+                exec.common::get_pool_0_reserve push.{reserve_0} assert_eq.err=ERR_G_RESERVE_0\n\
+                exec.common::get_pool_0_reserve_with_slippage push.{reserve_with_slippage_0} assert_eq.err=ERR_G_RESERVE_WS_0\n\
+                padw exec.common::get_pool_0_state push.{liabilities_0} debug.stack.4 assert_eq.err=ERR_G_POOL_0_STATE\n\
+                push.{reserve_0} assert_eq.err=ERR_G_POOL_0_STATE\n\
+                push.{reserve_with_slippage_0} assert_eq.err=ERR_G_POOL_0_STATE\n\
+            end"
+    );
+
+    let code_builder =
+        link_all_libraries(test_utils.miden_client().client().code_builder().clone())?;
+    let test_note_script = code_builder.compile_note_script(test_note_code)?;
+
+    let recipient = NoteRecipient::new(serial_number, test_note_script, NoteStorage::new(vec![])?);
+    let metadata = NoteMetadata::new(user.miden_account.id().clone(), NoteType::Public);
+    let assets = NoteAssets::new(vec![])?;
+    let test_note = Note::new(assets, metadata, recipient);
+
+    test_utils
+        .miden_client_mut()
+        .send_note_untrusted(user.miden_account.id(), test_note.clone())
+        .await?;
+
+    let consume_transaction_request = TransactionRequestBuilder::new()
+        .input_notes(vec![(test_note.clone(), Some(arguments_word_0))])
+        .build()?;
+    let _tx_id = test_utils
+        .miden_client_mut()
+        .client_mut()
+        .submit_new_transaction(user.miden_account.id().clone(), consume_transaction_request)
+        .await?;
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn note_arguments_advicemap_unit_test() -> Result<()> {
+    let mut test_utils = TestUtils::from_cache().await?;
+    let user = test_utils.get_accounts(1).await?.first().unwrap().clone();
+
+    let serial_number = TrustedNote::random_word()?;
+
+    let amount_out = 9_999_u64;
+    let liabilities_0 = 123_u64;
+    let reserve_0 = 456_u64;
+    let reserve_with_slippage_0 = 478_u64;
+    let arguments_word_0: Word = [
+        Felt::new(amount_out),
+        Felt::new(liabilities_0),
+        Felt::new(reserve_0),
+        Felt::new(reserve_with_slippage_0),
+    ]
+    .into();
+
+    let liabilities_1 = 234_u64;
+    let reserve_1 = 567_u64;
+    let reserve_with_slippage_1 = 789_u64;
+    let arguments_word_1: Word = [
+        Felt::ZERO,
+        Felt::new(liabilities_1),
+        Felt::new(reserve_1),
+        Felt::new(reserve_with_slippage_1),
+    ]
+    .into();
+
+    let test_note_code = format!(
+        "use zoro_miden::note::common\n\
+            use common::AMOUNT_OUT\n\
+            use common::LIABILITIES_0\n\
+            use common::RESERVE_0\n\
+            use common::RESERVE_WITH_SLIPPAGE_0\n\
+            use common::EMPTY_ARGUMENT_1\n\
+            use common::LIABILITIES_1\n\
+            use common::RESERVE_1\n\
+            use common::RESERVE_WITH_SLIPPAGE_1\n\
+            \n\
+            const ERR_A_AMOUNT_OUT = \"Issue with amount_out argument in memory\"\n\
+            const ERR_A_LIABILITIES_0 = \"Issue with liabilities_0 argument in memory\"\n\
+            const ERR_A_RESERVE_0 = \"Issue with reserve_0 argument in memory\"\n\
+            const ERR_A_RESERVE_WS_0 = \"Issue with reserve_with_slippage_0 argument in memory\"\n\
+            const ERR_G_AMOUNT_OUT = \"Issue with amount_out getter\"\n\
+            const ERR_G_LIABILITIES_0 = \"Issue with liabilities_0 getter\"\n\
+            const ERR_G_RESERVE_0 = \"Issue with reserve_0 getter\"\n\
+            const ERR_G_RESERVE_WS_0 = \"Issue with reserve_with_slippage_0 getter\"\n\
+            const ERR_G_POOL_0_STATE = \"Issue with pool_0_state getter\"\n\
+            const ERR_A_EMPTY_ARGUMENT_1 = \"Issue with empty_argument_1 argument in memory\"\n\
+            const ERR_A_LIABILITIES_1 = \"Issue with liabilities_1 argument in memory\"\n\
+            const ERR_A_RESERVE_1 = \"Issue with reserve_1 argument in memory\"\n\
+            const ERR_A_RESERVE_WS_1 = \"Issue with reserve_with_slippage_1 argument in memory\"\n\
+            const ERR_G_LIABILITIES_1 = \"Issue with liabilities_1 getter\"\n\
+            const ERR_G_RESERVE_1 = \"Issue with reserve_1 getter\"\n\
+            const ERR_G_RESERVE_WS_1 = \"Issue with reserve_with_slippage_1 getter\"\n\
+            const ERR_G_POOL_1_STATE = \"Issue with pool_1_state getter\"\n\
+            \n\
+            @note_script\n\
+            pub proc main\n\
+                exec.common::store_arguments_from_advicemap_to_memory\n\
+                mem_load.AMOUNT_OUT push.{amount_out} assert_eq.err=ERR_A_AMOUNT_OUT\n\
+                mem_load.LIABILITIES_0 push.{liabilities_0} assert_eq.err=ERR_A_LIABILITIES_0\n\
+                mem_load.RESERVE_0 push.{reserve_0} assert_eq.err=ERR_A_RESERVE_0\n\
+                mem_load.RESERVE_WITH_SLIPPAGE_0 push.{reserve_with_slippage_0} assert_eq.err=ERR_A_RESERVE_WS_0\n\
+                exec.common::get_amount_out_argument push.{amount_out} assert_eq.err=ERR_G_AMOUNT_OUT\n\
+                exec.common::get_pool_0_liabilities push.{liabilities_0} assert_eq.err=ERR_G_LIABILITIES_0\n\
+                exec.common::get_pool_0_reserve push.{reserve_0} assert_eq.err=ERR_G_RESERVE_0\n\
+                exec.common::get_pool_0_reserve_with_slippage push.{reserve_with_slippage_0} assert_eq.err=ERR_G_RESERVE_WS_0\n\
+                padw exec.common::get_pool_0_state push.{liabilities_0} assert_eq.err=ERR_G_POOL_0_STATE\n\
+                push.{reserve_0} assert_eq.err=ERR_G_POOL_0_STATE\n\
+                push.{reserve_with_slippage_0} assert_eq.err=ERR_G_POOL_0_STATE\n\
+                mem_load.EMPTY_ARGUMENT_1 push.0 assert_eq.err=ERR_A_EMPTY_ARGUMENT_1\n\
+                mem_load.LIABILITIES_1 push.{liabilities_1} assert_eq.err=ERR_A_LIABILITIES_1\n\
+                mem_load.RESERVE_1 push.{reserve_1} assert_eq.err=ERR_A_RESERVE_1\n\
+                mem_load.RESERVE_WITH_SLIPPAGE_1 push.{reserve_with_slippage_1} assert_eq.err=ERR_A_RESERVE_WS_1\n\
+                exec.common::get_pool_1_liabilities push.{liabilities_1} assert_eq.err=ERR_G_LIABILITIES_1\n\
+                exec.common::get_pool_1_reserve push.{reserve_1} assert_eq.err=ERR_G_RESERVE_1\n\
+                exec.common::get_pool_1_reserve_with_slippage push.{reserve_with_slippage_1} assert_eq.err=ERR_G_RESERVE_WS_1\n\
+                padw exec.common::get_pool_1_state push.{liabilities_1} assert_eq.err=ERR_G_POOL_1_STATE\n\
+                push.{reserve_1} assert_eq.err=ERR_G_POOL_1_STATE\n\
+                push.{reserve_with_slippage_1} assert_eq.err=ERR_G_POOL_1_STATE\n\
+                dropw\n\
+            end"
+    );
+
+    let code_builder =
+        link_all_libraries(test_utils.miden_client().client().code_builder().clone())?;
+    let test_note_script = code_builder.compile_note_script(test_note_code)?;
+
+    let recipient = NoteRecipient::new(serial_number, test_note_script, NoteStorage::new(vec![])?);
+    let metadata = NoteMetadata::new(user.miden_account.id().clone(), NoteType::Public);
+    let assets = NoteAssets::new(vec![])?;
+    let test_note = Note::new(assets, metadata, recipient);
+
+    test_utils
+        .miden_client_mut()
+        .send_note_untrusted(user.miden_account.id(), test_note.clone())
+        .await?;
+
+    let advice_map = [(
+        serial_number.into(),
+        arguments_word_0
+            .iter()
+            .copied()
+            .chain(arguments_word_1.iter().copied())
+            .collect::<Vec<Felt>>(),
+    )];
+    let consume_transaction_request = TransactionRequestBuilder::new()
+        .extend_advice_map(advice_map)
+        .input_notes(vec![(test_note.clone(), None)])
+        .build()?;
+    let _tx_id = test_utils
+        .miden_client_mut()
+        .client_mut()
+        .submit_new_transaction(user.miden_account.id().clone(), consume_transaction_request)
+        .await?;
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn note_arguments_advicemap_wrong_key_unit_test() -> Result<()> {
+    let mut test_utils = TestUtils::from_cache().await?;
+    let user = test_utils.get_accounts(1).await?.first().unwrap().clone();
+
+    let serial_number = TrustedNote::random_word()?;
+
+    let test_note_code = format!(
+        "use zoro_miden::note::common\n\
+            const ERR_HAS_ARGUMENTS_FROM_ADVICE_MAP = \"Issue with has_arguments_from_advicemap: key found where no arguments expected\"\n\
+            \n\
+            @note_script\n\
+            pub proc main\n\
+                exec.common::has_arguments_from_advicemap\n\
+                assertz.err=ERR_HAS_ARGUMENTS_FROM_ADVICE_MAP\n\
+                dropw\n\
+            end"
+    );
+
+    let code_builder =
+        link_all_libraries(test_utils.miden_client().client().code_builder().clone())?;
+    let test_note_script = code_builder.compile_note_script(test_note_code)?;
+
+    let recipient = NoteRecipient::new(serial_number, test_note_script, NoteStorage::new(vec![])?);
+    let metadata = NoteMetadata::new(user.miden_account.id().clone(), NoteType::Public);
+    let assets = NoteAssets::new(vec![])?;
+    let test_note = Note::new(assets, metadata, recipient);
+
+    test_utils
+        .miden_client_mut()
+        .send_note_untrusted(user.miden_account.id(), test_note.clone())
+        .await?;
+
+    let consume_transaction_request = TransactionRequestBuilder::new()
+        .input_notes(vec![(test_note.clone(), None)])
+        .build()?;
+    let _tx_id = test_utils
+        .miden_client_mut()
+        .client_mut()
+        .submit_new_transaction(user.miden_account.id().clone(), consume_transaction_request)
+        .await?;
+
+    Ok(())
+}
 
 #[tokio::test]
 async fn note_storage_default_unit_test() -> Result<()> {
@@ -54,28 +303,11 @@ async fn note_storage_default_unit_test() -> Result<()> {
     .into();
     // BENEFICIARY
     let beneficiary_id = test_utils.user_1;
-    let beneficiary: Word = [
-        beneficiary_id.suffix(),
-        beneficiary_id.prefix().into(),
-        Felt::ZERO,
-        Felt::ZERO,
-    ]
-    .into();
 
-    let note_storage = NoteStorage::new(vec![
-        asset_compact[0],
-        asset_compact[1],
-        asset_compact[2],
-        asset_compact[3],
-        metadata_storage[0],
-        metadata_storage[1],
-        metadata_storage[2],
-        metadata_storage[3],
-        beneficiary[0],
-        beneficiary[1],
-        beneficiary[2],
-        beneficiary[3],
-    ])?;
+    let note_storage = NoteStorageBuilder::new(beneficiary_id)
+        .with_asset_compact(asset_compact)
+        .with_metadata(metadata_storage)
+        .build()?;
 
     //@todo write a base test note with all generic imports
     let test_note_code = format!(
@@ -123,7 +355,15 @@ async fn note_storage_default_unit_test() -> Result<()> {
              end",
         format_word_to_masm_string(asset_compact),
         format_word_to_masm_string(metadata_storage),
-        format_word_to_masm_string(beneficiary),
+        format_word_to_masm_string(
+            [
+                beneficiary_id.suffix(),
+                beneficiary_id.prefix().into(),
+                Felt::ZERO,
+                Felt::ZERO,
+            ]
+            .into(),
+        ),
         beneficiary_id.suffix(),
         beneficiary_id.prefix(),
     );
@@ -153,10 +393,6 @@ async fn note_storage_default_unit_test() -> Result<()> {
         .await?;
 
     Ok(())
-}
-
-fn format_word_to_masm_string(word: Word) -> String {
-    format!("push.{}.{}.{}.{}", word[3], word[2], word[1], word[0])
 }
 
 #[tokio::test]

@@ -283,7 +283,7 @@ end
 pub proc main
     exec.store_args_to_memory
     exec.store_to_memory
-    exec.store_asset_in_to_memory
+    exec.store_asset_to_memory
     exec.store_p2id_script_hash
     exec.execute_ZOROSWAP
 

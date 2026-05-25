@@ -2,7 +2,11 @@ use miden::protocol::active_account
 use miden::protocol::account_id
 use miden::protocol::active_note
 use miden::protocol::tx
+use miden::protocol::asset
+use miden::protocol::asset::ASSET_VALUE_MEMORY_OFFSET
+use miden::protocol::asset::ASSET_SIZE
 use miden::standards::wallets::basic->basic_wallet
+
 
 use miden::core::sys
 
@@ -11,6 +15,26 @@ use zoro_miden::note::common
 use common::AccountId
 use common::bool
 use common::DEFAULT_NUMBER_OF_STORAGE_ITEMS
+use common::STORAGE_POINTER
+use common::INPUT_ASSETS_POINTER
+
+
+
+# @todo move to pointer to a standarised location - read it from common library
+const SELL_ASSET_POINTER = FREE_MEMORY_POINTER
+const SELL_ASSET_AMOUNT_POINTER = SELL_ASSET_POINTER + 3
+const BUY_ASSET_POINTER = SELL_ASSET_POINTER + 4
+const BUY_ASSET_AMOUNT_POINTER = BUY_ASSET_POINTER + 3
+const BUY_ASSET_END = BUY_ASSET_POINTER + 3
+
+
+# @todo ugly hack fix by either:
+# @todo - implement 'contains' on assset utils/common
+# @todo - do the check in the body of the asset loop - and add buy asset to note if not found earlier
+# @todo    this wouod make `add_asset_to_recreated_note` simpler, perhaps superflous
+# @todo - or use dedicated RECREATED_NOTE_ASSETS_POINTER after all 
+const BUY_TOKEN_PREVIOUSLY_IN_THE_NOTE = BUY_ASSET_END + 17 #: bool
+
 
 
 # META
@@ -27,7 +51,18 @@ const ERR_ZTD_RECLAIM_NOT_INITIATED="failed to reclaim ZTD note because the recl
 
 # CONSTANTS
 # =================================================================================================
-const NUMBER_OF_STORAGE_ITEMS = 2
+const NUMBER_OF_STORAGE_ITEMS = DEFAULT_NUMBER_OF_STORAGE_ITEMS
+
+
+# SETTERS
+# =================================================================================================
+proc set_sell_asset(key: word)
+    mem_storew_be.SELL_ASSET_KEY
+end
+
+proc set_buy_asset(key: word)
+    mem_storew_be.BUY_ASSET_KEY
+end
 
 
 # HELPER PROCEDURES
@@ -45,12 +80,12 @@ const NUMBER_OF_STORAGE_ITEMS = 2
 #! - the reclaim of the active note is disabled.
 #! - the reclaim block height is not reached yet.
 #! - the account attempting to reclaim the note is not the sender account.
-proc reclaim_note
+proc reclaim_note()
     exec.common::get_beneficiary_id
     # => [creator_account_id_suffix, creator_account_id_prefix]
 
     # ensure active account ID = sender account ID
-    exec.is_active_account assert.err=ERR_ZTD_RECLAIM_ACCT_IS_NOT_SENDER
+    exec.is_active_account_beneficiary assert.err=ERR_ZTD_RECLAIM_ACCT_IS_NOT_SENDER
     # => []
     exec.has_reclaim_been_initiated assert.err=ERR_ZTD_RECLAIM_NOT_INITIATED
     ## check if reclaim is initiat4ed
@@ -77,17 +112,21 @@ end
 #! - the reclaim of the active note is disabled.
 #! - the reclaim block height is not reached yet.
 #! - the account attempting to reclaim the note is not the sender account.
-proc is_note_consumption_permitted
+proc is_note_consumption_permitted() -> bool
+    exec.common::has_arguments_from_advicemap
+    if.true
+        ## read arguments from memory stack to memory using ARGSS_POINTER
 
-    ## read arguments from memory stack to memory using ARGSS_POINTER
+        ## validate signature
+        # => [SIG...]
+        exec.validate_signature
+        # => [is signature valid]
+        ## maybe other checks
+    else
+        push.0
+    end
 
-    ## validate signature
-    # => [SIG...]
-    exec.validate_signature
-    # => [is signature valid]
     exec.sys::truncate_stack
-    ## maybe other checks
-
 end
 
 #! Inputs:  [SIG...]
@@ -105,6 +144,163 @@ proc has_reclaim_been_initiated() -> bool
     push.1
     exec.sys::truncate_stack
 end
+
+
+
+##################################### NOTE RECREACTION LOGIC ##########################################
+const RECREATED_NOTE_IDX_LOCAL = 0
+const LOOP_POINTER_0_LOCAL = 1
+const ASSET_END_POINTER_LOCAL = 2
+#! Inputs:  [note_type, tag]
+#! Outputs: []
+#!
+#! Panics if:
+#! - the note is not valid.(
+@locals(3)
+proc recreate_note(note_type: u16, tag: felt)
+   
+    exec.active_note::get_script_root
+    # => [SCRIPT_ROOT, note_type, tag]
+
+    # Derive remainder serial: increment most significant element
+    exec.active_note::get_serial_number
+    # => [s0, s1, s2, s3, SCRIPT_ROOT, note_type, tag]
+    
+    # @todo use crate_serial from our library
+    movup.3 add.1 movdn.3
+    # => [s0, s1, s2, s3+1, SCRIPT_ROOT, note_type, tag]
+
+    # Build recipient from all note storage items (now with updated requested amount)
+    push.NUMBER_OF_STORAGE_ITEMS push.STORAGE_POINTER
+    # => [storage_ptr, num_storage_items, SERIAL_NUM', SCRIPT_ROOT, note_type, tag]
+
+    ### will be renamed to in next release exec.note::compute_and_store_recipient
+    exec.common::build_recipient
+    # => [RECIPIENT, note_type, tag]
+
+    movup.4 movup.5
+    # => [tag, note_type, RECIPIENT]
+
+    exec.output_note::create
+    # => [note_idx]
+
+    loc_store.RECREATED_NOTE_IDX_LOCAL
+    # => []
+
+    # Add word-sized attachment with [amt_payout, 0, 0, 0] with attachment scheme set to none.
+    loc_load.RECREATED_NOTE_IDX_LOCAL
+
+
+    #push.ATTACHMENT_SCHEME_NONE
+    # => [attachment_scheme_none, [amt_payout, 0, 0, 0], note_idx]
+
+    #exec.output_note::add_word_attachment
+    # => []
+
+    ########### MOVE ASSETS OVER TO RECREATED NOTE ###########
+    exec.common::store_all_assets_to_memory
+    # => [num_assets, assets_ptr]
+    mul.ASSET_SIZE 
+    # => [assets_allocation_size
+    dup.1 add
+    # => [end_ptr, assets_ptr]
+    loc_store.ASSET_END_POINTER_LOCAL
+    # pad the stack and move the pointer to the top
+    padw padw movup.8
+    # => [ptr, pad(8)]
+    # loop if the amount of assets is non-zero
+    dup loc_load.ASSET_END_POINTER_LOCAL
+    # => [end_ptr, ptr, ptr]
+    lt
+    # => [should_loop, ptr, pad(8)]
+
+    while.true
+        # => [ptr, pad(8)]
+
+        # save the pointer so that we can use it later
+        dup loc_store.LOOP_POINTER_0_LOCAL
+        # => [ptr, pad(8)]
+        # load the asset value
+        add.ASSET_VALUE_MEMORY_OFFSET mem_loadw_le swapw
+         # => [EMPTY_WORD, ASSET_VALUE]
+
+        # load the asset key
+        loc_load.LOOP_POINTER_0_LOCAL mem_loadw_le
+        # => [ASSET_KEY, ASSET_VALUE]
+
+        loc_load.RECREATED_NOTE_ASSETS_POINTER exec.add_asset_to_recreated_note
+
+        # increment the pointer
+        loc_load.LOOP_POINTER_0_LOCAL add.ASSET_SIZE dup loc_store.LOOP_POINTER_0_LOCAL
+        # => [ptr]
+        # continue looping if ptr != end_ptr
+        loc_load.ASSET_END_POINTER_LOCAL lt
+        # => [should_loop]
+    end
+    ### add buy asset to note if not previously in the note there is buy asset 
+    ## does buy asset need to be handled?
+    loc_load.BUY_TOKEN_PREVIOUSLY_IN_THE_NOTE not
+    # => [buy_asset_needs_to_be_handled]
+    padw mem_loadw_le.BUY_ASSET_POINTER exec.asset_utils::has_amount_c
+    # => [has_amount, buy_asset_needs_to_be_handled]
+    ### if asset has no amount, there is no need to addit 
+    and
+    if.true
+        padw mem_loadw_le.BUY_ASSET_POINTER exec.asset_utils::expand_asset
+        # => [BUY_ASSET_KEY, BUY_ASSET_VALUE]
+        loc_load.RECREATED_NOTE_IDX_LOCAL exec.output_note::add_asset
+    end
+
+
+end
+
+
+
+
+const ASSET_KEY_LOCAL = 0
+const ASSET_VALUE_LOCAL = 4
+const NOTE_IDX_LOCAL = 9
+@locals(9)
+proc add_asset_to_recreated_note(note_idx: u16, asset_key: word, asset_value: word)
+    loc_store.NOTE_IDX_LOCAL loc_storew_be.ASSET_KEY_LOCAL swapw loc_storew_be.ASSET_VALUE_LOCAL swapw
+    # => [ASSET_KEY, ASSET_VALUE]
+    ### check if asset is buy asset
+    exec.asset_utils::compress_asset padw mem_loadw_le.BUY_ASSET_POINTER exec.asset_utils::is_asset_the_same_c
+    if.true 
+        # substract buy amount from buy asset
+        padw loc_loadw_be.ASSET_VALUE_LOCAL mem_load.SELL_ASSET_VALUE_POINTER add
+        # => [NEW_BUY_ASSET_VALUE]
+        padw loc_loadw_be.ASSET_KEY_LOCAL
+         # => [BUY_ASSET_KEY, NEW_BUY_ASSET_VALUE]
+        loc_load.NOTE_IDX_LOCAL exec.output_note::add_asset
+        push.1 mem_store.BUY_TOKEN_PREVIOUSLY_IN_THE_NOTE
+    else
+        ### check if asset is sell asset
+        padw loc_loadw_be.ASSET_VALUE_LOCAL padw loc_loadw_be.ASSET_KEY_LOCAL exec.asset_utils::compress_asset
+        padw mem_loadw_le.SELL_ASSET_POINTER exec.asset_utils::is_token_the_same
+        if.true
+            # add buy amount to buy asset
+            padw loc_loadw_be.ASSET_VALUE_LOCAL mem_load.SELL_ASSET_VALUE_POINTER add
+            # => [NEW_SELL_ASSET_VALUE]
+            padw loc_loadw_be.ASSET_KEY_LOCAL
+            # => [SELL_ASSET_KEY, NEW_SELL_ASSET_VALUE]
+            loc_load.NOTE_IDX_LOCAL exec.output_note::add_asset
+        else
+            # add asset to note
+            padw loc_loadw_be.ASSET_VALUE_LOCAL padw loc_loadw_be.ASSET_KEY_LOCAL
+            loc_load.NOTE_IDX_LOCAL exec.output_note::add_asset
+        end
+
+end
+
+
+# get_assets
+# find input and  output
+#   itereate like in her https://github.com/0xMiden/protocol/blob/v0.14.6/crates/miden-standards/asm/standards/wallets/basic.masm
+# modified amounts
+# add all to new note
+#
+
 
 
 proc execute_swap
@@ -182,35 +378,11 @@ end
 #! Panics if:
 #! - the account_id is not valid.
 
-proc is_active_account(account_id: AccountId) -> bool
+proc is_active_account_beneficiary(account_id: AccountId) -> bool
     exec.active_account::get_id
     exec.account_id::is_equal
 end
 
-#! Library: Zoro Note Utils
-# argument memory XXX WORDS 
-# 0x0060 - 0x00XX
-# ====================================================
-
-
-#########  ZORO NOTE UTILS  #########
-  
-const ARGS_POINTER = 96
-#! Library: Zoro Note Utils
-#! Inputs:  [AccountID]
-#! Outputs: [bool]
-#!
-#! Panics if:
-#! - the account_id is not valid.
-proc store_args_to_memory
-    exec.active_note::get_serial_number
-    adv.push_mapval
-    swap.3 drop push.ARGS_POINTER 
-    padw padw padw
-    adv_pipe
-
-    dropw swapw dropw swapw dropw
-end
 
 
 
