@@ -381,13 +381,18 @@ impl ZoroPool {
             batch_execution_details.expected_output_recipients.len(),
         );
         let new_pool_states = batch_execution_details.new_pool_states.clone();
+        let tx_request: TransactionRequest = batch_execution_details.try_into()?;
+        let tx_result = self
+            .miden_client
+            .client_mut()
+            .execute_transaction(*self.miden_account.id(), tx_request.clone())
+            .await?;
+        info!("Tx result: {:?}", tx_result.account_delta().storage());
+
         let tx_id = self
             .miden_client
             .client_mut()
-            .submit_new_transaction(
-                *self.miden_account.id(),
-                batch_execution_details.try_into()?,
-            )
+            .submit_new_transaction(*self.miden_account.id(), tx_request)
             .await
             .inspect_err(|e| {
                 error!(
