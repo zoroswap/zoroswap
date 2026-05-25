@@ -366,18 +366,24 @@ end
 #!
 @locals(12)
 pub proc withdraw
+    # Store stack to locals
     loc_store.0 loc_store.1 loc_store.2 loc_storew_le.4 loc_store.8 loc_store.9 loc_store.10
     # => []
-    loc_load.1 loc_load.0 loc_loadw_le.4
+    loc_load.1 loc_load.0 padw loc_loadw_le.4
+    debug.stack.8
     # => [ASSET, user_id_suffix, user_id_prefix]
     exec.get_user_deposit_key mem_storew_be.WITHDRAW_KEY_LOC
     # => [USER_LP_KEY]
     exec.get_user_deposit loc_store.11 loc_load.11 loc_load.2
     # => [lp_withdraw_amount, old_user_lp]
+    push.100 debug.stack.8 drop
     sub
     # => [new_lp_amount]
     dup loc_load.11 swap
     # => [old_lp_amount, new_lp_amount, new_lp_amount]
+    push.101 debug.stack.9 drop
+
+    # Check if new lp is smaller than old lp
     lt assert.err=ERR_LP_WITHDRAW_AMOUNT_EXCEEDS_USER_LP_SHARES drop
     # => [new_lp_amount]
     padw mem_loadw_be.WITHDRAW_KEY_LOC push.USER_DEPOSITS_MAPPING_SLOT[0..2]

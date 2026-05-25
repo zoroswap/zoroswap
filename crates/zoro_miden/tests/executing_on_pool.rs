@@ -419,7 +419,7 @@ async fn executing_deposit_withdraw() -> Result<()> {
     info!("--- User claim executed");
 
     // wait for one block
-    tokio::time::sleep(Duration::from_millis(2100)).await;
+    tokio::time::sleep(Duration::from_millis(4100)).await;
 
     let user_balance_after_withdraw = user
         .miden_account

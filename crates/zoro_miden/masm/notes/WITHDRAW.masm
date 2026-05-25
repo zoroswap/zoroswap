@@ -43,9 +43,9 @@ proc store_args_to_memory
 end
 
 proc execute_WITHDRAW
+    mem_load.RESERVE_WITH_SLIPPAGE mem_load.RESERVE mem_load.LIABILITIES 
+    # => [liabilities, reserve, reserve,reserve_with_slippage]
     exec.common::get_expected_asset
-    # => [ASSET]
-    push.0 mem_load.RESERVE_WITH_SLIPPAGE mem_load.RESERVE mem_load.LIABILITIES swapw
     # => [ASSET, liabilities, reserve, reserve,reserve_with_slippage]
     exec.common::get_metadata_item_2 exec.common::get_beneficiary_id 
     # => [user_id_suffix, user_id_prefix, lp_withdraw_amount, ASSET, liabilities, reserve, reserve_with_slippage]
