@@ -14,64 +14,31 @@ use common::DEFAULT_NUMBER_OF_STORAGE_ITEMS
 # [PARAMS] = [deadline, p2id_tag, lp_withdraw_amount, empty]
 # [CREATOR_ID_WORD] = [empty, empty, creator_id_suffix, creator_id_prefix]
 
-# EMPTY  5WORDS 0X001C- 0x00
-
-# argument memory 4 WORDS 
-# 0x0040 - 0x004F
-# ====================================================
-
-const ARGS_POINTER = 0x0040
-const ARGS_WORD_0 = ARGS_POINTER        # []
-
-# first 3 WORDS of ARGUMENTS space used for args
-# ====================================================
-const NUMBER_OF_ARGS = 0x000C # 4
-
-# semantic names for note_storage
-# ====================================================
-
-const WITHDRAW_AMOUNT_OUT = ARGS_WORD_0   # 0x0040
-const LIABILITIES = ARGS_WORD_0 + 1  # 0x0041
-const RESERVE = ARGS_WORD_0 + 2  # 0x0042
-const RESERVE_WITH_SLIPPAGE = ARGS_WORD_0 + 3  # 0x0043
-
-proc store_args_to_memory
-    mem_store.WITHDRAW_AMOUNT_OUT
-    mem_store.RESERVE_WITH_SLIPPAGE
-    mem_store.RESERVE
-    mem_store.LIABILITIES
-end
-
 proc execute_WITHDRAW
-    mem_load.RESERVE_WITH_SLIPPAGE mem_load.RESERVE mem_load.LIABILITIES 
+    exec.common::get_pool_0_reserve_with_slippage exec.common::get_pool_0_reserve exec.common::get_pool_0_liabilities
     # => [liabilities, reserve, reserve,reserve_with_slippage]
-    exec.common::get_expected_asset
+    padw exec.common::get_expected_asset
     # => [ASSET, liabilities, reserve, reserve,reserve_with_slippage]
     exec.common::get_metadata_item_2 exec.common::get_beneficiary_id 
     # => [user_id_suffix, user_id_prefix, lp_withdraw_amount, ASSET, liabilities, reserve, reserve_with_slippage]
     call.zoropool::withdraw
     # => []
-    exec.common::get_expected_asset mem_load.WITHDRAW_AMOUNT_OUT 
+    exec.common::get_expected_asset exec.common::get_amount_out_argument 
     # => [amount_out, MIN_ASSET_OUT]
-    push.5010 debug.stack.6 drop
     movdn.4 movup.3 drop
     # => [ACTUAL_ASSET_OUT]
-    push.5011 debug.stack.5 drop
     exec.asset_utils::expand_asset
     # => [ASSET_OUT_KEY, ASSET_OUT_VALUE]
-    push.502 debug.stack.1 drop
     exec.common::set_output_asset
     # => []
-    push.503 debug.stack.1 drop
     exec.output_note_utils::create_p2id_beneficiary_note
     # => []
 end
 
 @note_script
 pub proc main
-    exec.store_args_to_memory
-    # TODO: replace with exec.common::store_arguments_from_stack_to_memory
-    push.DEFAULT_NUMBER_OF_STORAGE_ITEMS exec.common::store_storage_to_memory
+    exec.common::store_arguments_from_stack_to_memory
+    push.DEFAULT_NUMBER_OF_STORAGE_ITEMS exec.common::store_storage_to_memory drop
     exec.execute_WITHDRAW
     exec.sys::truncate_stack
 end

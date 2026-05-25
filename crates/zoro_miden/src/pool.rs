@@ -243,6 +243,7 @@ impl ZoroPool {
             .await?;
         miden_client.sync_state().await?;
         let init_tx = TransactionRequestBuilder::new().build()?;
+
         miden_client
             .client_mut()
             .submit_new_transaction(pool_contract.id(), init_tx)

@@ -292,7 +292,6 @@ end
 #!
 proc set_beneficiary_as_output_note_target
     exec.get_beneficiary_id
-    push.100 debug.stack.3 drop
     # [suffix, prefix]
     mem_store.OUTPUT_ASSET_TARGET_PREFIX mem_store.OUTPUT_ASSET_TARGET_SUFFIX
     # []

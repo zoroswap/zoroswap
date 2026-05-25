@@ -432,7 +432,8 @@ impl TestUtils {
                     .eq(&0)
                 {
                     info!("Initial deposit to pool");
-                    let mint_amount = test_faucet.meta.max_supply / 10;
+                    // let mint_amount = test_faucet.meta.max_supply / 10;
+                    let mint_amount = 200000;
                     let acc = &self
                         .get_funded_accounts(
                             1,

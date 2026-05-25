@@ -370,26 +370,27 @@ pub proc withdraw
     loc_store.0 loc_store.1 loc_store.2 loc_storew_le.4 loc_store.8 loc_store.9 loc_store.10
     # => []
     loc_load.1 loc_load.0 padw loc_loadw_le.4
-    debug.stack.8
     # => [ASSET, user_id_suffix, user_id_prefix]
     exec.get_user_deposit_key mem_storew_be.WITHDRAW_KEY_LOC
     # => [USER_LP_KEY]
     exec.get_user_deposit loc_store.11 loc_load.11 loc_load.2
     # => [lp_withdraw_amount, old_user_lp]
-    push.100 debug.stack.8 drop
     sub
     # => [new_lp_amount]
-    dup loc_load.11 swap
+    dup loc_load.11
     # => [old_lp_amount, new_lp_amount, new_lp_amount]
-    push.101 debug.stack.9 drop
 
     # Check if new lp is smaller than old lp
     lt assert.err=ERR_LP_WITHDRAW_AMOUNT_EXCEEDS_USER_LP_SHARES drop
     # => [new_lp_amount]
+
+    # Set new user LP
     padw mem_loadw_be.WITHDRAW_KEY_LOC push.USER_DEPOSITS_MAPPING_SLOT[0..2]
     # => [slot_id_prefix, slot_id_suffix, USER_LP_KEY, new_lp_amount]
     exec.storage_utils::set_map_item drop
     # => []
+
+    # Set new total LP supply
     loc_load.2
     # => [lp_withdraw_amount]
     padw mem_loadw_be.WITHDRAW_KEY_LOC exec.get_lp_shares_total_supply_key
@@ -397,6 +398,7 @@ pub proc withdraw
     push.USER_DEPOSITS_MAPPING_SLOT[0..2]
     # => [slot_id_prefix, slot_id_suffix, TOTAL_SUPPLY_KEY, lp_withdraw_amount]
     exec.storage_utils::sub_from_map_item drop
+    
     # => []
     loc_loadw_le.4 loc_load.2
     # => [lp_withdraw_amount, MIN_ASSET_OUT]
