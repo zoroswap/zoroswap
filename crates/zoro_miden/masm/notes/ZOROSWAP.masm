@@ -24,35 +24,32 @@ proc execute_ZOROSWAP
         exec.common::set_output_asset_is_input_asset
         exec.output_note_utils::create_p2id_bounce_to_sender
     else
-
-        # Prepare the output p2id
+        # Prepare the output asset
         exec.common::get_expected_asset
         # => [MIN_ASSET_OUT]
         movup.3 drop
-        # => [ASSET_OUT_NO_VALUE]
+        # => [suffix, prefix, callback]
         exec.common::get_amount_out_argument
-        # => [amount_out, ASSET_OUT_NO_VALUE]
+        # => [amount_out, suffix, prefix, callback]
         movdn.3
         # => [ACTUAL_ASSET_OUT]
         loc_storew_le.0 dropw
-    
-        # Load all assets and states, do wallet operations on account and set new pool states
+
+        # Remove asset out from pool
+        exec.common::get_pool_0_reserve_with_slippage exec.common::get_pool_0_reserve exec.common::get_pool_0_liabilities
+        # => [in_pool_liabilities, in_pool_reserve, in_pool_reserve_with_slippage]
+        exec.common::get_input_asset_value_le exec.common::get_input_asset_key_le
+        # => [ASSET_KEY, ASSET_VALUE, in_pool_liabilities, in_pool_reserve, in_pool_reserve_with_slippage]
+        exec.asset_utils::compress_asset
+        # => [ASSET_IN, in_pool_liabilities, in_pool_reserve, in_pool_reserve_with_slippage]
+        call.zoropool::receive_asset
+        
+        # Add asset in to the pool
         exec.common::get_pool_1_reserve_with_slippage exec.common::get_pool_1_reserve exec.common::get_pool_1_liabilities
         # => [out_pool_liabilities, out_pool_reserve, out_pool_reserve_with_slippage]
         padw loc_loadw_le.0
         # => [ASSET_OUT, out_pool_liabilities, out_pool_reserve, out_pool_reserve_with_slippage]
-        exec.common::get_pool_0_reserve_with_slippage exec.common::get_pool_0_reserve exec.common::get_pool_0_liabilities
-        # => [in_pool_liabilities, in_pool_reserve, in_pool_reserve_with_slippage,
-        #     ASSET_OUT, out_pool_liabilities, out_pool_reserve, out_pool_reserve_with_slippage]
-        exec.common::get_input_asset_value_le exec.common::get_input_asset_key_le
-        # => [ASSET_KEY, ASSET_VALUE, in_pool_liabilities, in_pool_reserve, in_pool_reserve_with_slippage,
-        #     ASSET_OUT, out_pool_liabilities, out_pool_reserve, out_pool_reserve_with_slippage]
-        exec.asset_utils::compress_asset
-        # => [ASSET_IN, in_pool_liabilities, in_pool_reserve, in_pool_reserve_with_slippage,
-        #    ASSET_OUT, out_pool_liabilities, out_pool_reserve, out_pool_reserve_with_slippage]
-
-        call.zoropool::swap_assets
-        # => []
+        call.zoropool::remove_asset_from_pool
 
         padw loc_loadw_le.0        
         # => [ACTUAL_ASSET_OUT]

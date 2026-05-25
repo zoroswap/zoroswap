@@ -240,9 +240,34 @@ pub proc receive_asset
     # => [ASSET_VALUE', reserve, reserve_with_slippage, liabilities, 0, pad(8)]
     loc_loadw_be.0
     # => [ASSET, reserve, reserve_with_slippage, liabilities, 0, pad(8)]
-    procref.validate_and_update_state reversew mem_storew_be.DYNAMIC_PROC_ADDR dropw push.DYNAMIC_PROC_ADDR
+    procref.validate_and_update_state mem_storew_le.DYNAMIC_PROC_ADDR dropw push.DYNAMIC_PROC_ADDR
     dynexec
     # => [pad(16)]
+end
+
+#! Removes an asset from this accounts wallet and updates pools states
+#!
+#! Inputs: [ASSET, liabilities, reserve, reserve_with_slippage]
+#! Returns: []
+#!
+#! loc.0-3: ASSET
+#! loc 4-6 pool_state0 (liabilities, reserve, reserve_with_slippage)
+@locals(7)
+pub proc remove_asset_from_pool
+    loc_storew_le.0 dropw loc_store.4 loc_store.5 loc_store.6
+    
+    # Add asset to account
+    padw loc_loadw_le.0
+    # => [ASSET]
+    exec.expand_asset
+    # => [ASSET_KEY, ASSET_VALUE]
+    exec.native_account::remove_asset dropw
+    # => []
+
+    # Set pool1 state
+    loc_load.6 loc_load.5 loc_load.6 padw loc_loadw_le.0
+    # => [ASSET, liabilities, reserve, reserve_with_slippage]
+    exec.set_pool_state
 end
 
 #proc validate_and_update_state
@@ -287,65 +312,6 @@ pub proc deposit
     exec.storage_utils::add_to_map_item
     # => []
 end
-
-#! Performs swap on the account.
-#! It removes the asset0 and adds asset1 and then sets pool_state0 and pool_state1
-#!
-#! Inputs: [
-#     ASSET_IN, liabilities_pool0, reserve_pool0, reserve_with_slippage_pool0,
-#     ASSET_OUT, liabilities_pool1, reserve_pool1, reserve_with_slippage_pool1
-# ]
-#!
-#! loc.0-3: ASSET_IN
-#! loc 4-6 pool_state0 (liabilities, reserve, reserve_with_slippage)
-#! loc.8-11: ASSET_OUT
-#! loc 12-14 pool_state1 (liabilities, reserve, reserve_with_slippage)
-#
-@locals(15)
-pub proc swap_assets
-    # Store proc inputs to locals
-    loc_storew_le.0 dropw loc_store.4 loc_store.5 loc_store.6
-    loc_storew_le.8 dropw loc_store.12 loc_store.13 loc_store.14
-
-    # Remove asset from account
-    padw loc_loadw_le.0
-    exec.add_asset_to_pool
-    
-    # Set pool0 state
-    loc_load.6 loc_load.5 loc_load.4 padw loc_loadw_le.0
-    exec.set_pool_state
-    
-    # Add asset to account
-    padw loc_loadw_le.8
-    exec.remove_asset_from_pool
-
-    # Set pool1 state
-    loc_load.14 loc_load.13 loc_load.12 padw loc_loadw_le.8
-    exec.set_pool_state
-end
-
-#! Removes an asset from this accounts wallet.
-#!
-#! Inputs: [ASSET]
-#! Returns: []
-#!
-proc remove_asset_from_pool
-    exec.expand_asset
-    # => [ASSET_KEY, ASSET_VALUE]
-    exec.native_account::remove_asset dropw
-end
-
-#! Adds an asset to this accounts wallet.
-#!
-#! Inputs: [ASSET]
-#! Returns: []
-#!
-proc add_asset_to_pool
-    exec.expand_asset
-    # => [ASSET_KEY, ASSET_VALUE]
-    exec.native_account::add_asset dropw
-end
-
 
 #! Performs withdrawal of the asset on the account.
 #!
