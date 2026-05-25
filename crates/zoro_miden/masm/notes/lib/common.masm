@@ -192,7 +192,6 @@ end
 ###################################### NOTE ASSETS LIBRARY ##########################################
 # =================================================================================================
 
-
 const ERR_WRONG_NUMBER_OF_ASSETS="unexpected number of note assets"
 
 const INPUT_ASSETS_POINTER = ARGUMENTS_END + 17
@@ -250,7 +249,7 @@ end
 ################################### OUTPUT NOTE LIBRARY ##########################################
 # =================================================================================================
 
-const OUTPUT_NOTE_START = INPUT_ASSETS_END + 18
+const OUTPUT_NOTE_START = INPUT_ASSETS_END + 17
 const OUTPUT_ASSET_TARGET_PREFIX = OUTPUT_NOTE_START
 const OUTPUT_ASSET_TARGET_SUFFIX = OUTPUT_NOTE_START + 1
 const OUTPUT_ASSET_KEY = OUTPUT_ASSET_TARGET_SUFFIX + 3
