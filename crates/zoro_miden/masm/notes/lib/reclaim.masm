@@ -1,0 +1,40 @@
+use miden::standards::wallets::basic->basic_wallet
+
+use zoro_miden::note::common
+
+
+const ERR_ZTD_RECLAIM_ACCT_IS_NOT_SENDER="failed to reclaim ZTD note because the reclaiming account is not the sender"
+
+
+#! Helper procedure which adds the note assets to the sender account.
+#!
+#! Checks if ZTD reclaim is enabled and if true, if reclaim height has been reached.
+#!
+#! Inputs:  []
+#! Outputs: []
+#!
+#! Panics if:
+#! - the reclaim of the active note is disabled.
+#! - the reclaim block height is not reached yet.
+#! - the account attempting to reclaim the note is not the sender account.
+proc reclaim_note()
+    exec.common::is_active_account_beneficiary assert.err=ERR_ZTD_RECLAIM_ACCT_IS_NOT_SENDER
+    # => []
+    #exec.has_reclaim_been_initiated assert.err=ERR_ZTD_RECLAIM_NOT_INITIATED
+    ## check if reclaim is initiat4ed
+
+    # add note assets to account
+    exec.basic_wallet::add_assets_to_account
+    # => []
+end
+
+
+
+
+
+
+
+
+
+
+

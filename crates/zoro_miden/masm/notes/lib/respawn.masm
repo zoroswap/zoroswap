@@ -19,6 +19,7 @@ use common::bool
 use common::DEFAULT_NUMBER_OF_STORAGE_ITEMS
 use common::STORAGE_POINTER
 use common::INPUT_ASSETS_POINTER
+use common::OUTPUT_NOTE_STORAGE_START
 use common::OUTPUT_NOTE_ASSETS_START
 
 
@@ -47,8 +48,8 @@ proc recreate_note(number_of_assets: u16, number_of_storage_items: felt, note_ty
     movup.3 add.1 movdn.3
     # => [s0, s1, s2, s3+1, SCRIPT_ROOT, note_type, tag]
 
-    # Build recipient from all note storage items (now with updated requested amount)
-    loc_load.NUMBER_OF_STORAGE_ITEMS_LOCAL push.STORAGE_POINTER
+    # Build recipient from all note storage items ()
+    loc_load.NUMBER_OF_STORAGE_ITEMS_LOCAL push.OUTPUT_NOTE_STORAGE_START
     # => [storage_ptr, num_storage_items, SERIAL_NUM', SCRIPT_ROOT, note_type, tag]
 
     ### will be renamed to in next release exec.note::compute_and_store_recipient

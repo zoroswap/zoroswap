@@ -1,4 +1,6 @@
 use miden::protocol::active_note
+use miden::protocol::active_account
+use miden::protocol::account_id
 use miden::core::sys
 use miden::protocol::asset::ASSET_VALUE_MEMORY_OFFSET
 use miden::protocol::asset::ASSET_SIZE
@@ -57,7 +59,7 @@ const BENEFICIARY_2_ID_PREFIX = STORAGE_BENEFICIARY_WORD + 3  # default empty
 const ERR_UNEXPECTED_NUMBER_OF_STORAGE_ITEMS = "unexpected number of storage items"
 
 ### SETTERS
-proc store_storage_to_memory(expected_num_storage_items: u16) -> felt
+proc store_storage_to_memory(expected_num_storage_items: u16)
     push.STORAGE_POINTER exec.active_note::get_storage
     # => [num_storage_items, storage_ptr, expected_num_storage_items]
     # make sure the number of storage items is equal to the expected number of storage items
@@ -95,6 +97,28 @@ proc get_beneficiary_id() -> AccountId
     mem_load.BENEFICIARY_ID_PREFIX
     mem_load.BENEFICIARY_ID_SUFFIX
 end
+
+
+#########  ACTIVE ACCOUNT UTILS  #########
+
+#! Library: (Active) Account Utils
+#! Inputs:  [AccountID]
+#! Outputs: [bool]
+#!
+#! Panics if:
+#! - the account_id is not valid.
+
+proc is_active_account(account_id: AccountId) -> bool
+    exec.active_account::get_id
+    exec.account_id::is_equal
+end
+
+proc is_active_account_beneficiary() -> bool
+    exec.active_account::get_id
+    exec.get_beneficiary_id
+    exec.account_id::is_equal
+end
+
 
 
 

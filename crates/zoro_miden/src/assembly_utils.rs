@@ -85,6 +85,17 @@ pub fn link_note_respawn_lib(code_builder: CodeBuilder) -> Result<CodeBuilder> {
     Ok(code_builder)
 }
 
+pub fn link_note_reclaim_lib(code_builder: CodeBuilder) -> Result<CodeBuilder> {
+    let mut code_builder = code_builder.clone();
+    let note_reclaim_lib_code = read_masm_file(&["notes", "lib", "reclaim.masm"])?;
+    code_builder.link_module("zoro_miden::note::reclaim", &note_reclaim_lib_code)?;
+    Ok(code_builder)
+}
+
+pub fn link_all_note_libraries(code_builder: CodeBuilder) -> Result<CodeBuilder> {
+    link_note_common_lib(link_note_respawn_lib(link_note_reclaim_lib(code_builder)?)?)
+}
+
 pub fn link_all_libraries(code_builder: CodeBuilder) -> Result<CodeBuilder> {
-    link_note_common_lib(link_note_respawn_lib(link_zoropool(code_builder)?)?)
+    link_all_note_libraries(link_zoropool(code_builder)?)
 }

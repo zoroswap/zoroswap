@@ -68,7 +68,7 @@ async fn note_arguments_unit_test() -> Result<()> {
                 exec.common::get_pool_0_liabilities push.{liabilities_0} assert_eq.err=ERR_G_LIABILITIES_0\n\
                 exec.common::get_pool_0_reserve push.{reserve_0} assert_eq.err=ERR_G_RESERVE_0\n\
                 exec.common::get_pool_0_reserve_with_slippage push.{reserve_with_slippage_0} assert_eq.err=ERR_G_RESERVE_WS_0\n\
-                padw exec.common::get_pool_0_state push.{liabilities_0} debug.stack.4 assert_eq.err=ERR_G_POOL_0_STATE\n\
+                padw exec.common::get_pool_0_state push.{liabilities_0} assert_eq.err=ERR_G_POOL_0_STATE\n\
                 push.{reserve_0} assert_eq.err=ERR_G_POOL_0_STATE\n\
                 push.{reserve_with_slippage_0} assert_eq.err=ERR_G_POOL_0_STATE\n\
             end"
@@ -332,7 +332,6 @@ async fn note_storage_default_unit_test() -> Result<()> {
              const ERR_G_METADATA_ITEM_3 = \"Issue with expected metadata item 3 getter\"\n\
              \n\
              \n\
-             \n\
              @note_script\n\
              pub proc main\n\
                  push.DEFAULT_NUMBER_OF_STORAGE_ITEMS exec.common::store_storage_to_memory\n\
@@ -544,8 +543,6 @@ async fn respwawn_simple_unit_test() -> Result<()> {
         use common::DEFAULT_NUMBER_OF_STORAGE_ITEMS\n\
         use common::STORAGE_POINTER\n\
         \n\
-        #const ERR_ASSET = \"Issue with asset in note storage\"\n\
-        \n\
         @note_script\n\
         pub proc main\n\
             exec.respawn::get_note_type_and_tag_from_active_note
@@ -630,6 +627,157 @@ async fn respwawn_simple_unit_test() -> Result<()> {
 
     assert_eq!(user_balance0_after_sent, user_balance0_at_start - amount0);
     assert_eq!(user_balance1_after_sent, user_balance1_at_start - amount1);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn respwawn_reclaim_simple_unit_test() -> Result<()> {
+    let mut test_utils = TestUtils::from_cache().await?;
+    let faucets = test_utils.get_faucets(2).await?;
+    let faucet0 = faucets.first().unwrap();
+    let faucet1 = faucets.last().unwrap();
+
+    let amount0 = 10_000;
+    let amount1 = 20_000;
+    let user = test_utils
+        .get_funded_accounts(
+            1,
+            vec![
+                (*faucet0.miden_account.id(), amount0, amount0 * 10),
+                (*faucet1.miden_account.id(), amount1, amount1 * 50),
+            ],
+        )
+        .await?;
+    let mut user = user.first().unwrap().clone();
+    let user_id = *user.miden_account.id();
+
+    let user_balance0_at_start = user
+        .miden_account
+        .get_balance(faucet0.miden_account.id())
+        .await?;
+    let user_balance1_at_start = user
+        .miden_account
+        .get_balance(faucet1.miden_account.id())
+        .await?;
+
+    let assets = NoteAssets::new(vec![
+        FungibleAsset::new(*faucet0.miden_account.id(), amount0)?.into(),
+        FungibleAsset::new(*faucet1.miden_account.id(), amount1)?.into(),
+    ])?;
+
+    //@todo write a base test note with all generic imports
+    let respawn_test_note_code = format!(
+        "use zoro_miden::note::common\n\
+        use zoro_miden::note::respawn\n\
+        use zoro_miden::note::reclaim\n\
+        use common::ARGUMENTS_WORD_0\n\
+        use common::DEFAULT_NUMBER_OF_STORAGE_ITEMS\n\
+        \n\
+        @note_script\n\
+        pub proc main\n\
+            exec.common::store_arguments_from_stack_to_memory
+            push.DEFAULT_NUMBER_OF_STORAGE_ITEMS exec.common::store_storage_to_memory
+            mem_load.ARGUMENTS_WORD_0 neq.0
+            if.true 
+                exec.reclaim::reclaim_note
+            else
+                exec.respawn::get_note_type_and_tag_from_active_note
+                # => [note_type, tag]
+                exec.common::store_all_active_note_storage_items_to_output_storage_memory swap drop
+                # => [num_storage_items, note_type, tag]
+                exec.common::store_all_active_note_assets_to_output_assets_memory swap drop
+                # => [num_assets, num_storage_items, note_type, tag]
+                exec.respawn::recreate_note
+                # => [note_idx]
+                drop
+            end
+        end",
+    );
+    let code_builder =
+        link_all_libraries(test_utils.miden_client().client().code_builder().clone())?;
+    let respawn_test_note_script = code_builder.compile_note_script(respawn_test_note_code)?;
+
+    let serial_number = TrustedNote::random_word()?;
+
+    let note_storage = NoteStorageBuilder::new(user_id).build()?;
+
+    let recipient = NoteRecipient::new(
+        serial_number,
+        respawn_test_note_script.clone(),
+        note_storage.clone(),
+    );
+
+    let metadata = NoteMetadata::new(user_id, NoteType::Public);
+    let respawn_note = Note::new(assets.clone(), metadata, recipient.clone());
+
+    test_utils
+        .miden_client_mut()
+        .send_note_untrusted(&user_id, respawn_note.clone())
+        .await?;
+
+    let new_serial_number: Word = [
+        serial_number[0],
+        serial_number[1],
+        serial_number[2],
+        serial_number[3] + Felt::new(1),
+    ]
+    .into();
+    let respawned_recipient =
+        NoteRecipient::new(new_serial_number, respawn_test_note_script, note_storage);
+
+    let metadata = NoteMetadata::new(user_id, NoteType::Public);
+    let respawned_note = Note::new(assets, metadata, respawned_recipient.clone());
+
+    // consume as unauthenticated note @note move consumption into client (or test utils) with args/advice map
+    let transaction_request = TransactionRequestBuilder::new()
+        .input_notes(vec![(respawn_note.clone(), None)])
+        .expected_output_recipients(vec![respawned_recipient.clone()])
+        .build()?;
+    let tx_id = test_utils
+        .miden_client_mut()
+        .client_mut()
+        .submit_new_transaction(user.miden_account.id().clone(), transaction_request)
+        .await?;
+
+    let user_balance0_after_sent = user
+        .miden_account
+        .get_balance(faucet0.miden_account.id())
+        .await?;
+    let user_balance1_after_sent = user
+        .miden_account
+        .get_balance(faucet1.miden_account.id())
+        .await?;
+
+    assert_eq!(user_balance0_after_sent, user_balance0_at_start - amount0);
+    assert_eq!(user_balance1_after_sent, user_balance1_at_start - amount1);
+
+    let reclaim_transaction_request = TransactionRequestBuilder::new()
+        .input_notes(vec![(
+            respawned_note.clone(),
+            Some([Felt::new(1), Felt::ZERO, Felt::ZERO, Felt::ZERO].into()),
+        )])
+        .build()?;
+    let tx_id = test_utils
+        .miden_client_mut()
+        .client_mut()
+        .submit_new_transaction(user.miden_account.id().clone(), reclaim_transaction_request)
+        .await?;
+
+    tokio::time::sleep(Duration::from_millis(4100)).await;
+    test_utils.miden_client_mut().sync_state().await?;
+
+    let user_balance0_after_reclaim = user
+        .miden_account
+        .get_balance(faucet0.miden_account.id())
+        .await?;
+    let user_balance1_after_reclaim = user
+        .miden_account
+        .get_balance(faucet1.miden_account.id())
+        .await?;
+
+    assert_eq!(user_balance0_after_reclaim, user_balance0_at_start);
+    assert_eq!(user_balance1_after_reclaim, user_balance1_at_start);
 
     Ok(())
 }

@@ -11,6 +11,8 @@ use miden::standards::wallets::basic->basic_wallet
 use miden::core::sys
 
 use zoro_miden::note::common
+use zoro_miden::note::respawn
+use zoro_miden::note::reclaim
 
 use common::AccountId
 use common::bool
@@ -18,6 +20,7 @@ use common::DEFAULT_NUMBER_OF_STORAGE_ITEMS
 use common::STORAGE_POINTER
 use common::INPUT_ASSETS_POINTER
 use common::OUTPUT_NOTE_ASSETS_START
+const FREE_MEMORY_POINTER = 4000#use common::FREE_MEMORY_POINTER
 
 
 
@@ -45,7 +48,6 @@ const BUY_TOKEN_PREVIOUSLY_IN_THE_NOTE = BUY_ASSET_END + 17 #: bool
 # ERRORS
 # =================================================================================================
 
-const ERR_ZTD_RECLAIM_ACCT_IS_NOT_SENDER="failed to reclaim ZTD note because the reclaiming account is not the sender"
 
 const ERR_ZTD_RECLAIM_NOT_INITIATED="failed to reclaim ZTD note because the reclaim has not been initiated"
 
@@ -58,11 +60,11 @@ const NUMBER_OF_STORAGE_ITEMS = DEFAULT_NUMBER_OF_STORAGE_ITEMS
 # SETTERS
 # =================================================================================================
 proc set_sell_asset(key: word)
-    mem_storew_be.SELL_ASSET_KEY
+    mem_storew_be.SELL_ASSET_POINTER
 end
 
 proc set_buy_asset(key: word)
-    mem_storew_be.BUY_ASSET_KEY
+    mem_storew_be.BUY_ASSET_POINTER
 end
 
 
@@ -70,36 +72,6 @@ end
 # =================================================================================================
 
 
-#! Helper procedure which adds the note assets to the sender account.
-#!
-#! Checks if ZTD reclaim is enabled and if true, if reclaim height has been reached.
-#!
-#! Inputs:  []
-#! Outputs: []
-#!
-#! Panics if:
-#! - the reclaim of the active note is disabled.
-#! - the reclaim block height is not reached yet.
-#! - the account attempting to reclaim the note is not the sender account.
-proc reclaim_note()
-    exec.common::get_beneficiary_id
-    # => [creator_account_id_suffix, creator_account_id_prefix]
-
-    # ensure active account ID = sender account ID
-    exec.is_active_account_beneficiary assert.err=ERR_ZTD_RECLAIM_ACCT_IS_NOT_SENDER
-    # => []
-    exec.has_reclaim_been_initiated assert.err=ERR_ZTD_RECLAIM_NOT_INITIATED
-    ## check if reclaim is initiat4ed
-
-    # add note assets to account
-    exec.basic_wallet::add_assets_to_account
-    # => []
-end
-
-
-proc get_beneficiary_id() -> (AccountId)
-    nop
-end
 
 
 #! Helper procedure which ensures the validity of passed arguments
@@ -226,7 +198,8 @@ pub proc main
 
     else
         # checks if active account is sender and if reclaim is enabled
-        exec.reclaim_note
+        exec.has_reclaim_been_initiated assert.err=ERR_ZTD_RECLAIM_NOT_INITIATED
+        exec.reclaim::reclaim_note
         # => []
     end
 
@@ -235,24 +208,6 @@ end
 
 
 
-
-# LIBRARY CODE
-# To be factored out into one or more libraries.
-# =================================================================================================
-
-#########  ACTIVE ACCOUNT UTILS  #########
-
-#! Library: (Active) Account Utils
-#! Inputs:  [AccountID]
-#! Outputs: [bool]
-#!
-#! Panics if:
-#! - the account_id is not valid.
-
-proc is_active_account_beneficiary(account_id: AccountId) -> bool
-    exec.active_account::get_id
-    exec.account_id::is_equal
-end
 
 
 
