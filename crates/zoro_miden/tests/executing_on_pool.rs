@@ -39,6 +39,7 @@ async fn executing_deposit() -> Result<()> {
         .miden_account
         .get_balance(&pool_config.faucet_id)
         .await?;
+
     let pool_balances_before = *zoro_pool.pool_states().get(&pool_config.faucet_id).unwrap();
 
     let deposit_note = TrustedNote::new(
@@ -147,7 +148,7 @@ async fn executing_swap() -> Result<()> {
     let decimals_scaling_factor =
         get_decimals_scaling_factor(pool_config_token0.decimals, pool_config_token1.decimals);
     info!("--- Decimals scaling factor: {}", decimals_scaling_factor);
-    let amount = 10_000_000;
+    let amount = 100_000;
     let min_amount_out = (amount as f64 * decimals_scaling_factor) as u64 / 2;
 
     let user = test_utils
@@ -206,7 +207,7 @@ async fn executing_swap() -> Result<()> {
     info!("--- User claim executed");
 
     // wait for one block
-    tokio::time::sleep(Duration::from_millis(2100)).await;
+    tokio::time::sleep(Duration::from_millis(4100)).await;
 
     let user_balance_after_0 = user
         .miden_account
@@ -297,23 +298,30 @@ async fn executing_swap() -> Result<()> {
 #[tokio::test]
 async fn executing_deposit_withdraw() -> Result<()> {
     let mut test_utils = TestUtils::from_cache().await?;
+    info!(
+        "--- \n\nExecuting deposit and then withdraw and checking if the values for balances and pool states are correct.\n"
+    );
     let PoolWithMeta {
         zoro_pool,
         test_pool,
-    } = &mut test_utils.get_funded_pools(1).await?[..][0];
+    } = &mut test_utils.get_initialized_pools(1).await?[..][0];
     info!("--- Pool ready");
     let pool_config = test_pool.pool_configs[..][0];
-    let amount = 10_000;
+    let amount = 100_000;
+    let faucet_id = pool_config.faucet_id;
     let mut user = test_utils
-        .get_funded_accounts(1, vec![(pool_config.faucet_id, amount, amount * 10)])
+        .get_funded_accounts(1, vec![(faucet_id, amount, amount * 30)])
         .await?
         .first()
-        .unwrap()
-        .clone();
+        .cloned()
+        .unwrap();
     info!("--- User ready");
     let user_id = *user.miden_account.id();
     let mut prices: HashMap<AccountId, PriceData> = HashMap::with_capacity(2);
     prices.insert(pool_config.faucet_id, PriceData::new_at_now(1));
+
+    info!("Using faucet id: {:?}", pool_config.faucet_id);
+    info!("Using user id: {:?}", user_id);
 
     let user_balance_before = user
         .miden_account
@@ -412,7 +420,7 @@ async fn executing_deposit_withdraw() -> Result<()> {
     info!("--- User claim executed");
 
     // wait for one block
-    tokio::time::sleep(Duration::from_millis(2100)).await;
+    tokio::time::sleep(Duration::from_millis(4100)).await;
 
     let user_balance_after_withdraw = user
         .miden_account

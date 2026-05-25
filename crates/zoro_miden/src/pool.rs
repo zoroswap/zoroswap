@@ -18,17 +18,19 @@ use miden_client::{
     keystore::{FilesystemKeyStore, Keystore},
     note::{Note, NoteDetails, NoteId, NoteRecipient, NoteTag},
     rpc::Endpoint,
-    transaction::{TransactionArgs, TransactionRequest, TransactionRequestBuilder},
+    transaction::{TransactionRequest, TransactionRequestBuilder},
     vm::AdviceMap,
 };
-use miden_tx::NoteConsumptionInfo;
 use rand::RngCore;
 use tokio::time::sleep;
-use tracing::{error, info, warn};
+use tracing::{error, info};
 
 use crate::{
     account::MidenAccount,
-    assembly_utils::{link_asset_utils, link_storage_utils, read_masm_file},
+    assembly_utils::{
+        link_asset_utils, link_note_common_lib, link_output_note_utils_lib, link_storage_utils,
+        read_masm_file,
+    },
     client::MidenClient,
     note::TrustedNote,
     pool_execution::{ExecutionResult, PoolExecution},
@@ -177,6 +179,8 @@ impl ZoroPool {
 
         let code_builder = link_asset_utils(miden_client.client_mut().code_builder())?;
         let code_builder = link_storage_utils(code_builder)?;
+        let code_builder = link_note_common_lib(code_builder)?;
+        let code_builder = link_output_note_utils_lib(code_builder)?;
         let pool_library = code_builder.compile_component_code("zoroswap::zoropool", &pool_code)?;
         let pool_metadata = AccountComponentMetadata::new("zoroswap::zoropool", AccountType::all());
 
@@ -239,6 +243,7 @@ impl ZoroPool {
             .await?;
         miden_client.sync_state().await?;
         let init_tx = TransactionRequestBuilder::new().build()?;
+
         miden_client
             .client_mut()
             .submit_new_transaction(pool_contract.id(), init_tx)
@@ -376,13 +381,18 @@ impl ZoroPool {
             batch_execution_details.expected_output_recipients.len(),
         );
         let new_pool_states = batch_execution_details.new_pool_states.clone();
+        let tx_request: TransactionRequest = batch_execution_details.try_into()?;
+        let tx_result = self
+            .miden_client
+            .client_mut()
+            .execute_transaction(*self.miden_account.id(), tx_request.clone())
+            .await?;
+        info!("Tx result: {:?}", tx_result.account_delta().storage());
+
         let tx_id = self
             .miden_client
             .client_mut()
-            .submit_new_transaction(
-                *self.miden_account.id(),
-                batch_execution_details.try_into()?,
-            )
+            .submit_new_transaction(*self.miden_account.id(), tx_request)
             .await
             .inspect_err(|e| {
                 error!(

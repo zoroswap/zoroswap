@@ -1,4 +1,4 @@
-use std::{collections::HashMap, path::PathBuf};
+use std::{collections::HashMap, path::PathBuf, time::Duration};
 
 use anyhow::{Result, anyhow};
 use chrono::Utc;
@@ -341,6 +341,11 @@ impl TestUtils {
         let mut accounts = self.get_accounts(n).await?;
         for acc in accounts.iter_mut() {
             for (faucet_id, min_amount, mint_amount) in &desired_minimal_amounts {
+                let balance = acc.miden_account.get_balance(faucet_id).await?;
+                info!(
+                    "Preparing account {} with balance: {balance}",
+                    acc.miden_account.id().to_hex()
+                );
                 if acc.miden_account.get_balance(faucet_id).await? < *min_amount {
                     info!(
                         "[get_funded_accounts] minting for acc {}",
@@ -353,9 +358,13 @@ impl TestUtils {
                         "[get_funded_accounts] minted {mint_amount} for acc {}",
                         acc.miden_account.id().to_hex()
                     );
+                } else {
+                    info!("Skipping funding the account. Account has more than {min_amount}");
                 }
             }
         }
+        // Wait so it gets recognized on the node
+        tokio::time::sleep(Duration::from_millis(3100)).await;
         info!("Funded accounts ready.");
         Ok(accounts.to_vec())
     }
@@ -397,6 +406,7 @@ impl TestUtils {
         let mut pools = self.get_pools(n).await?;
         let mut res = Vec::new();
         for pool in pools.iter_mut() {
+            info!("Creating a new pool ...");
             let mut zoro_pool = ZoroPool::new_from_existing_pool(
                 self.miden_endpoint(),
                 &self.miden_client().keystore_dir(),
@@ -405,6 +415,13 @@ impl TestUtils {
                 pool.pool_configs.clone(),
             )
             .await?;
+            info!(
+                pool_id = zoro_pool
+                    .miden_account()
+                    .id()
+                    .to_bech32(self.miden_endpoint.to_network_id()),
+                "New pool created"
+            );
             for (liq_config, test_faucet) in pool.pool_configs.iter().zip(&pool.faucets) {
                 if zoro_pool
                     .pool_states()
@@ -415,16 +432,18 @@ impl TestUtils {
                     .eq(&0)
                 {
                     info!("Initial deposit to pool");
-                    let mint_amount = test_faucet.meta.max_supply / 10;
+                    // let mint_amount = test_faucet.meta.max_supply / 10;
+                    let mint_amount = 200000000;
                     let acc = &self
                         .get_funded_accounts(
-                            n,
+                            1,
                             vec![(liq_config.faucet_id, mint_amount, mint_amount)],
                         )
                         .await?[..][0];
                     self.miden_client_mut()
                         .mint_asset(liq_config.faucet_id, *acc.miden_account.id(), mint_amount)
                         .await?;
+                    info!("Creating a deposit note");
                     let deposit_note = TrustedNote::new(
                         NoteInstructions::Deposit(DepositInstructions {
                             asset_in: FungibleAsset::new(liq_config.faucet_id, mint_amount)?,
@@ -455,6 +474,7 @@ impl TestUtils {
                 test_pool: pool.clone(),
             });
         }
+        info!("Funded pools ready.");
         Ok(res)
     }
     pub fn miden_endpoint(&self) -> Endpoint {

@@ -13,10 +13,6 @@ pub type bool = i1
 
 ###  TYPES END
 
-
-
-
-
 ################################### NOTE STORAGE LIBRARY ##########################################
 # =================================================================================================
 
@@ -156,13 +152,11 @@ end
 
 proc store_arguments_from_advicemap_to_memory
     exec.active_note::get_serial_number
-
     adv.push_mapval
     swap.3 drop push.ARGUMENTS_POINTER 
     padw padw padw
     adv_pipe
-
-    dropw swapw dropw swapw dropw
+    dropw swapw dropw swapw dropw dropw
 end
 
 proc has_arguments_from_advicemap() -> bool
@@ -216,7 +210,6 @@ end
 ###################################### NOTE ASSETS LIBRARY ##########################################
 # =================================================================================================
 
-
 const ERR_WRONG_NUMBER_OF_ASSETS="unexpected number of note assets"
 
 const INPUT_ASSETS_POINTER = ARGUMENTS_END + 17
@@ -262,7 +255,13 @@ proc get_input_asset_value
    padw mem_loadw_le.INPUT_ASSET_VALUE
 end
 
+proc get_input_asset_key_le
+   padw mem_loadw_le.INPUT_ASSET_KEY
+end
 
+proc get_input_asset_value_le 
+   padw mem_loadw_le.INPUT_ASSET_VALUE
+end
 
 
 ################################### OUTPUT NOTE LIBRARY ##########################################
@@ -291,11 +290,11 @@ const OUTPUT_NOTE_ASSETS_END = OUTPUT_NOTE_ASSETS_START + 255
 
 const OUTPUT_ASSET_KEY = OUTPUT_NOTE_ASSETS_START + 4
 const OUTPUT_ASSET_VALUE = OUTPUT_ASSET_KEY + 4
-const OUTPUT_ASSET_END = OUTPUT_ASSET_VALUE + 3
+const OUTPUT_ASSET_END = OUTPUT_ASSET_VALUE + 4
 
 proc set_output_asset(key: word, value: word)
     # => [ASSET_KEY, ASSET_VALUE]
-    mem_storew_be.OUTPUT_ASSET_KEY mem_storew_be.OUTPUT_ASSET_VALUE
+    mem_storew_be.OUTPUT_ASSET_KEY dropw mem_storew_be.OUTPUT_ASSET_VALUE dropw
     # => []
 end
 
@@ -329,7 +328,7 @@ end
 #!
 proc set_beneficiary_as_output_note_target
     exec.get_beneficiary_id
-    # [prefix, suffix]
+    # [suffix, prefix]
     mem_store.OUTPUT_ASSET_TARGET_PREFIX mem_store.OUTPUT_ASSET_TARGET_SUFFIX
     # []
 end
@@ -342,7 +341,7 @@ end
 proc set_sender_as_output_note_target
     exec.active_note::get_sender
     # [prefix, suffix]
-    mem_store.OUTPUT_ASSET_TARGET_PREFIX mem_store.OUTPUT_ASSET_TARGET_SUFFIX
+    mem_store.OUTPUT_ASSET_TARGET_PREFIX drop mem_store.OUTPUT_ASSET_TARGET_SUFFIX drop
     # []
 end
 

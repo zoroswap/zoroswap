@@ -111,6 +111,10 @@ impl PoolExecution {
                     .ok_or(anyhow!(
                         "Trying to execute withdrawal for an unknown asset."
                     ))?;
+                info!(
+                   amount_out=?pool_state.get_withdraw_asset_amount_out(U256::from(instructions.lp_amount_in)),
+                    "amount_out"
+                );
                 if !past_deadline
                     && let Ok((amount_out, new_lp_total_supply, new_pool_balances)) = pool_state
                         .get_withdraw_asset_amount_out(U256::from(instructions.lp_amount_in))
@@ -123,6 +127,7 @@ impl PoolExecution {
                     )?;
                     pool_state.update_state(new_pool_balances, new_lp_total_supply);
                     new_pool_states.insert(instructions.min_asset_out.faucet_id(), pool_state);
+                    info!(amount_out=?amount_out, "amount_out");
                     Ok((
                         ExecutionResult::WithdrawSuccess(amount_out.to::<u64>()),
                         PoolExecution {
@@ -241,6 +246,7 @@ impl PoolExecution {
                 );
 
                 let advice_map_value = vec![
+                    Felt::new(amount_out),
                     Felt::new(
                         pool_state_base
                             .balances()
@@ -254,7 +260,7 @@ impl PoolExecution {
                             .reserve_with_slippage
                             .saturating_to::<u64>(),
                     ),
-                    Felt::new(amount_out),
+                    Felt::ZERO,
                     Felt::new(
                         pool_state_quote
                             .balances()
@@ -268,7 +274,6 @@ impl PoolExecution {
                             .reserve_with_slippage
                             .saturating_to::<u64>(),
                     ),
-                    Felt::new(0),
                 ];
 
                 Ok((
