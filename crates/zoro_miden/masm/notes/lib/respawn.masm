@@ -1,5 +1,6 @@
 use miden::protocol::active_account
 use miden::protocol::account_id
+use miden::protocol::note
 use miden::protocol::active_note
 use miden::protocol::output_note
 use miden::protocol::tx
@@ -47,11 +48,11 @@ proc recreate_note(number_of_assets: u16, number_of_storage_items: felt, note_ty
     # => [s0, s1, s2, s3+1, SCRIPT_ROOT, note_type, tag]
 
     # Build recipient from all note storage items (now with updated requested amount)
-    push.NUMBER_OF_STORAGE_ITEMS push.STORAGE_POINTER
+    loc_load.NUMBER_OF_STORAGE_ITEMS_LOCAL push.STORAGE_POINTER
     # => [storage_ptr, num_storage_items, SERIAL_NUM', SCRIPT_ROOT, note_type, tag]
 
     ### will be renamed to in next release exec.note::compute_and_store_recipient
-    exec.common::build_recipient
+    exec.note::build_recipient
     # => [RECIPIENT, note_type, tag]
 
     movup.4 movup.5
@@ -123,39 +124,22 @@ end
 
 
 
-# @todo remove after making it' snot needed anymore
-const ASSET_KEY_LOCAL = 0
-const ASSET_VALUE_LOCAL = 4
-const NOTE_IDX_LOCAL = 9
-@locals(9)
-proc add_asset_to_recreated_note(note_idx: u16, asset_key: word, asset_value: word)
-    loc_store.NOTE_IDX_LOCAL loc_storew_be.ASSET_KEY_LOCAL swapw loc_storew_be.ASSET_VALUE_LOCAL swapw
-    # => [ASSET_KEY, ASSET_VALUE]
-    ### check if asset is buy asset
-    exec.asset_utils::compress_asset padw mem_loadw_le.BUY_ASSET_POINTER exec.asset_utils::is_asset_the_same_c
-    if.true 
-        # substract buy amount from buy asset
-        padw loc_loadw_be.ASSET_VALUE_LOCAL mem_load.SELL_ASSET_VALUE_POINTER add
-        # => [NEW_BUY_ASSET_VALUE]
-        padw loc_loadw_be.ASSET_KEY_LOCAL
-         # => [BUY_ASSET_KEY, NEW_BUY_ASSET_VALUE]
-        loc_load.NOTE_IDX_LOCAL exec.output_note::add_asset
-        push.1 mem_store.BUY_TOKEN_PREVIOUSLY_IN_THE_NOTE
-    else
-        ### check if asset is sell asset
-        padw loc_loadw_be.ASSET_VALUE_LOCAL padw loc_loadw_be.ASSET_KEY_LOCAL exec.asset_utils::compress_asset
-        padw mem_loadw_le.SELL_ASSET_POINTER exec.asset_utils::is_token_the_same
-        if.true
-            # add buy amount to buy asset
-            padw loc_loadw_be.ASSET_VALUE_LOCAL mem_load.SELL_ASSET_VALUE_POINTER add
-            # => [NEW_SELL_ASSET_VALUE]
-            padw loc_loadw_be.ASSET_KEY_LOCAL
-            # => [SELL_ASSET_KEY, NEW_SELL_ASSET_VALUE]
-            loc_load.NOTE_IDX_LOCAL exec.output_note::add_asset
-        else
-            # add asset to note
-            padw loc_loadw_be.ASSET_VALUE_LOCAL padw loc_loadw_be.ASSET_KEY_LOCAL
-            loc_load.NOTE_IDX_LOCAL exec.output_note::add_asset
-        end
 
+proc get_note_type_and_tag_from_active_note() -> (u16, felt)
+    exec.active_note::get_metadata dupw
+    # => [METADATA, METADATA]
+    #exec.note::metadata_into_tag movdn.4
+#pub proc metadata_into_tag
+    drop drop swap drop
+    # => [tag_element]
+    # extract the lower 32 bits as the tag
+    u32split swap drop
+    # => [tag, METADATA]
+    movdn.4
+    # => [METADATA, tag]
+    #exec.note::metadata_into_note_type
+    # @todo use proc above in v15. now it will always be public
+    dropw push.1
+    # => [note_type, tag]
+    exec.sys::truncate_stack
 end

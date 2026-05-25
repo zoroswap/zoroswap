@@ -246,7 +246,7 @@ end
 
 const OUTPUT_NOTE_START = INPUT_ASSETS_END + 17
 
-const OUTPUT_NOTE_INPUTS_START = OUTPUT_NOTE_START
+const OUTPUT_NOTE_STORAGE_START = OUTPUT_NOTE_START
 ## reminder MAX_NUMBER_OF_STORAGE_WORDS  = 16
 const OUTPUT_NOTE_STORAGE_ALLOCATION = MAX_NUMBER_OF_STORAGE_WORDS * 4 # 64
 const OUTPUT_NOTE_STORAGE_END = OUTPUT_NOTE_STORAGE_START + ( OUTPUT_NOTE_STORAGE_ALLOCATION - 1) # + 63
@@ -334,9 +334,16 @@ proc store_all_active_note_assets_to_output_assets_memory() -> (felt, felt)
     exec.sys::truncate_stack
 end
 
+proc store_all_active_note_storage_items_to_output_storage_memory() -> (felt, felt)
+    push.OUTPUT_NOTE_STORAGE_START exec.active_note::get_storage
+    # => [num_storage_items, storage_ptr]
+    exec.sys::truncate_stack
+end
+
+
 
 
 ########################################### CONSTANTS #############################################
 # =================================================================================================
 
-const FREE_MEMORY_POINTER = OUTPUT_ASSETS_END + 129
+const FREE_MEMORY_POINTER = OUTPUT_NOTE_ASSETS_END + 129
