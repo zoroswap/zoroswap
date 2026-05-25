@@ -139,14 +139,91 @@ proc execute_swap
     # => [note_idx]
 end
 
-
+@locals(11)
+const ASSET_END_POINTER_LOCAL = 0
+const LOOP_POINTER_0_LOCAL = 1
+const CURRENT_ASSET_KEY_LOCAL = 2
+const CURRENT_ASSET_VALUE_LOCAL = 6
+const IS_BUY_ASSET_IN_THE_OLD_NOTE_LOCAL = 11
 proc prepare_assets_for_recreation_of_the_note() -> (felt)
     exec.common::store_all_active_note_assets_to_output_assets_memory
     # => [num_assets, assets_ptr]
-    # @todo update sell and buy assets in memory
-    swap drop
-    # => [num_assets]
-    ### fix buy and sell asset amounts
+    ### update sell and buy assets in memory
+    mul.ASSET_SIZE
+    # => [assets_allocation_size, assets_ptr]
+    dup.1 add
+    # => [end_ptr, assets_ptr]
+    # loop if the amount of assets is non-zero
+    loc_store.ASSET_END_POINTER_LOCAL dup loc_store.LOOP_POINTER_0_LOCAL
+    # =>  [ptr]
+    ### iterate over all output assets to find sell and buy assets
+    lt
+    # => [should_loop]
+    while.true
+        # => []
+        #  pad the stack andload the pointer
+        padw padw loc_load.LOOP_POINTER_0_LOCAL
+        # => [ptr, pad(8)]
+        # load the asset value
+        add.ASSET_VALUE_MEMORY_OFFSET mem_loadw_le swapw
+         # => [EMPTY_WORD, ASSET_VALUE]
+        loc_load.LOOP_POINTER_0_LOCAL mem_loadw_le
+        # => [ASSET_KEY, ASSET_VALUE]
+        loc_storew_le.CURRENT_ASSET_KEY_LOCAL swapw loc_storew_le.CURRENT_ASSET_VALUE_LOCAL swapw
+        # => [ASSET_KEY, ASSET_VALUE]
+        ### is sell asset?
+        exec.asset_utils::compress_asset
+        # => [ASSET]
+        padw mem_loadw_le.SELL_ASSET_POINTER
+        # => [ASSET, SELL_ASSET_POINTER]
+        exec.asset_utils::is_asset_the_same_c
+        # => [is_same]
+        if.true ### updateing sell asset amount
+            padw loc_loadw_le.CURRENT_ASSET_VALUE_LOCAL
+            mem_load.SELL_ASSET_AMOUNT_POINTER
+            # => [sold_amount, OLD_VALUE]
+            # @todo consider safe sub
+            sub
+            # => [NEW_VLUE]
+            loc_load.LOOP_POINTER_0_LOCAL add.ASSET_VALUE_MEMORY_OFFSET
+            # => [sell_asset_value_output_memory_pointer, NEW_VALUE]
+            mem_storew_le
+            # => []
+        else 
+            nop
+        end
+        ### is buy asset?
+        padw loc_loadw_le.CURRENT_ASSET_VALUE_LOCAL padw loc_loadw_le.CURRENT_ASSET_KEY_LOCAL exec.asset_utils::compress_asset
+        # => [ASSET]
+        padw mem_loadw_le.BUY_ASSET_POINTER
+        # => [ASSET, BUY_ASSET_POINTER]
+        exec.asset_utils::is_asset_the_same_c
+        # => [is_same]
+        if.true ### updating buy asset amount
+            padw loc_loadw_le.CURRENT_ASSET_VALUE_LOCAL
+            mem_load.BUY_ASSET_AMOUNT_POINTER
+            # => [bought_amount, OLD_VALUE]
+            # @todo consider safe add
+            add
+            # => [NEW_VALUE]
+            loc_load.LOOP_POINTER_0_LOCAL add.ASSET_VALUE_MEMORY_OFFSET
+            # => [buy_asset_value_output_memory_pointer, NEW_VALUE]
+            mem_storew_le
+            # => []
+            push.1 loc_storew_le.IS_BUY_ASSET_IN_THE_OLD_NOTE_LOCAL
+        else
+            nop
+        end
+    end
+
+    # add buy asset to note if it's not in the old note
+    loc_load.IS_BUY_ASSET_IN_THE_OLD_NOTE_LOCAL not 
+    # => [is_buy_asset_new]
+    if.true
+        padw mem_loadw_le.BUY_ASSET_POINTER exec.asset_utils::expand_asset exec.output_note::add_asset
+    else
+        nop
+    end
 end
 
 #! Extended Pay-to-ID note script (Reclaimable & Timelockable)
@@ -184,7 +261,13 @@ end
 pub proc main
     push.DEFAULT_NUMBER_OF_STORAGE_ITEMS exec.common::store_storage_to_memory
     exec.common::store_all_assets_to_memory
-    
+
+    exec.common::has_arguments_from_advicemap
+    if.true
+        exec.common::store_arguments_from_advicemap_to_memory
+    else
+        nop
+    end
 
     #exec.store_args_to_memory
 
