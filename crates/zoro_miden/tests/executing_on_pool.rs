@@ -304,16 +304,17 @@ async fn executing_deposit_withdraw() -> Result<()> {
     let PoolWithMeta {
         zoro_pool,
         test_pool,
-    } = &mut test_utils.get_funded_pools(1).await?[..][0];
+    } = &mut test_utils.get_initialized_pools(1).await?[..][0];
     info!("--- Pool ready");
     let pool_config = test_pool.pool_configs[..][0];
     let amount = 10_000;
+    let faucet_id = pool_config.faucet_id;
     let mut user = test_utils
-        .get_funded_accounts(1, vec![(pool_config.faucet_id, amount, amount * 10)])
+        .get_funded_accounts(1, vec![(faucet_id, amount, amount)])
         .await?
         .first()
-        .unwrap()
-        .clone();
+        .cloned()
+        .unwrap();
     info!("--- User ready");
     let user_id = *user.miden_account.id();
     let mut prices: HashMap<AccountId, PriceData> = HashMap::with_capacity(2);
