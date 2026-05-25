@@ -148,7 +148,7 @@ async fn executing_swap() -> Result<()> {
     let decimals_scaling_factor =
         get_decimals_scaling_factor(pool_config_token0.decimals, pool_config_token1.decimals);
     info!("--- Decimals scaling factor: {}", decimals_scaling_factor);
-    let amount = 10_000_000;
+    let amount = 100_000;
     let min_amount_out = (amount as f64 * decimals_scaling_factor) as u64 / 2;
 
     let user = test_utils
@@ -207,7 +207,7 @@ async fn executing_swap() -> Result<()> {
     info!("--- User claim executed");
 
     // wait for one block
-    tokio::time::sleep(Duration::from_millis(2100)).await;
+    tokio::time::sleep(Duration::from_millis(4100)).await;
 
     let user_balance_after_0 = user
         .miden_account
@@ -307,7 +307,7 @@ async fn executing_deposit_withdraw() -> Result<()> {
     } = &mut test_utils.get_initialized_pools(1).await?[..][0];
     info!("--- Pool ready");
     let pool_config = test_pool.pool_configs[..][0];
-    let amount = 10_000;
+    let amount = 100_000;
     let faucet_id = pool_config.faucet_id;
     let mut user = test_utils
         .get_funded_accounts(1, vec![(faucet_id, amount, amount * 30)])

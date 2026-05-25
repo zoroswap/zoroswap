@@ -246,6 +246,7 @@ impl PoolExecution {
                 );
 
                 let advice_map_value = vec![
+                    Felt::new(amount_out),
                     Felt::new(
                         pool_state_base
                             .balances()
@@ -259,7 +260,7 @@ impl PoolExecution {
                             .reserve_with_slippage
                             .saturating_to::<u64>(),
                     ),
-                    Felt::new(amount_out),
+                    Felt::ZERO,
                     Felt::new(
                         pool_state_quote
                             .balances()
@@ -273,7 +274,6 @@ impl PoolExecution {
                             .reserve_with_slippage
                             .saturating_to::<u64>(),
                     ),
-                    Felt::new(0),
                 ];
 
                 Ok((

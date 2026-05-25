@@ -11,10 +11,6 @@ pub type bool = i1
 
 ###  TYPES END
 
-
-
-
-
 ################################### NOTE STORAGE LIBRARY ##########################################
 # =================================================================================================
 
@@ -132,13 +128,11 @@ end
 
 proc store_arguments_from_advicemap_to_memory
     exec.active_note::get_serial_number
-
     adv.push_mapval
     swap.3 drop push.ARGUMENTS_POINTER 
     padw padw padw
     adv_pipe
-
-    dropw swapw dropw swapw dropw
+    dropw swapw dropw swapw dropw dropw
 end
 
 proc has_arguments_from_advicemap() -> bool
