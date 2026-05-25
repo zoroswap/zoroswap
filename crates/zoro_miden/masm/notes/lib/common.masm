@@ -20,7 +20,7 @@ pub type bool = i1
 
 const STORAGE_POINTER = 32
 const STORAGE_END     = STORAGE_WORD_3 + 63
-const MAXNUMBER_OF_STORAGE_WORDS = 16
+const MAX_NUMBER_OF_STORAGE_WORDS = 16
 
 const DEFAULT_NUMBER_OF_STORAGE_ITEMS = 12
 const DEFAULT_STORAGE_END = STORAGE_POINTER + 11
@@ -196,8 +196,8 @@ end
 const ERR_WRONG_NUMBER_OF_ASSETS="unexpected number of note assets"
 
 const INPUT_ASSETS_POINTER = ARGUMENTS_END + 17
-const MAX_NUMBER_OF_INPUT_ASSETS = 32
-const INPUT_ASSETS_MEMORY_ALLOCATION = MAX_NUMBER_OF_INPUT_ASSETS * ASSET_SIZE   # 256
+const MAX_NUMBER_OF_NOTE_ASSETS = 32
+const INPUT_ASSETS_MEMORY_ALLOCATION = MAX_NUMBER_OF_NOTE_ASSETS * ASSET_SIZE   # 256
 const INPUT_ASSETS_END = INPUT_ASSETS_POINTER + 255
 
 const INPUT_ASSET_START = INPUT_ASSETS_POINTER
@@ -223,7 +223,7 @@ proc store_all_assets_to_memory() -> (felt, felt)
     push.INPUT_ASSETS_POINTER exec.active_note::get_assets
     # => [num_assets, assets_ptr]
     # make sure the number of assets is less than the maximum number of input assets
-    dup push.MAX_NUMBER_OF_INPUT_ASSETS lte assert.err=ERR_WRONG_NUMBER_OF_ASSETS
+    dup push.MAX_NUMBER_OF_NOTE_ASSETS lte assert.err=ERR_WRONG_NUMBER_OF_ASSETS
     # => [num_assets, assets_ptr]
     exec.sys::truncate_stack
 end
@@ -245,9 +245,27 @@ end
 # =================================================================================================
 
 const OUTPUT_NOTE_START = INPUT_ASSETS_END + 17
-const OUTPUT_ASSET_TARGET_PREFIX = OUTPUT_NOTE_START
-const OUTPUT_ASSET_TARGET_SUFFIX = OUTPUT_NOTE_START + 1
-const OUTPUT_ASSET_KEY = OUTPUT_NOTE_START + 4
+
+const OUTPUT_NOTE_INPUTS_START = OUTPUT_NOTE_START
+## reminder MAX_NUMBER_OF_STORAGE_WORDS  = 16
+const OUTPUT_NOTE_STORAGE_ALLOCATION = MAX_NUMBER_OF_STORAGE_WORDS * 4 # 64
+const OUTPUT_NOTE_STORAGE_END = OUTPUT_NOTE_STORAGE_START + ( OUTPUT_NOTE_STORAGE_ALLOCATION - 1) # + 63
+
+const OUTPUT_NOTE_STORAGE_WORD_0 = OUTPUT_NOTE_STORAGE_START
+
+const OUTPUT_NOTE_STORAGE_BENEFICIARY_WORD = OUTPUT_NOTE_STORAGE_START
+
+const OUTPUT_ASSET_TARGET_PREFIX = OUTPUT_NOTE_ASSETS_START
+const OUTPUT_ASSET_TARGET_SUFFIX = OUTPUT_NOTE_ASSETS_START + 1
+
+
+const OUTPUT_NOTE_ASSETS_START = OUTPUT_NOTE_STORAGE_END + 17
+## reminder MAX_NUMBER_OF_NOTE_ASSETS = 32
+const OUTPUT_NOTE_ASSETS_MEMORY_ALLOCATION = MAX_NUMBER_OF_NOTE_ASSETS * ASSET_SIZE   # 256
+const OUTPUT_NOTE_ASSETS_END = OUTPUT_NOTE_ASSETS_START + 255
+
+
+const OUTPUT_ASSET_KEY = OUTPUT_NOTE_ASSETS_START + 4
 const OUTPUT_ASSET_VALUE = OUTPUT_ASSET_KEY + 4
 const OUTPUT_ASSET_END = OUTPUT_ASSET_VALUE + 3
 
@@ -305,8 +323,20 @@ proc set_sender_as_output_note_target
 end
 
 
+#! Caution: targeted memory location is not checked for emptiness
+#! and will overwrite existing data
+proc store_all_active_note_assets_to_output_assets_memory() -> (felt, felt)
+    push.OUTPUT_NOTE_ASSETS_START exec.active_note::get_assets
+    # => [num_assets, assets_ptr]
+    # make sure the number of assets is less than the maximum number of input assets
+    dup push.MAX_NUMBER_OF_NOTE_ASSETS lte assert.err=ERR_WRONG_NUMBER_OF_ASSETS
+    # => [num_assets, assets_ptr]
+    exec.sys::truncate_stack
+end
+
+
 
 ########################################### CONSTANTS #############################################
 # =================================================================================================
 
-const FREE_MEMORY_POINTER = OUTPUT_ASSET_END + 129
+const FREE_MEMORY_POINTER = OUTPUT_ASSETS_END + 129
