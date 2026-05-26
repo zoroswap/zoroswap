@@ -27,13 +27,13 @@ proc execute_DEPOSIT
         # => []
     else
         exec.common::get_pool_0_reserve_with_slippage exec.common::get_pool_0_reserve exec.common::get_pool_0_liabilities
-        # => [liabilities, reserve, reserve,reserve_with_slippage]
+        # => [liabilities, reserve, reserve_with_slippage]
         padw exec.common::get_input_asset
-        # => [ASSET, liabilities, reserve, reserve,reserve_with_slippage]
+        # => [ASSET, liabilities, reserve, reserve_with_slippage]
         call.zoropool::receive_asset
         # => []
         
-        exec.common::get_amount_out_argument exec.common::get_beneficiary_id exec.common::get_input_asset
+        exec.common::get_amount_out_argument exec.common::get_beneficiary_id padw exec.common::get_input_asset
         # => [ASSET, beneficiary_suffix, beneficiary_prefix, lp_amount]
         call.zoropool::deposit
         # => []

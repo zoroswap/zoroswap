@@ -282,26 +282,20 @@ end
 
 ### GETTERS ###
 # @todo rename and remove padding
-proc get_input_asset_key
-   padw mem_loadw_le.INPUT_ASSET_KEY
+# Needs padw
+proc get_input_asset_key(_padding_word: word) -> word
+   mem_loadw_le.INPUT_ASSET_KEY
 end
 
-proc get_input_asset_value 
-   padw mem_loadw_le.INPUT_ASSET_VALUE
-end
-
-proc get_input_asset_key_le
-   padw mem_loadw_le.INPUT_ASSET_KEY
-end
-
-proc get_input_asset_value_le 
-   padw mem_loadw_le.INPUT_ASSET_VALUE
+# Needs padw
+proc get_input_asset_value(_padding_word: word) -> word 
+   mem_loadw_le.INPUT_ASSET_VALUE
 end
 
 # Gets the stored input asset in one word
 # Needs padw
-proc get_input_asset() -> word
-    exec.get_input_asset_value_le exec.get_input_asset_key_le
+proc get_input_asset(_padding_word: word) -> word
+    exec.get_input_asset_value padw exec.get_input_asset_key
     # => [ASSET_KEY, ASSET_VALUE]
     exec.asset_utils::compress_asset
     # => [ASSET]

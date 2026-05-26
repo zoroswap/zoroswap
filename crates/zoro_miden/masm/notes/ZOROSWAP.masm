@@ -41,7 +41,7 @@ proc execute_ZOROSWAP
         # Remove asset out from pool
         exec.common::get_pool_0_reserve_with_slippage exec.common::get_pool_0_reserve exec.common::get_pool_0_liabilities
         # => [in_pool_liabilities, in_pool_reserve, in_pool_reserve_with_slippage]
-        exec.common::get_input_asset
+        padw exec.common::get_input_asset
         # => [ASSET_IN, in_pool_liabilities, in_pool_reserve, in_pool_reserve_with_slippage]
         call.zoropool::receive_asset
         
