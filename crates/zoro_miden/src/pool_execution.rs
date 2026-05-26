@@ -291,6 +291,141 @@ impl PoolExecution {
                     },
                 ))
             }
+            NoteInstructions::Position(instructions) => {
+                let past_deadline = now > instructions.deadline as i64;
+                let mut pool_state_base = *new_pool_states
+                    .get_mut(&instructions.asset_in.faucet_id())
+                    .ok_or(anyhow!("Trying to execute swap for an unknown asset."))?;
+                let mut pool_state_quote = *new_pool_states
+                    .get_mut(&instructions.min_asset_out.faucet_id())
+                    .ok_or(anyhow!("Trying to execute swap for an unknown asset."))?;
+                let base_price = prices
+                    .get(&instructions.asset_in.faucet_id())
+                    .ok_or(anyhow!("No price for asset {}", instructions.asset_in))?;
+                let quote_price = prices
+                    .get(&instructions.min_asset_out.faucet_id())
+                    .ok_or(anyhow!("No price for asset {}", instructions.min_asset_out))?;
+                let price = base_price.quote_with(quote_price.price);
+
+                let (amount_out, new_base_pool_balances, new_quote_pool_balances) =
+                    get_curve_amount_out(
+                        &pool_state_base,
+                        &pool_state_quote,
+                        U256::from(pool_state_base.metadata().asset_decimals),
+                        U256::from(pool_state_quote.metadata().asset_decimals),
+                        U256::from(instructions.asset_in.amount()),
+                        price,
+                    )
+                    .unwrap();
+
+                println!("past_deadline {past_deadline}, amount_out: {amount_out:?}");
+                let (p2id, amount_out, result, counterparty_account) = if !past_deadline
+                    && let Ok((amount_out, new_base_pool_balances, new_quote_pool_balances)) =
+                        get_curve_amount_out(
+                            &pool_state_base,
+                            &pool_state_quote,
+                            U256::from(pool_state_base.metadata().asset_decimals),
+                            U256::from(pool_state_quote.metadata().asset_decimals),
+                            U256::from(instructions.asset_in.amount()),
+                            price,
+                        )
+                    && amount_out >= instructions.min_asset_out.amount()
+                {
+                    let beneficiary = if let Some(beneficiary) = instructions.beneficiary {
+                        beneficiary
+                    } else {
+                        instructions.creator
+                    };
+                    let p2id = TrustedNote::build_p2id(
+                        beneficiary,
+                        instructions.asset_in,
+                        Some(note.serial_number()),
+                    )?;
+
+                    pool_state_base.update_balances(new_base_pool_balances);
+                    pool_state_quote.update_balances(new_quote_pool_balances);
+                    new_pool_states.insert(instructions.asset_in.faucet_id(), pool_state_base);
+                    new_pool_states
+                        .insert(instructions.min_asset_out.faucet_id(), pool_state_quote);
+                    (
+                        p2id,
+                        amount_out.to::<u64>(),
+                        ExecutionResult::SwapSuccess(amount_out.to::<u64>()),
+                        Some(beneficiary),
+                    )
+                } else {
+                    let p2id = TrustedNote::build_p2id(
+                        instructions.creator,
+                        instructions.asset_in,
+                        Some(note.serial_number()),
+                    )?;
+                    let result = if past_deadline {
+                        ExecutionResult::PastDeadline
+                    } else {
+                        ExecutionResult::Failed
+                    };
+                    (
+                        p2id,
+                        0, //instructions.asset_in.amount(),
+                        result,
+                        Some(instructions.creator),
+                    )
+                };
+
+                info!(" swap execution result: {:?}", result);
+
+                info!(
+                    "P2ID: serial {:?} recipient {:?}",
+                    p2id.note().serial_num(),
+                    p2id.note().recipient().digest()
+                );
+
+                let advice_map_value = vec![
+                    Felt::new(amount_out),
+                    Felt::new(
+                        pool_state_base
+                            .balances()
+                            .total_liabilities
+                            .saturating_to::<u64>(),
+                    ),
+                    Felt::new(pool_state_base.balances().reserve.saturating_to::<u64>()),
+                    Felt::new(
+                        pool_state_base
+                            .balances()
+                            .reserve_with_slippage
+                            .saturating_to::<u64>(),
+                    ),
+                    Felt::ZERO,
+                    Felt::new(
+                        pool_state_quote
+                            .balances()
+                            .total_liabilities
+                            .saturating_to::<u64>(),
+                    ),
+                    Felt::new(pool_state_quote.balances().reserve.saturating_to::<u64>()),
+                    Felt::new(
+                        pool_state_quote
+                            .balances()
+                            .reserve_with_slippage
+                            .saturating_to::<u64>(),
+                    ),
+                ];
+
+                Ok((
+                    result,
+                    PoolExecution {
+                        advice_map_value: Some((note.serial_number(), advice_map_value)),
+                        input_note: Some((note.note().clone(), None)),
+                        expected_future_note: Some((
+                            p2id.note().clone().into(),
+                            p2id.note().metadata().tag(),
+                        )),
+                        new_pool_states: Some(new_pool_states),
+                        expected_output_recipient: Some(p2id.note().recipient().clone()),
+                        counterparty_account,
+                    },
+                ))
+            }
             NoteInstructions::P2ID(_) => Ok((ExecutionResult::Failed, PoolExecution::default())),
         }
     }
