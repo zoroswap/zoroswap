@@ -1,6 +1,7 @@
 use miden::protocol::active_account
 use miden::protocol::account_id
 use miden::protocol::active_note
+use miden::protocol::output_note
 use miden::protocol::tx
 use miden::protocol::asset
 use miden::protocol::asset::ASSET_VALUE_MEMORY_OFFSET
@@ -10,6 +11,8 @@ use miden::standards::wallets::basic->basic_wallet
 
 use miden::core::sys
 
+use zoroswap::zoropool
+use zoro_miden::lib::asset_utils
 use zoro_miden::note::common
 use zoro_miden::note::respawn
 use zoro_miden::note::reclaim
@@ -71,7 +74,7 @@ end
     
 
 proc get_buy_asset_argument(word_padding: word) -> word
-    push.3 exec.common::get_argument_word
+    push.3 exec.common::get_argument_word_by_index
 end
 
 proc get_buy_asset_amount_argument() -> felt
@@ -128,7 +131,7 @@ end
 #! Outputs: [bool]
 #! this is a stub and always returns true
 proc validate_signature
-    push.0
+    push.1
     exec.sys::truncate_stack
 end
 
@@ -200,12 +203,14 @@ proc execute_swap() -> (u16)
     end
 end
 
-@locals(11)
+
 const ASSET_END_POINTER_LOCAL = 0
 const LOOP_POINTER_0_LOCAL = 1
-const CURRENT_ASSET_KEY_LOCAL = 2
-const CURRENT_ASSET_VALUE_LOCAL = 6
-const BUY_TOKEN_PREVIOUSLY_IN_THE_NOTE_LOCAL = 11
+const BUY_TOKEN_PREVIOUSLY_IN_THE_NOTE_LOCAL = 2
+
+const CURRENT_ASSET_KEY_LOCAL = 4
+const CURRENT_ASSET_VALUE_LOCAL = 8
+@locals(12)
 proc prepare_assets_for_recreation_of_the_note() -> (felt)
     exec.common::store_all_active_note_assets_to_output_assets_memory
     # => [num_assets, assets_ptr]
@@ -271,17 +276,29 @@ proc prepare_assets_for_recreation_of_the_note() -> (felt)
             # => [buy_asset_value_output_memory_pointer, NEW_VALUE]
             mem_storew_le
             # => []
-            push.1 loc_storew_le.BUY_TOKEN_PREVIOUSLY_IN_THE_NOTE_LOCAL
+            push.1 loc_store.BUY_TOKEN_PREVIOUSLY_IN_THE_NOTE_LOCAL
         else
             nop
         end
+
+                ### increment the pointer
+        loc_load.LOOP_POINTER_0_LOCAL add.ASSET_SIZE dup loc_store.LOOP_POINTER_0_LOCAL
+        # => [ptr']
+        # continue looping if ptr != end_ptr
+        loc_load.ASSET_END_POINTER_LOCAL lt
+        # => [should_loop]
     end
 
     # add buy asset to note if it's not in the old note
     loc_load.BUY_TOKEN_PREVIOUSLY_IN_THE_NOTE_LOCAL not 
     # => [is_buy_asset_new]
     if.true
-        padw mem_loadw_le.BUY_ASSET_POINTER exec.asset_utils::expand_asset exec.output_note::add_asset
+        padw mem_loadw_le.BUY_ASSET_POINTER exec.asset_utils::expand_asset 
+        # => [NEWLY_BOUGHT_ASSET_KEY, NEWLY_BOUGHT_ASSET_VALUE]
+        ## append newly bought asset key to the output assets
+        loc_load.LOOP_POINTER_0_LOCAL mem_storew_le dropw
+        ## append newly bought asset value to the output assets
+        loc_load.LOOP_POINTER_0_LOCAL add.ASSET_SIZE mem_storew_le
     else
         nop
     end
