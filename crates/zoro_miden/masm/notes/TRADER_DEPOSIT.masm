@@ -20,24 +20,18 @@ use common::DEFAULT_NUMBER_OF_STORAGE_ITEMS
 use common::STORAGE_POINTER
 use common::INPUT_ASSETS_POINTER
 use common::OUTPUT_NOTE_ASSETS_START
+use common::ARGUMENTS_WORD_2
 const FREE_MEMORY_POINTER = 4000#use common::FREE_MEMORY_POINTER
 
 
 
-# @todo move to pointer to a standarised location - read it from common library
+# @todo consider moving to pointer to a standarised location - read it from common library
 const SELL_ASSET_POINTER = FREE_MEMORY_POINTER
 const SELL_ASSET_AMOUNT_POINTER = SELL_ASSET_POINTER + 3
 const BUY_ASSET_POINTER = SELL_ASSET_POINTER + 4
 const BUY_ASSET_AMOUNT_POINTER = BUY_ASSET_POINTER + 3
 const BUY_ASSET_END = BUY_ASSET_POINTER + 3
 
-
-# @todo ugly hack fix by either:
-# @todo - implement 'contains' on assset utils/common
-# @todo - do the check in the body of the asset loop - and add buy asset to note if not found earlier
-# @todo    this wouod make `add_asset_to_recreated_note` simpler, perhaps superflous
-# @todo - or use dedicated RECREATED_NOTE_ASSETS_POINTER after all 
-const BUY_TOKEN_PREVIOUSLY_IN_THE_NOTE = BUY_ASSET_END + 17 #: bool
 
 
 
@@ -55,16 +49,44 @@ const ERR_ZTD_RECLAIM_NOT_INITIATED="failed to reclaim ZTD note because the recl
 # CONSTANTS
 # =================================================================================================
 const NUMBER_OF_STORAGE_ITEMS = DEFAULT_NUMBER_OF_STORAGE_ITEMS
+const NUMBER_OF_ARGUMENT_WORDS = 4
+
+# ARGUMENTS
+# =================================================================================================
+# TRADE_ARGS_START = ARGUMENTS_WORD_2 
+#
+# TRADE_ARGS_0 = TRADE_ARGS_START
+# TRADE_ARGS_1 = TRADE_ARGS_START + 4
+#
+# TRADE_SELL_ASSET_POINTER = TRADE_ARGS_0    [SELL_ASSET]
+# TRADE_BUY_ASSET_POINTER  = TRADE_ARGS_1    [BUY_ASSET]
+
+proc get_sell_asset_argument(word_padding: word) -> word
+    push.2 exec.common::get_argument_word_by_index
+end
+
+proc get_sell_asset_amount_argument() -> felt
+    padw exec.get_sell_asset_argument exec.asset_utils::get_amount_c
+end
+    
+
+proc get_buy_asset_argument(word_padding: word) -> word
+    push.3 exec.common::get_argument_word
+end
+
+proc get_buy_asset_amount_argument() -> felt
+    padw exec.get_buy_asset_argument exec.asset_utils::get_amount_c
+end
 
 
 # SETTERS
 # =================================================================================================
 proc set_sell_asset(key: word)
-    mem_storew_be.SELL_ASSET_POINTER
+    mem_storew_le.SELL_ASSET_POINTER
 end
 
 proc set_buy_asset(key: word)
-    mem_storew_be.BUY_ASSET_POINTER
+    mem_storew_le.BUY_ASSET_POINTER
 end
 
 
@@ -122,21 +144,60 @@ end
 
 
 
-# get_assets
-# find input and  output
-#   itereate like in her https://github.com/0xMiden/protocol/blob/v0.14.6/crates/miden-standards/asm/standards/wallets/basic.masm
-# modified amounts
-# add all to new note
-#
+proc get_expected_asset_from_signed_args(_padding: word) -> word
+    ### @todo placehoder implementation, will need to be modified to read the expected asset from the signed args
+    exec.get_buy_asset_argument
+end
 
 
+const ACTUAL_ASSET_OUT_LOCAL = 0
+#! Inputs:  []
+#! Outputs: [note_idx]
+#!
+#! Panics if:
+@locals(4)
+proc execute_swap() -> (u16)
+    ### get amount out 
+    exec.common::get_amount_out_argument
+    ### get min amount out - from the signed args
+    padw exec.get_expected_asset_from_signed_args exec.asset_utils::get_amount_c
+    # => [min_amount_out, amount_out]
+    ### check if min amount out is not met
+    lt
+    # => [is_min_amount_out_not_met]
+    if.true
+        ### min output amount not met - respwan the note as is
+        exec.respawn::prepare_for_recreation_of_the_note_as_is
+        exec.respawn::recreate_note
+        # => [note_idx]
+    else
+        ### min output amount met - execute swap and respwan the note with updated assets
+        ## execute swap-in
+        exec.common::get_pool_0_reserve_with_slippage exec.common::get_pool_0_reserve exec.common::get_pool_0_liabilities
+        # => [in_pool_liabilities, in_pool_reserve, in_pool_reserve_with_slippage]
+        padw exec.get_sell_asset_argument exec.set_sell_asset
+        # => [ASSET_IN, in_pool_liabilities, in_pool_reserve, in_pool_reserve_with_slippage]
+        call.zoropool::receive_asset
 
-proc execute_swap
-    exec.prepare_assets_for_recreation_of_the_note
-    # => [num_assets]
-    ## @todo get NoteTYPe and TAG on stack 
-    exec.respawn::recreate_note
+    
+        ## execute swap-out
+        ## set buy asset amount to actual amount out
+        padw exec.get_expected_asset_from_signed_args movup.3 drop
+        # => [ suffix, prefix, cb]
+        exec.common::get_amount_out_argument movdn.3
+        # => [ACTUAL_ASSET_OUT] 
+        exec.set_buy_asset dropw
+        exec.common::get_pool_1_reserve_with_slippage exec.common::get_pool_1_reserve exec.common::get_pool_1_liabilities
+        # => [out_pool_liabilities, out_pool_reserve, out_pool_reserve_with_slippage]
+        padw mem_loadw_le.BUY_ASSET_POINTER
+        # => [ACTUAL_ASSET_OUT, out_pool_liabilities, out_pool_reserve, out_pool_reserve_with_slippage]
+        call.zoropool::remove_asset_from_pool
+
+        exec.respawn::prepare_for_recreation_of_the_note_as_is
+        exec.prepare_assets_for_recreation_of_the_note
+        exec.respawn::recreate_note
     # => [note_idx]
+    end
 end
 
 @locals(11)
@@ -144,7 +205,7 @@ const ASSET_END_POINTER_LOCAL = 0
 const LOOP_POINTER_0_LOCAL = 1
 const CURRENT_ASSET_KEY_LOCAL = 2
 const CURRENT_ASSET_VALUE_LOCAL = 6
-const IS_BUY_ASSET_IN_THE_OLD_NOTE_LOCAL = 11
+const BUY_TOKEN_PREVIOUSLY_IN_THE_NOTE_LOCAL = 11
 proc prepare_assets_for_recreation_of_the_note() -> (felt)
     exec.common::store_all_active_note_assets_to_output_assets_memory
     # => [num_assets, assets_ptr]
@@ -210,14 +271,14 @@ proc prepare_assets_for_recreation_of_the_note() -> (felt)
             # => [buy_asset_value_output_memory_pointer, NEW_VALUE]
             mem_storew_le
             # => []
-            push.1 loc_storew_le.IS_BUY_ASSET_IN_THE_OLD_NOTE_LOCAL
+            push.1 loc_storew_le.BUY_TOKEN_PREVIOUSLY_IN_THE_NOTE_LOCAL
         else
             nop
         end
     end
 
     # add buy asset to note if it's not in the old note
-    loc_load.IS_BUY_ASSET_IN_THE_OLD_NOTE_LOCAL not 
+    loc_load.BUY_TOKEN_PREVIOUSLY_IN_THE_NOTE_LOCAL not 
     # => [is_buy_asset_new]
     if.true
         padw mem_loadw_le.BUY_ASSET_POINTER exec.asset_utils::expand_asset exec.output_note::add_asset
@@ -264,7 +325,7 @@ pub proc main
 
     exec.common::has_arguments_from_advicemap
     if.true
-        exec.common::store_arguments_from_advicemap_to_memory
+        push.NUMBER_OF_ARGUMENT_WORDS exec.common::store_arbitrary_arguments_from_advicemap_to_memory
     else
         nop
     end

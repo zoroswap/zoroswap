@@ -161,7 +161,7 @@ async fn note_arguments_advicemap_unit_test() -> Result<()> {
             \n\
             @note_script\n\
             pub proc main\n\
-                exec.common::store_arguments_from_advicemap_to_memory\n\
+                push.2 exec.common::store_arbitrary_arguments_from_advicemap_to_memory\n\
                 mem_load.AMOUNT_OUT push.{amount_out} assert_eq.err=ERR_A_AMOUNT_OUT\n\
                 mem_load.LIABILITIES_0 push.{liabilities_0} assert_eq.err=ERR_A_LIABILITIES_0\n\
                 mem_load.RESERVE_0 push.{reserve_0} assert_eq.err=ERR_A_RESERVE_0\n\

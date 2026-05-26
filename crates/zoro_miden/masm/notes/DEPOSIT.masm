@@ -21,7 +21,7 @@ proc execute_DEPOSIT
     lt
     if.true
         # min LP amount is not met
-        exec.common::set_output_asset_is_input_asset
+        exec.common::set_output_asset_to_input_asset
         # => []
         exec.output_note_utils::create_p2id_bounce_to_sender
         # => []
