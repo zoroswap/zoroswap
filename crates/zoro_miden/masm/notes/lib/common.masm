@@ -138,7 +138,8 @@ const MAX_ARGUMENTS_MEMORY_ALLOCATION = MAXNUMBER_OF_ARGUMENTS_WORDS * 4 # 128
 const ARGUMENTS_WORD_0 = ARGUMENTS_POINTER  
 const ARGUMENTS_WORD_1 = ARGUMENTS_POINTER + 4      
 const ARGUMENTS_WORD_2 = ARGUMENTS_POINTER + 8      
-const ARGUMENTS_WORD_3 = ARGUMENTS_POINTER + 12     
+const ARGUMENTS_WORD_3 = ARGUMENTS_POINTER + 12  
+const ARGUMENTS_WORD_4 = ARGUMENTS_POINTER + 16  
 
 
 const AMOUNT_OUT = ARGUMENTS_WORD_0   
@@ -162,7 +163,7 @@ end
 proc store_arguments_from_advicemap_to_memory
     exec.active_note::get_serial_number
     adv.push_mapval dropw
-    dropw push.ARGUMENTS_POINTER push.2 #number_of words
+    push.ARGUMENTS_POINTER push.2 #number_of words
     # => [number_of_words, arguments_ptr]
     exec.mem::pipe_words_to_memory
     # => [R0, R1, C, write_ptr']

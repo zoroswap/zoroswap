@@ -868,8 +868,11 @@ async fn position_respwawn_reclaim_unit_test() -> Result<()> {
     let amount_out = 9_999_u64;
     let arguments_word_0: Word = [Felt::new(amount_out), Felt::ZERO, Felt::ZERO, Felt::ZERO].into();
     let arguments_word_1 = Word::empty();
-    let sell_asset = FungibleAsset::new(*faucet0.miden_account.id(), amount0)?;
-    let buy_asset = FungibleAsset::new(*faucet1.miden_account.id(), amount_out * 2)?;
+    let sell_asset = asset_to_word(FungibleAsset::new(*faucet0.miden_account.id(), amount0)?);
+    let buy_asset = asset_to_word(FungibleAsset::new(
+        *faucet1.miden_account.id(),
+        amount_out * 2,
+    )?);
 
     let advice_map = [(
         serial_number.into(),
@@ -877,10 +880,11 @@ async fn position_respwawn_reclaim_unit_test() -> Result<()> {
             .iter()
             .copied()
             .chain(arguments_word_1.iter().copied())
-            .chain(sell_asset.to_value_word().iter().copied())
-            .chain(buy_asset.to_value_word().iter().copied())
+            .chain(sell_asset.iter().copied())
+            .chain(buy_asset.iter().copied())
             .collect::<Vec<Felt>>(),
     )];
+
     // consume as unauthenticated note @note move consumption into client (or test utils) with args/advice map
     let transaction_request = TransactionRequestBuilder::new()
         .extend_advice_map(advice_map)
@@ -904,6 +908,9 @@ async fn position_respwawn_reclaim_unit_test() -> Result<()> {
 
     assert_eq!(user_balance0_after_sent, user_balance0_at_start - amount0);
     assert_eq!(user_balance1_after_sent, user_balance1_at_start - amount1);
+
+    tokio::time::sleep(Duration::from_millis(4100)).await;
+    test_utils.miden_client_mut().sync_state().await?;
 
     let reclaim_transaction_request = TransactionRequestBuilder::new()
         .input_notes(vec![(

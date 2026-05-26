@@ -355,7 +355,8 @@ pub proc main
     if.true
         # we can safely consume the note since the active account is the target of the note
         exec.execute_swap
-        # => []
+        # => [note_idx]
+        drop
 
     else
         # checks if active account is sender and if reclaim is enabled
