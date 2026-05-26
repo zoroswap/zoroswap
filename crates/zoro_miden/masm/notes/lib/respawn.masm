@@ -109,7 +109,6 @@ proc move_all_assets_to_note(num_assets: u16, note_idx: u16)
 
         loc_load.NOTE_IDX_LOCAL movdn.8
         # => [ASSET_KEY, ASSET_VALUE, note_idx]
-
         exec.output_note::add_asset
         # => []
 

@@ -5,7 +5,12 @@ use std::{collections::HashMap, time::Duration};
 use anyhow::{Result, anyhow};
 use chrono::Utc;
 use miden_client::transaction::TransactionRequestBuilder;
-use miden_client::{Felt, Word, account::AccountId, asset::FungibleAsset, note::NoteType};
+use miden_client::{
+    Felt, Word,
+    account::AccountId,
+    asset::FungibleAsset,
+    note::{NoteTag, NoteType},
+};
 use tracing::info;
 use zoro_miden::{
     assembly_utils::link_all_libraries,
@@ -430,7 +435,7 @@ async fn reclaim_unit_test() -> Result<()> {
 
     let reclaim_note_script = TrustedNote::get_note_script(
         test_utils.miden_client().client().code_builder(),
-        "TRADER_DEPOSIT.masm",
+        "POSITION.masm",
     )?;
     let serial_number = TrustedNote::random_word()?;
 
@@ -763,6 +768,162 @@ async fn respwawn_reclaim_simple_unit_test() -> Result<()> {
         .client_mut()
         .submit_new_transaction(user.miden_account.id().clone(), reclaim_transaction_request)
         .await?;
+
+    tokio::time::sleep(Duration::from_millis(4100)).await;
+    test_utils.miden_client_mut().sync_state().await?;
+
+    let user_balance0_after_reclaim = user
+        .miden_account
+        .get_balance(faucet0.miden_account.id())
+        .await?;
+    let user_balance1_after_reclaim = user
+        .miden_account
+        .get_balance(faucet1.miden_account.id())
+        .await?;
+
+    assert_eq!(user_balance0_after_reclaim, user_balance0_at_start);
+    assert_eq!(user_balance1_after_reclaim, user_balance1_at_start);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn position_respwawn_reclaim_unit_test() -> Result<()> {
+    let mut test_utils = TestUtils::from_cache().await?;
+    let faucets = test_utils.get_faucets(2).await?;
+    let faucet0 = faucets.first().unwrap();
+    let faucet1 = faucets.last().unwrap();
+
+    let amount0 = 10_000;
+    let amount1 = 20_000;
+    let users = test_utils
+        .get_funded_accounts(
+            2,
+            vec![
+                (*faucet0.miden_account.id(), amount0, amount0 * 10),
+                (*faucet1.miden_account.id(), amount1, amount1 * 50),
+            ],
+        )
+        .await?;
+    let mut user = users.first().unwrap().clone();
+    let mut another_user = users[1].clone();
+    let user_id = *user.miden_account.id();
+
+    let user_balance0_at_start = user
+        .miden_account
+        .get_balance(faucet0.miden_account.id())
+        .await?;
+    let user_balance1_at_start = user
+        .miden_account
+        .get_balance(faucet1.miden_account.id())
+        .await?;
+
+    let position_note_script = TrustedNote::get_note_script(
+        test_utils.miden_client().client().code_builder(),
+        "POSITION.masm",
+    )?;
+
+    let assets = NoteAssets::new(vec![
+        FungibleAsset::new(*faucet0.miden_account.id(), amount0)?.into(),
+        FungibleAsset::new(*faucet1.miden_account.id(), amount1)?.into(),
+    ])?;
+
+    let serial_number = TrustedNote::random_word()?;
+
+    let deadline = Utc::now().timestamp_millis() as u64 + 1000 * 60 * 60 * 24; // 24 hours
+    let p2id_tag = NoteTag::with_account_target(user_id);
+    let metadata_storage: Word =
+        [Felt::new(deadline), p2id_tag.into(), Felt::ZERO, Felt::ZERO].into();
+    let note_storage = NoteStorageBuilder::new(user_id)
+        .with_metadata(metadata_storage.clone())
+        .build()?;
+
+    let recipient = NoteRecipient::new(
+        serial_number,
+        position_note_script.clone(),
+        note_storage.clone(),
+    );
+
+    let metadata = NoteMetadata::new(user_id, NoteType::Public);
+    let position_note = Note::new(assets.clone(), metadata, recipient.clone());
+
+    test_utils
+        .miden_client_mut()
+        .send_note_untrusted(&user_id, position_note.clone())
+        .await?;
+    println!("position_note sent to the network");
+    let new_serial_number: Word = [
+        serial_number[0],
+        serial_number[1],
+        serial_number[2],
+        serial_number[3] + Felt::new(1),
+    ]
+    .into();
+    let respawned_recipient =
+        NoteRecipient::new(new_serial_number, position_note_script, note_storage);
+
+    let metadata = NoteMetadata::new(user_id, NoteType::Public);
+    let respawned_note = Note::new(assets, metadata, respawned_recipient.clone());
+
+    let amount_out = 9_999_u64;
+    let arguments_word_0: Word = [Felt::new(amount_out), Felt::ZERO, Felt::ZERO, Felt::ZERO].into();
+    let arguments_word_1 = Word::empty();
+    let sell_asset = asset_to_word(FungibleAsset::new(*faucet0.miden_account.id(), amount0)?);
+    let buy_asset = asset_to_word(FungibleAsset::new(
+        *faucet1.miden_account.id(),
+        amount_out * 2,
+    )?);
+
+    let advice_map = [(
+        serial_number.into(),
+        arguments_word_0
+            .iter()
+            .copied()
+            .chain(arguments_word_1.iter().copied())
+            .chain(sell_asset.iter().copied())
+            .chain(buy_asset.iter().copied())
+            .collect::<Vec<Felt>>(),
+    )];
+
+    // consume as unauthenticated note @note move consumption into client (or test utils) with args/advice map
+    let transaction_request = TransactionRequestBuilder::new()
+        .extend_advice_map(advice_map)
+        .input_notes(vec![(position_note.clone(), None)])
+        .expected_output_recipients(vec![respawned_recipient.clone()])
+        .build()?;
+    let tx_id = test_utils
+        .miden_client_mut()
+        .client_mut()
+        .submit_new_transaction(another_user.miden_account.id().clone(), transaction_request)
+        .await?;
+    println!("position_note consumed  and   respawned");
+    let user_balance0_after_sent = user
+        .miden_account
+        .get_balance(faucet0.miden_account.id())
+        .await?;
+    let user_balance1_after_sent = user
+        .miden_account
+        .get_balance(faucet1.miden_account.id())
+        .await?;
+
+    assert_eq!(user_balance0_after_sent, user_balance0_at_start - amount0);
+    assert_eq!(user_balance1_after_sent, user_balance1_at_start - amount1);
+
+    tokio::time::sleep(Duration::from_millis(4100)).await;
+    test_utils.miden_client_mut().sync_state().await?;
+
+    let reclaim_transaction_request = TransactionRequestBuilder::new()
+        .input_notes(vec![(
+            respawned_note.clone(),
+            Some([Felt::new(1), Felt::ZERO, Felt::ZERO, Felt::ZERO].into()),
+        )])
+        .build()?;
+    let tx_id = test_utils
+        .miden_client_mut()
+        .client_mut()
+        .submit_new_transaction(user_id.clone(), reclaim_transaction_request)
+        .await?;
+    println!("position_note reclaimed");
 
     tokio::time::sleep(Duration::from_millis(4100)).await;
     test_utils.miden_client_mut().sync_state().await?;

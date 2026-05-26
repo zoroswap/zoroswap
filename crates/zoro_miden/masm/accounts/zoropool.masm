@@ -220,8 +220,8 @@ end
 
 #! Adds the provided asset to the active account.
 #!
-#! Inputs:  [ASSET, reserve, reserve_with_slippage, liabilities, 0, pad(8)]
-#! Outputs: [pad(16)]
+#! Inputs:  [ASSET, reserve, reserve_with_slippage, liabilities, ...]
+#! Outputs: [...]
 #!
 #! Where:
 #! - ASSET is the asset to be received, can be fungible or non-fungible
@@ -275,33 +275,32 @@ end
 
 #! add new deposit: receive asset, update deposit mapping
 #!
-#! Inputs: [ASSET, POOL_STATE, user_id_suffix, user_id_prefix, lp_amount_out]
+#! Inputs: [ASSET, beneficiary_suffix, beneficiary_prefix, lp_amount]
 #! Outputs: [share_amount]
 #!
+#! loc 0-3 USER_LP_KEY
+#! loc 4 lp_amount
+@locals(5)
 pub proc deposit
-    mem_storew_le.DEPOSIT_ASSET_LOC
-    exec.receive_asset
-    padw mem_loadw_le.DEPOSIT_ASSET_LOC
-    # => [ASSET, beneficiary_suffix, beneficiary_prefix, lp_amount_out]
+    #### Set user LP Amount ####
     exec.get_user_deposit_key
-    # => [KEY, lp_amount_out]
-    mem_storew_be.DEPOSIT_KEY_LOC
+    # => [USER_LP_KEY, lp_amount]
+    loc_storew_be.0
     movup.4
-    # => [lp_amount_out, KEY]
-    dup mem_store.LP_SHARES_AMOUNT_ADDR
-    movdn.4 #swapw
-    # => [KEY, share_amount]
+    # => [lp_amount, KEY]
+    dup loc_store.4
+    movdn.4
+    # => [USER_LP_KEY, lp_amount]
     push.USER_DEPOSITS_MAPPING_SLOT[0..2]
-    # => [slot_id_prefix, slot_id_suffix, KEY, share_amount]
-    exec.storage_utils::add_to_map_item
-    # => [new_value]
-    drop
-    # update total supply
-    mem_load.LP_SHARES_AMOUNT_ADDR 
-    padw mem_loadw_be.DEPOSIT_KEY_LOC
-    # => [KEY, share_amount]
+    # => [slot_id_prefix, slot_id_suffix, USER_LP_KEY, lp_amount]
+    exec.storage_utils::add_to_map_item drop
+    # => []
+
+    #### Set new total supply ####
+    loc_load.4 padw loc_loadw_be.0
+    # => [USER_LP_KEY, lp_amount]
     exec.get_lp_shares_total_supply_key
-    # => [TOTAL_SUPPLY_KEY, share_amount]
+    # => [TOTAL_SUPPLY_KEY, lp_amount]
     push.USER_DEPOSITS_MAPPING_SLOT[0..2]
     # => [slot_id_prefix, slot_id_suffix, KEY, share_amount]
     exec.storage_utils::add_to_map_item

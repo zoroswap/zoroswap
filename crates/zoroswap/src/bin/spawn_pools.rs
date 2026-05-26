@@ -95,6 +95,7 @@ async fn main() -> Result<()> {
                 asset_in: FungibleAsset::new(pool.faucet_id, amount)?,
                 min_lp_amount_out,
                 creator: *lp_account.id(),
+                beneficiary: Some(*lp_account.id()),
                 note_type: NoteType::Private,
                 deadline: (Utc::now().timestamp_millis() + 120_000) as u64,
                 p2id_tag: lp_account.tag(),
