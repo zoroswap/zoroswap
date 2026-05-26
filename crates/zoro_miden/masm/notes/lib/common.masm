@@ -1,9 +1,14 @@
 use miden::protocol::active_note
 use miden::protocol::active_account
 use miden::protocol::account_id
+use miden::core::mem
 use miden::core::sys
 use miden::protocol::asset::ASSET_VALUE_MEMORY_OFFSET
 use miden::protocol::asset::ASSET_SIZE
+
+
+# GENERIC CONSTANTS
+const WORD_SIZE = 4
 
 ############################################# TYPES ###############################################
 # =================================================================================================
@@ -121,10 +126,13 @@ end
 ################################### NOTE ARGUMENTS LIBRARY ##########################################
 # =================================================================================================
 
+const ERR_MAX_NUMBER_OF_ARGUMENTS_EXCEEDED = "max number of arguments (32 words) exceeded"
+
 const ARGUMENTS_POINTER = STORAGE_END + 17
 
-const ARGUMENTS_END     = ARGUMENTS_POINTER + 63
-const MAXNUMBER_OF_ARGUMENTS_WORDS = 16
+const ARGUMENTS_END     = ARGUMENTS_POINTER + 127
+const MAXNUMBER_OF_ARGUMENTS_WORDS = 32
+const MAX_ARGUMENTS_MEMORY_ALLOCATION = MAXNUMBER_OF_ARGUMENTS_WORDS * 4 # 128
 
 const ARGUMENTS_WORD_0 = ARGUMENTS_POINTER  
 const ARGUMENTS_WORD_1 = ARGUMENTS_POINTER + 4      
@@ -152,12 +160,29 @@ end
 
 proc store_arguments_from_advicemap_to_memory
     exec.active_note::get_serial_number
-    adv.push_mapval
-    swap.3 drop push.ARGUMENTS_POINTER 
-    padw padw padw
-    adv_pipe
-    dropw swapw dropw swapw dropw dropw
+    adv.push_mapval dropw
+    dropw push.ARGUMENTS_POINTER push.2 #number_of words
+    # => [number_of_words, arguments_ptr]
+    exec.mem::pipe_words_to_memory
+    # => [R0, R1, C, write_ptr']
+    dropw dropw dropw drop
 end
+
+proc store_arbitrary_arguments_from_advicemap_to_memory(num_words: u16)
+    dup push.MAXNUMBER_OF_ARGUMENTS_WORDS lte assert.err=ERR_MAX_NUMBER_OF_ARGUMENTS_EXCEEDED
+    # => [num_words]
+    exec.active_note::get_serial_number
+    # => [NOTE_SERIAL_NUMBER, num_words]
+    adv.push_mapval dropw
+    # =>[num_words]
+    push.ARGUMENTS_POINTER swap #number_of words
+    # => [number_of_words, arguments_ptr]
+    exec.mem::pipe_words_to_memory
+    # => [R0, R1, C, write_ptr']
+    dropw dropw dropw drop
+end
+
+
 
 proc has_arguments_from_advicemap() -> bool
     exec.active_note::get_serial_number
@@ -204,6 +229,14 @@ end
 proc get_pool_1_reserve_with_slippage() -> felt
     mem_load.RESERVE_WITH_SLIPPAGE_1
 end
+
+proc get_argument_word_by_index(word_index: u16, word_padding: word) -> word
+    # => [word_index, pad(4)]
+    mul.WORD_SIZE add.ARGUMENTS_POINTER
+    # => [word_ptr, pad(4)]
+    mem_loadw_le
+end
+
 
 
 

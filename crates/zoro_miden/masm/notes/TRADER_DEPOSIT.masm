@@ -20,11 +20,12 @@ use common::DEFAULT_NUMBER_OF_STORAGE_ITEMS
 use common::STORAGE_POINTER
 use common::INPUT_ASSETS_POINTER
 use common::OUTPUT_NOTE_ASSETS_START
+use common::ARGUMENTS_WORD_2
 const FREE_MEMORY_POINTER = 4000#use common::FREE_MEMORY_POINTER
 
 
 
-# @todo move to pointer to a standarised location - read it from common library
+# @todo consider moving to pointer to a standarised location - read it from common library
 const SELL_ASSET_POINTER = FREE_MEMORY_POINTER
 const SELL_ASSET_AMOUNT_POINTER = SELL_ASSET_POINTER + 3
 const BUY_ASSET_POINTER = SELL_ASSET_POINTER + 4
@@ -48,16 +49,44 @@ const ERR_ZTD_RECLAIM_NOT_INITIATED="failed to reclaim ZTD note because the recl
 # CONSTANTS
 # =================================================================================================
 const NUMBER_OF_STORAGE_ITEMS = DEFAULT_NUMBER_OF_STORAGE_ITEMS
+const NUMBER_OF_ARGUMENT_WORDS = 4
+
+# ARGUMENTS
+# =================================================================================================
+# TRADE_ARGS_START = ARGUMENTS_WORD_2 
+#
+# TRADE_ARGS_0 = TRADE_ARGS_START
+# TRADE_ARGS_1 = TRADE_ARGS_START + 4
+#
+# TRADE_SELL_ASSET_POINTER = TRADE_ARGS_0    [SELL_ASSET]
+# TRADE_BUY_ASSET_POINTER  = TRADE_ARGS_1    [BUY_ASSET]
+
+proc get_sell_asset_argument(word_padding: word) -> word
+    push.2 exec.common::get_argument_word_by_index
+end
+
+proc get_sell_asset_amount_argument() -> felt
+    padw exec.get_sell_asset_argument exec.asset_utils::get_amount_c
+end
+    
+
+proc get_buy_asset_argument(word_padding: word) -> word
+    push.3 exec.common::get_argument_word
+end
+
+proc get_buy_asset_amount_argument() -> felt
+    padw exec.get_buy_asset_argument exec.asset_utils::get_amount_c
+end
 
 
 # SETTERS
 # =================================================================================================
 proc set_sell_asset(key: word)
-    mem_storew_be.SELL_ASSET_POINTER
+    mem_storew_le.SELL_ASSET_POINTER
 end
 
 proc set_buy_asset(key: word)
-    mem_storew_be.BUY_ASSET_POINTER
+    mem_storew_le.BUY_ASSET_POINTER
 end
 
 
@@ -117,7 +146,7 @@ end
 
 proc get_expected_asset_from_signed_args(_padding: word) -> word
     ### @todo placehoder implementation, will need to be modified to read the expected asset from the signed args
-    exec.common::get_expected_asset
+    exec.get_buy_asset_argument
 end
 
 
@@ -130,10 +159,8 @@ const ACTUAL_ASSET_OUT_LOCAL = 0
 proc execute_swap() -> (u16)
     ### get amount out 
     exec.common::get_amount_out_argument
-    ### get min amount out - will come from the signed args
-    padw exec.get_expected_asset_from_signed_args
-    # => [EXPECTED_ASSET, amount_out]
-    exec.asset_utils::get_amount_c
+    ### get min amount out - from the signed args
+    padw exec.get_expected_asset_from_signed_args exec.asset_utils::get_amount_c
     # => [min_amount_out, amount_out]
     ### check if min amount out is not met
     lt
@@ -145,27 +172,24 @@ proc execute_swap() -> (u16)
         # => [note_idx]
     else
         ### min output amount met - execute swap and respwan the note with updated assets
-        ## set buy asset amount to actual amount out
-        padw exec.get_expected_asset_from_signed_args movup.3 drop
-        # => [ suffix, prefix, cb]
-        exec.common::get_amount_out_argument movdn.3
-        # => [ACTUAL_ASSET_OUT] 
-        loc_storew_le.ACTUAL_ASSET_OUT_LOCAL dropw
-       
         ## execute swap-in
         exec.common::get_pool_0_reserve_with_slippage exec.common::get_pool_0_reserve exec.common::get_pool_0_liabilities
         # => [in_pool_liabilities, in_pool_reserve, in_pool_reserve_with_slippage]
-        exec.common::get_input_asset_value exec.common::get_input_asset_key
-        # => [ASSET_KEY, ASSET_VALUE, in_pool_liabilities, in_pool_reserve, in_pool_reserve_with_slippage]
-        exec.asset_utils::compress_asset
+        padw exec.get_sell_asset_argument exec.set_sell_asset
         # => [ASSET_IN, in_pool_liabilities, in_pool_reserve, in_pool_reserve_with_slippage]
         call.zoropool::receive_asset
 
     
         ## execute swap-out
+        ## set buy asset amount to actual amount out
+        padw exec.get_expected_asset_from_signed_args movup.3 drop
+        # => [ suffix, prefix, cb]
+        exec.common::get_amount_out_argument movdn.3
+        # => [ACTUAL_ASSET_OUT] 
+        exec.set_buy_asset dropw
         exec.common::get_pool_1_reserve_with_slippage exec.common::get_pool_1_reserve exec.common::get_pool_1_liabilities
         # => [out_pool_liabilities, out_pool_reserve, out_pool_reserve_with_slippage]
-        padw loc_loadw_le.ACTUAL_ASSET_OUT_LOCAL
+        padw mem_loadw_le.BUY_ASSET_POINTER
         # => [ACTUAL_ASSET_OUT, out_pool_liabilities, out_pool_reserve, out_pool_reserve_with_slippage]
         call.zoropool::remove_asset_from_pool
 
@@ -301,7 +325,7 @@ pub proc main
 
     exec.common::has_arguments_from_advicemap
     if.true
-        exec.common::store_arguments_from_advicemap_to_memory
+        push.NUMBER_OF_ARGUMENT_WORDS exec.common::store_arbitrary_arguments_from_advicemap_to_memory
     else
         nop
     end
