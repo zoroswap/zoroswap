@@ -80,7 +80,6 @@ pub proc set_pool_state
     # =>[reserve, ASSET, liabilities, reserve, reserve_with_slippage, 0, ASSET]
     dup.7
     # => [reserve_with_slippage, reserve, ASSET, liabilities, reserve, reserve_with_slippage, 0, ASSET]
-    debug.stack.2
     lte assert.err=ERR_RESERVE_EXCEEDS_RESERVE_WITH_SLIPPAGE
     ## => [ASSET, liabilities, reserve, reserve_with_slippage, 0, ASSET]
 
