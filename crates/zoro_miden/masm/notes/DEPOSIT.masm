@@ -6,119 +6,44 @@ use zoroswap::zoropool
 use zoro_miden::lib::asset_utils
 use zoro_miden::lib::output_note_utils
 use zoro_miden::note::common
+use common::DEFAULT_NUMBER_OF_STORAGE_ITEMS
 
-# ERRORS
-# =================================================================================================
-
-# DEPOSIT script expects exactly NUMBER_OF_INPUTS note inputs
-const ERR_DEPOSIT_WRONG_NUMBER_OF_INPUTS="DEPOSIT wrong number of inputs"
-
-# CONSTANTS
-# =================================================================================================
-
-# MEMORY
-# =================================================================================================
-
-# first 4 WORDS reserved as scratch space
-# ====================================================
-# next 8  WORDS reserved for inputs
-# ====================================================
-# next 4  WORDS reserved for arguments
-# ====================================================
-const INPUTS_POINTER = 0x0010
-const INPUTS_WORD_0 = INPUTS_POINTER        # [min_lp_amount_out, deadline, p2id_tag, empty]
-const INPUTS_WORD_1 = INPUTS_POINTER + 4    # [CREATOR_ID_WORD] = [empty, empty, creator_id_suffix, creator_id_prefix]
-
-# first 2 WORDS of input space used for inputs
-# ====================================================
-const NUMBER_OF_INPUTS = 0x0008 # 8
-
-# semantic names for inputs
-# ====================================================
-# [min_lp_amount_outdeadline, p2id_tag, empty, empty]
-const INPUT_PARAMS = INPUTS_WORD_0
-const CREATOR_ID_WORD = INPUTS_WORD_1
-
-# DEPOSIT Note Inputs (16 to 24)
-# [min_amount_out, empty, out_asset_id_suffix, out_asset_id_prefix]
-const MIN_LP_AMOUNT_OUT = INPUT_PARAMS  # 0x0010
-const DEADLINE = INPUT_PARAMS + 1
-const P2ID_TAG = INPUT_PARAMS + 2
-
-# [empty, empty, creator_id_suffix, creator_id_prefix]
-const EMPTY_INPUT_4 = CREATOR_ID_WORD # 0x0018
-const EMPTY_INPUT_5 = CREATOR_ID_WORD + 1
-const DEPOSIT_CREATOR_ID_SUFFIX = CREATOR_ID_WORD + 2
-const DEPOSIT_CREATOR_ID_PREFIX = CREATOR_ID_WORD + 3  # 0x001B
-
-# EMPTY 5 WORDS 0X001C-0x0040
-
-# argument memory 4 WORDS 
-# 0x0040 - 0x004F
-# ====================================================
-
-const ARGS_POINTER = 0x0040
-const ARGS_WORD_0 = ARGS_POINTER        # []
-
-# first 3 WORDS of ARGUMENTS space used for args
-# ====================================================
-const NUMBER_OF_ARGS = 0x000C # 3 words
-
-# semantic names for inputs
-# ====================================================
-const LP_AMOUNT_OUT = ARGS_WORD_0   # 0x0040
-const LIABILITIES = ARGS_WORD_0 + 1  # 0x0041
-const RESERVE = ARGS_WORD_0 + 2  # 0x0042
-const RESERVE_WITH_SLIPPAGE = ARGS_WORD_0 + 3  # 0x0043
-
-proc store_inputs_to_memory
-    # store note inputs into memory starting at address 0
-    push.INPUTS_POINTER exec.active_note::get_storage
-    # => [num_inputs, inputs_ptr]
-    # make sure the number of inputs is N
-    eq.NUMBER_OF_INPUTS assert.err=ERR_DEPOSIT_WRONG_NUMBER_OF_INPUTS
-    # => [inputs_ptr]
-    drop
-end
-
-proc store_args_to_memory
-    mem_store.LP_AMOUNT_OUT
-    mem_store.RESERVE_WITH_SLIPPAGE
-    mem_store.RESERVE
-    mem_store.LIABILITIES
-end
-
-# input: [SERIAL_NUM,...]
-# ouput: [P2ID_SERIAL_NUM, ...]
-proc get_p2id_serial_num
-    add.1
-end
-
+# Arguments:
+# [lp_amount, reserve, reserve_with_slippage, total_liabilities]
+#
+# Expected Note storage:
+# [EMPTY]
+# [PARAMS] = [deadline, p2id_tag, min_lp_amount, empty]
+# [CREATOR_ID_WORD] = [empty, empty, creator_id_suffix, creator_id_prefix]
 proc execute_DEPOSIT
-    mem_load.LP_AMOUNT_OUT
-    mem_load.MIN_LP_AMOUNT_OUT
+    exec.common::get_amount_out_argument exec.common::get_metadata_item_2
+    # => [min_lp_amount, lp_amount]
     lt
-    # min amount out is not met
     if.true
+        # min LP amount is not met
         exec.common::set_output_asset_is_input_asset
+        # => []
         exec.output_note_utils::create_p2id_bounce_to_sender
+        # => []
     else
-        mem_load.LP_AMOUNT_OUT mem_load.DEPOSIT_CREATOR_ID_PREFIX mem_load.DEPOSIT_CREATOR_ID_SUFFIX 
-        # => [creator_id_prefix, creator_id_suffix, lp_amount_out]
-        push.0 mem_load.RESERVE_WITH_SLIPPAGE mem_load.RESERVE mem_load.LIABILITIES 
-         # => [liabilities, reserve, reserve_with_slippage, 0, creator_id_suffix, creator_id_prefix, lp_amount_out]
-        exec.common::get_input_asset_value_le exec.common::get_input_asset_key_le
-        # => [ASSET_KEY, ASSET_VALUE, liabilities, reserve, reserve_with_slippage, 0, creator_id_suffix, creator_id_prefix, lp_amount_out]
-        exec.asset_utils::compress_asset
-        # => [ASSET, liabilities, reserve, reserve_with_slippage, 0, creator_id_suffix, creator_id_prefix, lp_amount_out]
+        exec.common::get_pool_0_reserve_with_slippage exec.common::get_pool_0_reserve exec.common::get_pool_0_liabilities
+        # => [liabilities, reserve, reserve,reserve_with_slippage]
+        padw exec.common::get_input_asset
+        # => [ASSET, liabilities, reserve, reserve,reserve_with_slippage]
+        call.zoropool::receive_asset
+        # => []
+        
+        exec.common::get_amount_out_argument exec.common::get_beneficiary_id exec.common::get_input_asset
+        # => [ASSET, beneficiary_suffix, beneficiary_prefix, lp_amount]
         call.zoropool::deposit
+        # => []
     end
 end
 
 @note_script
 pub proc main
-    exec.store_args_to_memory
-    exec.store_inputs_to_memory
+    exec.common::store_arguments_from_stack_to_memory
+    push.DEFAULT_NUMBER_OF_STORAGE_ITEMS exec.common::store_storage_to_memory drop
     exec.common::store_asset_to_memory
     exec.execute_DEPOSIT
     exec.sys::truncate_stack

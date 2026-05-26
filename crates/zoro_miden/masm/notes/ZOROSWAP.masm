@@ -6,6 +6,9 @@ use zoro_miden::note::common
 use zoro_miden::lib::output_note_utils
 use common::DEFAULT_NUMBER_OF_STORAGE_ITEMS
 
+# Arguments:
+# []
+#
 # Note storage layout:
 # [REQUESTED_ASSET_WORD]
 # [deadline, p2id_tag, empty, empty]
@@ -38,9 +41,7 @@ proc execute_ZOROSWAP
         # Remove asset out from pool
         exec.common::get_pool_0_reserve_with_slippage exec.common::get_pool_0_reserve exec.common::get_pool_0_liabilities
         # => [in_pool_liabilities, in_pool_reserve, in_pool_reserve_with_slippage]
-        exec.common::get_input_asset_value_le exec.common::get_input_asset_key_le
-        # => [ASSET_KEY, ASSET_VALUE, in_pool_liabilities, in_pool_reserve, in_pool_reserve_with_slippage]
-        exec.asset_utils::compress_asset
+        exec.common::get_input_asset
         # => [ASSET_IN, in_pool_liabilities, in_pool_reserve, in_pool_reserve_with_slippage]
         call.zoropool::receive_asset
         
@@ -65,7 +66,6 @@ end
 
 @note_script
 pub proc main
-    exec.common::store_arguments_from_stack_to_memory
     push.DEFAULT_NUMBER_OF_STORAGE_ITEMS exec.common::store_storage_to_memory drop
     exec.common::store_arguments_from_advicemap_to_memory
     exec.common::store_asset_to_memory

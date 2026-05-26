@@ -5,6 +5,8 @@ use miden::core::sys
 use miden::protocol::asset::ASSET_VALUE_MEMORY_OFFSET
 use miden::protocol::asset::ASSET_SIZE
 
+use zoro_miden::lib::asset_utils
+
 ############################################# TYPES ###############################################
 # =================================================================================================
 
@@ -263,6 +265,14 @@ proc get_input_asset_value_le
    padw mem_loadw_le.INPUT_ASSET_VALUE
 end
 
+# Gets the stored input asset in one word
+# Needs padw
+proc get_input_asset() -> word
+    exec.get_input_asset_value_le exec.get_input_asset_key_le
+    # => [ASSET_KEY, ASSET_VALUE]
+    exec.asset_utils::compress_asset
+    # => [ASSET]
+end
 
 ################################### OUTPUT NOTE LIBRARY ##########################################
 # =================================================================================================
