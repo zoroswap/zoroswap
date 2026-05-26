@@ -247,6 +247,7 @@ end
 
 
 ### GETTERS ###
+# @todo rename and remove padding
 proc get_input_asset_key
    padw mem_loadw_le.INPUT_ASSET_KEY
 end
@@ -298,7 +299,7 @@ proc set_output_asset(key: word, value: word)
     # => []
 end
 
-proc set_output_asset_is_input_asset
+proc set_output_asset_to_input_asset
     padw padw mem_loadw_be.INPUT_ASSET_VALUE mem_loadw_be.INPUT_ASSET_KEY
     # => [ASSET_KEY, ASSET_VALUE]
     mem_storew_be.OUTPUT_ASSET_KEY mem_storew_be.OUTPUT_ASSET_VALUE
