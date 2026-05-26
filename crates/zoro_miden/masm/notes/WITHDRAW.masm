@@ -9,6 +9,9 @@ use zoro_miden::lib::output_note_utils
 use zoro_miden::note::common
 use common::DEFAULT_NUMBER_OF_STORAGE_ITEMS
 
+# Arguments:
+# [amount_out, reserve, reserve_with_slippage, total_liabilities]
+# 
 # Expected Note storage:
 # [MIN_ASSET_OUT]
 # [PARAMS] = [deadline, p2id_tag, lp_withdraw_amount, empty]

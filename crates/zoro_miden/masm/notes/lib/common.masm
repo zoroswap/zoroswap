@@ -6,6 +6,7 @@ use miden::core::sys
 use miden::protocol::asset::ASSET_VALUE_MEMORY_OFFSET
 use miden::protocol::asset::ASSET_SIZE
 
+use zoro_miden::lib::asset_utils
 
 # GENERIC CONSTANTS
 const WORD_SIZE = 4
@@ -281,22 +282,24 @@ end
 
 ### GETTERS ###
 # @todo rename and remove padding
-proc get_input_asset_key
-   padw mem_loadw_le.INPUT_ASSET_KEY
+# Needs padw
+proc get_input_asset_key(_padding_word: word) -> word
+   mem_loadw_le.INPUT_ASSET_KEY
 end
 
-proc get_input_asset_value 
-   padw mem_loadw_le.INPUT_ASSET_VALUE
+# Needs padw
+proc get_input_asset_value(_padding_word: word) -> word 
+   mem_loadw_le.INPUT_ASSET_VALUE
 end
 
-proc get_input_asset_key_le
-   padw mem_loadw_le.INPUT_ASSET_KEY
+# Gets the stored input asset in one word
+# Needs padw
+proc get_input_asset(_padding_word: word) -> word
+    exec.get_input_asset_value padw exec.get_input_asset_key
+    # => [ASSET_KEY, ASSET_VALUE]
+    exec.asset_utils::compress_asset
+    # => [ASSET]
 end
-
-proc get_input_asset_value_le 
-   padw mem_loadw_le.INPUT_ASSET_VALUE
-end
-
 
 ################################### OUTPUT NOTE LIBRARY ##########################################
 # =================================================================================================

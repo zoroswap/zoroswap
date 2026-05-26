@@ -338,6 +338,7 @@ pub struct DepositInstructions {
     pub asset_in: FungibleAsset,
     pub min_lp_amount_out: u64,
     pub creator: AccountId,
+    pub beneficiary: Option<AccountId>,
     pub note_type: NoteType,
     pub deadline: u64,
     pub p2id_tag: NoteTag,
@@ -349,6 +350,7 @@ pub struct WithdrawInstructions {
     pub min_asset_out: FungibleAsset,
     pub lp_amount_in: u64,
     pub creator: AccountId,
+    pub beneficiary: Option<AccountId>,
     pub note_type: NoteType,
     pub deadline: u64,
     pub p2id_tag: NoteTag,
@@ -413,17 +415,22 @@ impl TryFrom<TrustedNote> for NoteInstructions {
                 }
                 let vals = note.note().storage().items();
                 let asset_in = asset_in.unwrap_fungible();
-                let min_lp_amount_out: u64 = vals[0].as_canonical_u64();
-                let deadline: u64 = vals[1].as_canonical_u64();
-                let p2id_tag: u64 = vals[2].as_canonical_u64();
-                let creator_suffix = vals[6];
-                let creator_prefix = vals[7];
-                let creator = AccountId::try_from_elements(creator_suffix, creator_prefix)
+                let deadline: u64 = vals[4].as_canonical_u64();
+                let p2id_tag: u64 = vals[5].as_canonical_u64();
+                let min_lp_amount_out: u64 = vals[6].as_canonical_u64();
+                let beneficiary_suffix = vals[8];
+                let beneficiary_prefix = vals[9];
+                let beneficiary_id =
+                    AccountId::try_from_elements(beneficiary_suffix, beneficiary_prefix).ok();
+                let creator_suffix = vals[10];
+                let creator_prefix = vals[11];
+                let creator_id = AccountId::try_from_elements(creator_suffix, creator_prefix)
                     .map_err(|_| anyhow!("Couldn't parse creator_id from order note"))?;
                 Ok(Self::Deposit(DepositInstructions {
                     asset_in,
                     min_lp_amount_out,
-                    creator,
+                    creator: creator_id,
+                    beneficiary: beneficiary_id,
                     note_type: note.note().metadata().note_type(),
                     deadline,
                     p2id_tag: NoteTag::new(p2id_tag.try_into()?),
@@ -436,15 +443,19 @@ impl TryFrom<TrustedNote> for NoteInstructions {
                 let deadline: u64 = vals[4].as_canonical_u64();
                 let p2id_tag: u64 = vals[5].as_canonical_u64();
                 let lp_withdraw_amount: u64 = vals[6].as_canonical_u64();
-                let creator_suffix = vals[8];
-                let creator_prefix = vals[9];
-                let creator = AccountId::try_from_elements(creator_suffix, creator_prefix)
+                let beneficiary_suffix = vals[8];
+                let beneficiary_prefix = vals[9];
+                let beneficiary_id =
+                    AccountId::try_from_elements(beneficiary_suffix, beneficiary_prefix).ok();
+                let creator_suffix = vals[10];
+                let creator_prefix = vals[11];
+                let creator_id = AccountId::try_from_elements(creator_suffix, creator_prefix)
                     .map_err(|_| anyhow!("Couldn't parse creator_id from order note"))?;
-
                 Ok(Self::Withdraw(WithdrawInstructions {
                     min_asset_out,
                     lp_amount_in: lp_withdraw_amount,
-                    creator,
+                    creator: creator_id,
+                    beneficiary: beneficiary_id,
                     note_type: note.note().metadata().note_type(),
                     deadline,
                     p2id_tag: NoteTag::new(p2id_tag.try_into()?),
@@ -469,8 +480,7 @@ impl TryFrom<TrustedNote> for NoteInstructions {
                 let beneficiary_suffix = vals[8];
                 let beneficiary_prefix = vals[9];
                 let beneficiary_id =
-                    AccountId::try_from_elements(beneficiary_suffix, beneficiary_prefix)
-                        .map_err(|_| anyhow!("Couldn't parse beneficiary_id from order note"))?;
+                    AccountId::try_from_elements(beneficiary_suffix, beneficiary_prefix).ok();
                 let creator_suffix = vals[10];
                 let creator_prefix = vals[11];
                 let creator_id = AccountId::try_from_elements(creator_suffix, creator_prefix)
@@ -479,7 +489,7 @@ impl TryFrom<TrustedNote> for NoteInstructions {
                     asset_in,
                     min_asset_out,
                     creator: creator_id,
-                    beneficiary: Some(beneficiary_id),
+                    beneficiary: beneficiary_id,
                     note_type: note.note().metadata().note_type(),
                     deadline,
                     p2id_tag: NoteTag::new(p2id_tag.try_into()?),
@@ -597,13 +607,22 @@ impl TrustedNoteElements {
         if instructions.deadline.eq(&0) {
             return Err(anyhow!("Deadline is zero"));
         }
+        let beneficiary = if let Some(beneficiary) = instructions.beneficiary {
+            beneficiary
+        } else {
+            instructions.creator
+        };
         let inputs = NoteStorage::new(vec![
-            Felt::new(instructions.min_lp_amount_out),
+            Felt::ZERO,
+            Felt::ZERO,
+            Felt::ZERO,
+            Felt::ZERO,
             Felt::new(instructions.deadline),
             instructions.p2id_tag.into(),
+            Felt::new(instructions.min_lp_amount_out),
             Felt::new(0),
-            Felt::new(0),
-            Felt::new(0),
+            beneficiary.suffix(),
+            beneficiary.prefix().into(),
             instructions.creator.suffix(),
             instructions.creator.prefix().into(),
         ])?;
@@ -631,6 +650,11 @@ impl TrustedNoteElements {
             return Err(anyhow!("Deadline is zero"));
         }
         let min_asset_out = asset_to_word(instructions.min_asset_out);
+        let beneficiary = if let Some(beneficiary) = instructions.beneficiary {
+            beneficiary
+        } else {
+            instructions.creator
+        };
         let inputs = NoteStorage::new(vec![
             min_asset_out[0],
             min_asset_out[1],
@@ -640,10 +664,10 @@ impl TrustedNoteElements {
             instructions.p2id_tag.into(),
             Felt::new(instructions.lp_amount_in),
             Felt::new(0),
+            beneficiary.suffix(),
+            beneficiary.prefix().into(),
             instructions.creator.suffix(),
             instructions.creator.prefix().into(),
-            Felt::new(0),
-            Felt::new(0),
         ])?;
         let assets = NoteAssets::default();
         let metadata = NoteMetadata::new(instructions.creator, instructions.note_type)
@@ -748,6 +772,7 @@ mod tests {
                 note_type: NoteType::Public,
                 deadline: Utc::now().timestamp_millis() as u64,
                 creator: test_utils.user_1,
+                beneficiary: Some(test_utils.user_1),
                 p2id_tag: NoteTag::with_account_target(test_utils.user_2),
                 pool_tag: NoteTag::with_account_target(test_utils.pool_1),
             }),
@@ -766,6 +791,7 @@ mod tests {
                 note_type: NoteType::Public,
                 deadline: Utc::now().timestamp_millis() as u64,
                 creator: test_utils.user_1,
+                beneficiary: Some(test_utils.user_1),
                 p2id_tag: NoteTag::with_account_target(test_utils.user_2),
                 pool_tag: NoteTag::with_account_target(test_utils.pool_1),
             }),
@@ -779,6 +805,8 @@ mod tests {
                 note_type: NoteType::Public,
                 deadline: Utc::now().timestamp_millis() as u64,
                 creator: test_utils.user_1,
+                beneficiary: Some(test_utils.user_1),
+
                 p2id_tag: NoteTag::with_account_target(test_utils.user_2),
                 pool_tag: NoteTag::with_account_target(test_utils.pool_1),
             }),
@@ -798,6 +826,7 @@ mod tests {
                 note_type: NoteType::Public,
                 deadline: Utc::now().timestamp_millis() as u64,
                 creator: test_utils.user_1,
+                beneficiary: Some(test_utils.user_1),
                 p2id_tag: NoteTag::with_account_target(test_utils.user_2),
                 pool_tag: NoteTag::with_account_target(test_utils.pool_1),
             }),
@@ -816,6 +845,7 @@ mod tests {
                 note_type: NoteType::Public,
                 deadline: Utc::now().timestamp_millis() as u64,
                 creator: test_utils.user_1,
+                beneficiary: Some(test_utils.user_1),
                 p2id_tag: NoteTag::with_account_target(test_utils.user_2),
                 pool_tag: NoteTag::with_account_target(test_utils.pool_1),
             }),
@@ -829,6 +859,7 @@ mod tests {
                 note_type: NoteType::Public,
                 deadline: Utc::now().timestamp_millis() as u64,
                 creator: test_utils.user_1,
+                beneficiary: Some(test_utils.user_1),
                 p2id_tag: NoteTag::with_account_target(test_utils.user_2),
                 pool_tag: NoteTag::with_account_target(test_utils.pool_1),
             }),
