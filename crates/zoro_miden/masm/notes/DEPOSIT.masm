@@ -100,7 +100,7 @@ proc execute_DEPOSIT
     lt
     # min amount out is not met
     if.true
-        exec.common::set_output_asset_is_input_asset
+        exec.common::set_output_asset_to_input_asset
         exec.output_note_utils::create_p2id_bounce_to_sender
     else
         mem_load.LP_AMOUNT_OUT mem_load.DEPOSIT_CREATOR_ID_PREFIX mem_load.DEPOSIT_CREATOR_ID_SUFFIX 

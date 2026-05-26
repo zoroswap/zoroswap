@@ -123,6 +123,16 @@ proc move_all_assets_to_note(num_assets: u16, note_idx: u16)
 
 end
 
+# @todo move to output note library
+proc prepare_for_recreation_of_the_note_as_is() -> (felt, felt, u16, felt)
+    exec.get_note_type_and_tag_from_active_note
+    # => [note_type, tag]
+    exec.common::store_all_active_note_storage_items_to_output_storage_memory swap drop
+    # => [num_storage_items, note_type, tag]
+    exec.common::store_all_active_note_assets_to_output_assets_memory swap drop
+    # => [num_assets, num_storage_items, note_type, tag]
+end
+
 
 
 
