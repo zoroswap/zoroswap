@@ -47,7 +47,6 @@ impl PoolExecution {
         pool_id: AccountId,
         pool_states: &HashMap<AccountId, PoolState>,
         prices: &HashMap<AccountId, PriceData>,
-        asset_delta: Option<(FungibleAsset, FungibleAsset)>, // for POSITION note
         code_builder: CodeBuilder,
     ) -> Result<(ExecutionResult, Self, Option<TrustedNote>)> {
         let instructions = NoteInstructions::try_from(note.clone())?;
@@ -380,6 +379,10 @@ impl PoolExecution {
                         )
                     && amount_out >= asset_input.amount()
                 {
+                    let asset_delta = Some((
+                        asset_in.clone(),
+                        FungibleAsset::new(asset_input.faucet_id(), amount_out.to())?,
+                    ));
                     let respawned_note =
                         note.respawn_position_note(pool_id, asset_delta, code_builder)?;
 

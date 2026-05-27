@@ -1,9 +1,11 @@
 use num_traits::pow::Pow;
-use std::{collections::HashMap, time::Duration};
+use std::{any::Any, collections::HashMap, time::Duration};
 
 use anyhow::Result;
 use chrono::Utc;
-use miden_client::{Felt, account::AccountId, asset::FungibleAsset};
+use miden_client::{
+    Felt, account::AccountId, asset::FungibleAsset, transaction::TransactionRequestBuilder,
+};
 use tracing::info;
 use zoro_miden::{
     asset_utils::asset_to_word,
@@ -384,14 +386,22 @@ async fn executing_position_swap() -> Result<()> {
             .chain(buy_asset_arg.iter().copied())
             .collect::<Vec<Felt>>(),
     )]);
-    zoro_pool
+    let note_id = note.note().id();
+    let execution_result = zoro_pool
         .execute_notes(vec![note], prices, user_swap_args)
         .await?;
-    info!("--- POSITION note executed");
 
+    let respawned_note = execution_result.get(&note_id).unwrap().clone().1.unwrap();
+    info!("--- POSITION note executed");
+    tokio::time::sleep(Duration::from_millis(10100)).await;
+    test_utils.miden_client_mut().sync_state().await?;
+
+    let reclaim_transaction_request = TransactionRequestBuilder::new()
+        .build_consume_notes(vec![respawned_note.note().clone()])?;
     test_utils
         .miden_client_mut()
-        .consume_simple_notes(&user_id, 1)
+        .client_mut()
+        .submit_new_transaction(user_id, reclaim_transaction_request)
         .await?;
     info!("--- User claim executed");
 

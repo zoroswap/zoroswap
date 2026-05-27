@@ -438,23 +438,12 @@ impl ZoroPool {
             HashMap::with_capacity(notes.len());
         for note in notes {
             let note_id = note.note().id();
-            let asset_delta = if let Some(additional_advice_values) =
-                additional_advice_values.get(&note_id)
-                && additional_advice_values.len() == 8
-            {
-                let sold_asset = word_to_asset(additional_advice_values[0..4].try_into()?)?;
-                let bought_asset = word_to_asset(additional_advice_values[4..8].try_into()?)?;
-                Some((sold_asset, bought_asset))
-            } else {
-                None
-            };
 
             let (execution_result, execution_details, output_note) = PoolExecution::new(
                 note,
                 *self.miden_account.id(),
                 &pool_states,
                 &prices,
-                asset_delta, // Only for POSITION note
                 self.miden_client.client().code_builder(),
             )?;
             execution_details
