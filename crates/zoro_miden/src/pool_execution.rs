@@ -14,7 +14,7 @@ use miden_client::{
 use tracing::info;
 
 use crate::{
-    asset_utils::word_to_asset,
+    asset_utils::{asset_to_word, word_to_asset},
     curve::get_curve_amount_out,
     note::{NoteInstructions, NoteKind, TrustedNote},
     pool_state::PoolState,
@@ -414,6 +414,8 @@ impl PoolExecution {
                         respawned_note.note().recipient().digest()
                     );
 
+                    let asset_in_word = asset_to_word(asset_in);
+                    let min_asset_out_word = asset_to_word(min_asset_out);
                     let advice_map_value = vec![
                         Felt::new(amount_out.to()),
                         Felt::new(
@@ -443,6 +445,14 @@ impl PoolExecution {
                                 .reserve_with_slippage
                                 .saturating_to::<u64>(),
                         ),
+                        asset_in_word[0],
+                        asset_in_word[1],
+                        asset_in_word[2],
+                        asset_in_word[3],
+                        min_asset_out_word[0],
+                        min_asset_out_word[1],
+                        min_asset_out_word[2],
+                        min_asset_out_word[3],
                     ];
 
                     Ok((
