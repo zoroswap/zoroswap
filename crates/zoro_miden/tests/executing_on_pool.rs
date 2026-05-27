@@ -3,9 +3,10 @@ use std::{collections::HashMap, time::Duration};
 
 use anyhow::Result;
 use chrono::Utc;
-use miden_client::{account::AccountId, asset::FungibleAsset};
+use miden_client::{Felt, account::AccountId, asset::FungibleAsset};
 use tracing::info;
 use zoro_miden::{
+    asset_utils::asset_to_word,
     note::{NoteInstructions, NoteKind, TrustedNote},
     pool::ZoroPool,
     price::PriceData,
@@ -59,7 +60,7 @@ async fn executing_deposit() -> Result<()> {
         .send_note(&user_id, pool.miden_account.id(), deposit_note.clone())
         .await?;
     zoro_pool
-        .execute_notes(vec![deposit_note], prices, HashMap::default())
+        .execute_notes(vec![deposit_note], HashMap::default(), HashMap::default())
         .await?;
 
     let user_balance_after = user
@@ -366,8 +367,25 @@ async fn executing_position_swap() -> Result<()> {
         .send_note(&user_id, test_pool.miden_account.id(), note.clone())
         .await?;
     info!("--- Swap sent");
+
+    let sell_asset_arg = asset_to_word(FungibleAsset::new(
+        pool_config_token0.faucet_id,
+        amount / 2,
+    )?);
+    let buy_asset_arg = asset_to_word(FungibleAsset::new(
+        pool_config_token1.faucet_id,
+        amount / 3,
+    )?);
+    let user_swap_args = HashMap::from([(
+        note.note().id(),
+        sell_asset_arg
+            .iter()
+            .copied()
+            .chain(buy_asset_arg.iter().copied())
+            .collect::<Vec<Felt>>(),
+    )]);
     zoro_pool
-        .execute_notes(vec![note], prices, HashMap::default())
+        .execute_notes(vec![note], prices, user_swap_args)
         .await?;
     info!("--- Swap executed");
 
@@ -586,7 +604,7 @@ async fn executing_deposit_withdraw() -> Result<()> {
         .await?;
     info!("--- Withdraw sent");
     zoro_pool
-        .execute_notes(vec![note], prices, HashMap::default())
+        .execute_notes(vec![note], HashMap::default(), HashMap::default())
         .await?;
     info!("--- Withdraw executed");
 

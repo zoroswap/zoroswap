@@ -45,7 +45,7 @@ proc recreate_note(number_of_assets: u16, number_of_storage_items: felt, note_ty
     # => [s0, s1, s2, s3, SCRIPT_ROOT, note_type, tag]
     
     # @todo use crate_serial from our library
-    movup.3 add.1 movdn.3
+    add.1
     # => [s0, s1, s2, s3+1, SCRIPT_ROOT, note_type, tag]
 
     # Build recipient from all note storage items ()

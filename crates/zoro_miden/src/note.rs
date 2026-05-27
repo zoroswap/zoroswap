@@ -60,6 +60,69 @@ impl TrustedNote {
         Self::new_zoro_note(note_elements, code_builder)
     }
 
+    pub fn respawn_position_note(
+        &self,
+        pool_id: AccountId,
+        asset_delta: Option<(FungibleAsset, FungibleAsset)>,
+        code_builder: CodeBuilder,
+    ) -> Result<Self> {
+        if *self.note_kind() != NoteKind::Position {
+            return Err(anyhow!("Note is not a position note"));
+        }
+
+        let note_storage = self.note().storage().clone();
+        let note_assets = self.note().assets().clone();
+        let note_metadata = self.note().metadata().clone();
+        let note_kind = self.note_kind().clone();
+
+        let mut bought_asset_is_an_old_asset = false;
+        let mut new_note_assets: Vec<Asset> = Vec::new();
+        if let Some((sold_asset, bought_asset)) = asset_delta {
+            for asset in note_assets.iter_fungible() {
+                if asset.faucet_id() == sold_asset.faucet_id() {
+                    new_note_assets.push(
+                        FungibleAsset::new(
+                            asset.faucet_id(),
+                            asset.amount() - sold_asset.amount(),
+                        )?
+                        .into(),
+                    );
+                }
+                if asset.faucet_id() == bought_asset.faucet_id() {
+                    bought_asset_is_an_old_asset = true;
+                    new_note_assets.push(
+                        FungibleAsset::new(
+                            asset.faucet_id(),
+                            asset.amount() + bought_asset.amount(),
+                        )?
+                        .into(),
+                    );
+                }
+            }
+            if !bought_asset_is_an_old_asset {
+                new_note_assets.push(bought_asset.into());
+            };
+        } else {
+            new_note_assets = note_assets.iter_fungible().map(|a| a.into()).collect()
+        };
+
+        let referential_serial_number = Some(self.get_output_note_serial_number());
+
+        let note_metadata = NoteMetadata::new(pool_id, note_metadata.note_type());
+        let target = None;
+
+        let note_elements = TrustedNoteElements {
+            note_storage,
+            note_assets: NoteAssets::new(new_note_assets)?,
+            note_metadata,
+            target,
+            referential_serial_number,
+            note_kind,
+        };
+
+        Self::new_zoro_note(note_elements, code_builder)
+    }
+
     fn new_p2id(note_elements: TrustedNoteElements) -> Result<Self> {
         let target = note_elements
             .target
@@ -235,6 +298,17 @@ impl TrustedNote {
             Felt::new(rng.random::<u64>() >> 1),
         ];
         Ok(Word::new(felts))
+    }
+    pub fn get_output_note_serial_number(&self) -> Word {
+        let serial_number = self.serial_number();
+        // when returnin p2ids for zoro notes
+        [
+            serial_number[0] + Felt::new(1),
+            serial_number[1],
+            serial_number[2],
+            serial_number[3],
+        ]
+        .into()
     }
 }
 

@@ -595,10 +595,10 @@ async fn respwawn_simple_unit_test() -> Result<()> {
         .await?;
 
     let new_serial_number: Word = [
-        serial_number[0],
+        serial_number[0] + Felt::new(1),
         serial_number[1],
         serial_number[2],
-        serial_number[3] + Felt::new(1),
+        serial_number[3],
     ]
     .into();
     let respawned_recipient =
@@ -719,10 +719,10 @@ async fn respwawn_reclaim_simple_unit_test() -> Result<()> {
         .await?;
 
     let new_serial_number: Word = [
-        serial_number[0],
+        serial_number[0] + Felt::new(1),
         serial_number[1],
         serial_number[2],
-        serial_number[3] + Felt::new(1),
+        serial_number[3],
     ]
     .into();
     let respawned_recipient =
