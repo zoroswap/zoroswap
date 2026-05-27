@@ -370,13 +370,15 @@ async fn executing_position_swap() -> Result<()> {
         .await?;
     info!("--- POSITION note sent");
 
+    let sell_asset_amount = amount / 2;
     let sell_asset_arg = asset_to_word(FungibleAsset::new(
         pool_config_token0.faucet_id,
-        amount / 2,
+        sell_asset_amount,
     )?);
+    let min_buy_asset_amount = amount / 4;
     let buy_asset_arg = asset_to_word(FungibleAsset::new(
         pool_config_token1.faucet_id,
-        amount / 4,
+        min_buy_asset_amount,
     )?);
     let user_swap_args = HashMap::from([(
         note.note().id(),
@@ -393,7 +395,7 @@ async fn executing_position_swap() -> Result<()> {
 
     let respawned_note = execution_result.get(&note_id).unwrap().clone().1.unwrap();
     info!("--- POSITION note executed");
-    tokio::time::sleep(Duration::from_millis(10100)).await;
+    tokio::time::sleep(Duration::from_millis(4100)).await;
     test_utils.miden_client_mut().sync_state().await?;
 
     let reclaim_transaction_request = TransactionRequestBuilder::new()
@@ -426,7 +428,10 @@ async fn executing_position_swap() -> Result<()> {
         .unwrap();
 
     // User balances should change accordingly
-    assert_eq!(user_balance_after_0, user_balance_before_0 - amount);
+    assert_eq!(
+        user_balance_after_0,
+        user_balance_before_0 - sell_asset_amount
+    );
     info!(
         "--- User balance: before 1: {}, after 1: {}, diff: {}, min amount out: {}",
         user_balance_before_1,
@@ -443,11 +448,11 @@ async fn executing_position_swap() -> Result<()> {
     // Reserve should change accordingly
     assert_eq!(
         pool_balances_after_0.balances().reserve.to::<u64>(),
-        pool_balances_before_0.balances().reserve.to::<u64>() + amount
+        pool_balances_before_0.balances().reserve.to::<u64>() + sell_asset_amount
     );
     assert!(
         pool_balances_after_1.balances().reserve.to::<u64>()
-            <= pool_balances_before_1.balances().reserve.to::<u64>() + amount
+            <= (pool_balances_before_1.balances().reserve.to::<u64>() - min_buy_asset_amount)
     );
 
     // Reserve should change accordingly
@@ -460,18 +465,18 @@ async fn executing_position_swap() -> Result<()> {
             .balances()
             .reserve_with_slippage
             .to::<u64>()
-            + amount
+            + sell_asset_amount
     );
     assert!(
         pool_balances_after_1
             .balances()
             .reserve_with_slippage
             .to::<u64>()
-            <= pool_balances_before_1
+            <= (pool_balances_before_1
                 .balances()
                 .reserve_with_slippage
                 .to::<u64>()
-                + amount
+                - min_buy_asset_amount)
     );
 
     // Liabilities should remain unchanged

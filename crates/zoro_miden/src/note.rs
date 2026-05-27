@@ -171,7 +171,10 @@ impl TrustedNote {
         code_builder: CodeBuilder,
     ) -> Result<Self> {
         let note_script = Self::get_note_script(code_builder, note_elements.note_kind.masm_name())?;
-        let serial_number = Self::random_word()?;
+        let serial_number = match note_elements.referential_serial_number {
+            Some(serial_number) => serial_number,
+            None => Self::random_word()?,
+        };
         let recipient = NoteRecipient::new(serial_number, note_script, note_elements.note_storage);
         let note = Note::new(
             note_elements.note_assets,
