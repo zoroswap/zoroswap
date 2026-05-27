@@ -15,10 +15,7 @@ use tracing::info;
 use zoro_miden::{
     assembly_utils::link_all_libraries,
     asset_utils::{asset_to_word, word_to_asset},
-    note::{
-        DepositInstructions, NoteInstructions, NoteStorageBuilder, SwapInstructions, TrustedNote,
-        WithdrawInstructions,
-    },
+    note::{NoteInstructions, NoteStorageBuilder, TrustedNote},
     pool::ZoroPool,
     price::PriceData,
     test_utils::{PoolWithMeta, TestUtils, format_word_to_masm_string},

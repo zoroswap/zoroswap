@@ -6,10 +6,7 @@ use chrono::Utc;
 use miden_client::{account::AccountId, asset::FungibleAsset};
 use tracing::info;
 use zoro_miden::{
-    note::{
-        DepositInstructions, NoteInstructions, PositionInstructions, SwapInstructions, TrustedNote,
-        WithdrawInstructions,
-    },
+    note::{NoteInstructions, NoteKind, TrustedNote},
     pool::ZoroPool,
     price::PriceData,
     test_utils::{PoolWithMeta, TestUtils},
@@ -44,16 +41,17 @@ async fn executing_deposit() -> Result<()> {
     let pool_balances_before = *zoro_pool.pool_states().get(&pool_config.faucet_id).unwrap();
 
     let deposit_note = TrustedNote::new(
-        NoteInstructions::Deposit(DepositInstructions {
-            asset_in: FungibleAsset::new(pool_config.faucet_id, amount)?,
-            min_lp_amount_out: amount - 100,
-            creator: user_id,
-            beneficiary: Some(user_id),
+        NoteInstructions {
+            note_kind: NoteKind::Deposit,
+            attached_assets: vec![FungibleAsset::new(pool_config.faucet_id, amount)?],
+            amount_input: amount - 100,
+            asset_input: None,
+            beneficiary: user_id,
             note_type: miden_client::note::NoteType::Public,
             deadline: Utc::now().timestamp_millis() as u64 + 120_000,
             p2id_tag: user.miden_account.tag(),
             pool_tag: pool.miden_account.tag(),
-        }),
+        },
         test_utils.miden_client().client().code_builder(),
     )?;
     test_utils
@@ -182,16 +180,20 @@ async fn executing_swap() -> Result<()> {
     prices.insert(pool_config_token1.faucet_id, PriceData::new_at_now(1));
     info!("--- Creating note min amount out: {}", min_amount_out);
     let note = TrustedNote::new(
-        NoteInstructions::Swap(SwapInstructions {
-            asset_in: FungibleAsset::new(pool_config_token0.faucet_id, amount)?,
-            min_asset_out: FungibleAsset::new(pool_config_token1.faucet_id, min_amount_out)?,
-            creator: *user.miden_account.id(),
-            beneficiary: None,
+        NoteInstructions {
+            note_kind: NoteKind::Swap,
+            attached_assets: vec![FungibleAsset::new(pool_config_token0.faucet_id, amount)?],
+            asset_input: Some(FungibleAsset::new(
+                pool_config_token1.faucet_id,
+                min_amount_out,
+            )?),
+            amount_input: 0,
+            beneficiary: *user.miden_account.id(),
             note_type: miden_client::note::NoteType::Public,
             deadline: Utc::now().timestamp_millis() as u64 + 120_000,
             p2id_tag: user.miden_account.tag(),
             pool_tag: test_pool.miden_account.tag(),
-        }),
+        },
         test_utils.miden_client().client().code_builder(),
     )?;
     test_utils
@@ -341,16 +343,20 @@ async fn executing_position_swap() -> Result<()> {
     prices.insert(pool_config_token1.faucet_id, PriceData::new_at_now(1));
     info!("--- Creating note min amount out: {}", min_amount_out);
     let note = TrustedNote::new(
-        NoteInstructions::Position(PositionInstructions {
-            asset_in: FungibleAsset::new(pool_config_token0.faucet_id, amount)?,
-            min_asset_out: FungibleAsset::new(pool_config_token1.faucet_id, min_amount_out)?,
-            creator: *user.miden_account.id(),
-            beneficiary: None,
+        NoteInstructions {
+            note_kind: NoteKind::Position,
+            attached_assets: vec![FungibleAsset::new(pool_config_token0.faucet_id, amount)?],
+            asset_input: Some(FungibleAsset::new(
+                pool_config_token1.faucet_id,
+                min_amount_out,
+            )?),
+            beneficiary: *user.miden_account.id(),
+            amount_input: amount,
             note_type: miden_client::note::NoteType::Public,
             deadline: Utc::now().timestamp_millis() as u64 + 120_000,
             p2id_tag: user.miden_account.tag(),
             pool_tag: test_pool.miden_account.tag(),
-        }),
+        },
         test_utils.miden_client().client().code_builder(),
     )?;
     test_utils
@@ -491,16 +497,17 @@ async fn executing_deposit_withdraw() -> Result<()> {
     let pool_balances_before = *zoro_pool.pool_states().get(&pool_config.faucet_id).unwrap();
 
     let deposit_note = TrustedNote::new(
-        NoteInstructions::Deposit(DepositInstructions {
-            asset_in: FungibleAsset::new(pool_config.faucet_id, amount)?,
-            min_lp_amount_out: amount - 100,
-            creator: user_id,
-            beneficiary: Some(user_id),
+        NoteInstructions {
+            note_kind: NoteKind::Deposit,
+            attached_assets: vec![FungibleAsset::new(pool_config.faucet_id, amount)?],
+            amount_input: amount - 100,
+            asset_input: None,
+            beneficiary: user_id,
             note_type: miden_client::note::NoteType::Public,
             deadline: Utc::now().timestamp_millis() as u64 + 120_000,
             p2id_tag: user.miden_account.tag(),
             pool_tag: zoro_pool.miden_account().tag(),
-        }),
+        },
         test_utils.miden_client().client().code_builder(),
     )?;
     test_utils
@@ -556,16 +563,17 @@ async fn executing_deposit_withdraw() -> Result<()> {
     assert!(pool_balances_after_deposit.lp_total_supply() > pool_balances_before.lp_total_supply());
 
     let note = TrustedNote::new(
-        NoteInstructions::Withdraw(WithdrawInstructions {
-            min_asset_out: FungibleAsset::new(pool_config.faucet_id, amount / 2)?,
-            lp_amount_in: amount,
-            creator: *user.miden_account.id(),
-            beneficiary: Some(*user.miden_account.id()),
+        NoteInstructions {
+            note_kind: NoteKind::Withdraw,
+            attached_assets: vec![],
+            asset_input: Some(FungibleAsset::new(pool_config.faucet_id, amount / 2)?),
+            amount_input: amount,
+            beneficiary: *user.miden_account.id(),
             note_type: miden_client::note::NoteType::Public,
             deadline: Utc::now().timestamp_millis() as u64 + 120_000,
             p2id_tag: user.miden_account.tag(),
             pool_tag: test_pool.miden_account.tag(),
-        }),
+        },
         test_utils.miden_client().client().code_builder(),
     )?;
     test_utils
