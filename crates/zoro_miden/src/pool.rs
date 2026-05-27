@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::HashMap,
     str::FromStr,
     time::{Duration, Instant},
 };
@@ -361,17 +361,20 @@ impl ZoroPool {
         &mut self,
         notes: Vec<TrustedNote>,
         prices: HashMap<AccountId, PriceData>,
+        additional_advice_values: HashMap<NoteId, Vec<Felt>>,
     ) -> Result<HashMap<NoteId, ExecutionResult>> {
         info!("Executing {} notes on the zoro pool", notes.len());
         if notes.is_empty() {
             return Ok(HashMap::default());
         }
         self.miden_client.sync_state().await?;
-        let (note_execution_results, batch_execution_details) =
-            self.prepare_execution_batch(notes, prices).await?;
+        let (note_execution_details, batch_execution_details) = self
+            .prepare_execution_details(notes, prices, additional_advice_values)
+            .await?;
+
         if batch_execution_details.input_notes.is_empty() {
             // no notes are eligible for execution
-            return Ok(note_execution_results);
+            return Ok(note_execution_details);
         }
         let start = Instant::now();
         let (len_input_notes, len_advice_map, len_future_notes, len_output_recipients) = (
@@ -411,13 +414,14 @@ impl ZoroPool {
         self.miden_client.sync_state().await?;
         self.pool_states = new_pool_states;
         self.print_pool_states();
-        Ok(note_execution_results)
+        Ok(note_execution_details)
     }
 
     async fn prepare_execution_details(
         &mut self,
         notes: Vec<TrustedNote>,
         prices: HashMap<AccountId, PriceData>,
+        additional_advice_values: HashMap<NoteId, Vec<Felt>>,
     ) -> Result<(HashMap<NoteId, ExecutionResult>, BatchExecutionDetails)> {
         info!("Preparing execution details for {} notes", notes.len());
         let mut advice_map = AdviceMap::default();
@@ -457,7 +461,11 @@ impl ZoroPool {
             }
 
             if let Some(advice_map_value) = advice_map_value {
-                advice_map.insert(advice_map_value.0, advice_map_value.1);
+                let mut value = advice_map_value.1;
+                if let Some(additional_advice_values) = additional_advice_values.get(&note_id) {
+                    value.extend(additional_advice_values);
+                }
+                advice_map.insert(advice_map_value.0, value);
             };
             if let Some(input_note) = input_note {
                 input_notes.push(input_note);
@@ -484,65 +492,6 @@ impl ZoroPool {
                 new_pool_states: pool_states,
             },
         ))
-    }
-
-    async fn prepare_execution_batch(
-        &mut self,
-        notes: Vec<TrustedNote>,
-        prices: HashMap<AccountId, PriceData>,
-    ) -> Result<(HashMap<NoteId, ExecutionResult>, BatchExecutionDetails)> {
-        info!("Preparing batch execution for {} notes", notes.len());
-        let mut note_results = HashMap::with_capacity(notes.len());
-        let mut valid_notes = notes;
-        // simulate until all notes go thru
-        // must do it this way because of the sequential nature of updates to the account and pool states
-        // loop {
-        if valid_notes.is_empty() {
-            return Ok((note_results, BatchExecutionDetails::default()));
-        }
-
-        // TODO: Are prices still fresh here?
-        let (note_execution_details, batch_execution_details) = self
-            .prepare_execution_details(valid_notes.clone(), prices.clone())
-            .await?;
-        note_results.extend(note_execution_details);
-        // let note_screener = self.miden_client.client().note_screener();
-
-        let mut note_args = BTreeMap::new();
-        for (note, args) in &batch_execution_details.input_notes {
-            if let Some(args) = args {
-                note_args.insert(note.id(), *args);
-            }
-        }
-        Ok((note_results, batch_execution_details))
-
-        // let tx_args = TransactionArgs::new(batch_execution_details.advice_map.clone())
-        //     .with_note_args(note_args);
-        // let note_screener = note_screener.with_transaction_args(tx_args);
-        // let raw_notes: Vec<Note> = valid_notes.iter().map(|n| n.note().clone()).collect();
-        // let NoteConsumptionInfo { successful, failed } = note_screener
-        //     .check_notes_consumability(*self.miden_account.id(), raw_notes)
-        //     .await?;
-        // if !failed.is_empty() {
-        //     for n in &failed {
-        //         note_results.insert(n.note.id(), ExecutionResult::FailedConsuming);
-        //     }
-        //     let failed_ids = failed.iter().map(|n| n.note.id());
-        //     let ids_string = failed_ids
-        //         .clone()
-        //         .map(|id| id.to_hex())
-        //         .collect::<Vec<String>>()
-        //         .join(", ");
-        //     valid_notes.retain(|n| successful.contains(n.note()));
-        //     warn!(
-        //         "{} notes cant be consumed. Failed note ids: {}",
-        //         failed_ids.len(),
-        //         ids_string
-        //     );
-        // } else {
-        //     return Ok((note_results, batch_execution_details));
-        // }
-        // }
     }
 }
 
@@ -586,7 +535,9 @@ mod tests {
             zoro_pool,
             test_pool: _,
         } = &mut test_utils.get_initialized_pools(1).await?[..][0];
-        zoro_pool.execute_notes(vec![], HashMap::default()).await?;
+        zoro_pool
+            .execute_notes(vec![], HashMap::default(), HashMap::default())
+            .await?;
         Ok(())
     }
 
@@ -604,7 +555,7 @@ mod tests {
         )?;
         let p2id_id = p2id.note().id();
         let res = zoro_pool
-            .execute_notes(vec![p2id], HashMap::default())
+            .execute_notes(vec![p2id], HashMap::default(), HashMap::default())
             .await?;
         let res_for_note = res.get(&p2id_id).unwrap();
         assert_eq!(res_for_note, &ExecutionResult::FailedConsuming);

@@ -114,7 +114,9 @@ async fn main() -> Result<()> {
         notes.push(deposit_note);
     }
     println!("\n[STEP 4] Execute DEPOSIT notes on zoro pool");
-    zoro_pool.execute_notes(notes, HashMap::default()).await?;
+    zoro_pool
+        .execute_notes(notes, HashMap::default(), HashMap::default())
+        .await?;
     zoro_pool.print_pool_states();
     println!(
         "\n------\n New pool created: {:?}\n-----\n",
