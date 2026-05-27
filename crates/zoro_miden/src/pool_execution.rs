@@ -14,6 +14,7 @@ use miden_client::{
 use tracing::info;
 
 use crate::{
+    asset_utils::word_to_asset,
     curve::get_curve_amount_out,
     note::{NoteInstructions, NoteKind, TrustedNote},
     pool_state::PoolState,
@@ -47,6 +48,7 @@ impl PoolExecution {
         pool_id: AccountId,
         pool_states: &HashMap<AccountId, PoolState>,
         prices: &HashMap<AccountId, PriceData>,
+        additional_advice_values: Option<Vec<Felt>>,
         code_builder: CodeBuilder,
     ) -> Result<(ExecutionResult, Self, Option<TrustedNote>)> {
         let instructions = NoteInstructions::try_from(note.clone())?;
@@ -187,12 +189,12 @@ impl PoolExecution {
                 } else {
                     asset_in = *asset_in_opt.unwrap();
                 }
-                let asset_input_opt = instructions.attached_assets.first();
+                let asset_input_opt = instructions.asset_input;
                 let asset_input: FungibleAsset;
                 if asset_input_opt.is_none() {
                     return Ok((ExecutionResult::Failed, PoolExecution::default(), None));
                 } else {
-                    asset_input = *asset_input_opt.unwrap();
+                    asset_input = asset_input_opt.unwrap();
                 }
 
                 let past_deadline = now > instructions.deadline as i64;
@@ -325,34 +327,45 @@ impl PoolExecution {
                 ))
             }
             NoteKind::Position => {
-                let asset_in_opt = instructions.attached_assets.first();
                 let asset_in: FungibleAsset;
-                if asset_in_opt.is_none() {
-                    return Ok((ExecutionResult::Failed, PoolExecution::default(), None));
+                let min_asset_out: FungibleAsset;
+
+                if let Some(additional_advice_values) = additional_advice_values
+                    && additional_advice_values.len() == 8
+                {
+                    asset_in = word_to_asset(Word::new([
+                        additional_advice_values[0],
+                        additional_advice_values[1],
+                        additional_advice_values[2],
+                        additional_advice_values[3],
+                    ]))?;
+                    min_asset_out = word_to_asset(Word::new([
+                        additional_advice_values[4],
+                        additional_advice_values[5],
+                        additional_advice_values[6],
+                        additional_advice_values[7],
+                    ]))?;
                 } else {
-                    asset_in = *asset_in_opt.unwrap();
-                }
-                let asset_input_opt = instructions.attached_assets.first();
-                let asset_input: FungibleAsset;
-                if asset_input_opt.is_none() {
-                    return Ok((ExecutionResult::Failed, PoolExecution::default(), None));
-                } else {
-                    asset_input = *asset_input_opt.unwrap();
-                }
+                    return Ok((
+                        ExecutionResult::Failed,
+                        PoolExecution::default(),
+                        Some(note),
+                    ));
+                };
 
                 let past_deadline = now > instructions.deadline as i64;
                 let mut pool_state_base = *new_pool_states
                     .get_mut(&asset_in.faucet_id())
                     .ok_or(anyhow!("Trying to execute swap for an unknown asset."))?;
                 let mut pool_state_quote = *new_pool_states
-                    .get_mut(&asset_input.faucet_id())
+                    .get_mut(&min_asset_out.faucet_id())
                     .ok_or(anyhow!("Trying to execute swap for an unknown asset."))?;
                 let base_price = prices
                     .get(&asset_in.faucet_id())
                     .ok_or(anyhow!("No price for asset {}", asset_in))?;
                 let quote_price = prices
-                    .get(&asset_input.faucet_id())
-                    .ok_or(anyhow!("No price for asset {}", asset_input))?;
+                    .get(&min_asset_out.faucet_id())
+                    .ok_or(anyhow!("No price for asset {}", min_asset_out))?;
                 let price = base_price.quote_with(quote_price.price);
 
                 let (amount_out, new_base_pool_balances, new_quote_pool_balances) =
@@ -366,7 +379,11 @@ impl PoolExecution {
                     )
                     .unwrap();
 
-                println!("past_deadline {past_deadline}, amount_out: {amount_out:?}");
+                println!(
+                    "past_deadline {past_deadline}, amount_out: {amount_out:?}, {} >= {}",
+                    amount_out,
+                    min_asset_out.amount()
+                );
                 if !past_deadline
                     && let Ok((amount_out, new_base_pool_balances, new_quote_pool_balances)) =
                         get_curve_amount_out(
@@ -377,11 +394,11 @@ impl PoolExecution {
                             U256::from(asset_in.amount()),
                             price,
                         )
-                    && amount_out >= asset_input.amount()
+                    && amount_out >= min_asset_out.amount()
                 {
                     let asset_delta = Some((
-                        asset_in.clone(),
-                        FungibleAsset::new(asset_input.faucet_id(), amount_out.to())?,
+                        asset_in,
+                        FungibleAsset::new(min_asset_out.faucet_id(), amount_out.to())?,
                     ));
                     let respawned_note =
                         note.respawn_position_note(pool_id, asset_delta, code_builder)?;
@@ -389,7 +406,7 @@ impl PoolExecution {
                     pool_state_base.update_balances(new_base_pool_balances);
                     pool_state_quote.update_balances(new_quote_pool_balances);
                     new_pool_states.insert(asset_in.faucet_id(), pool_state_base);
-                    new_pool_states.insert(asset_input.faucet_id(), pool_state_quote);
+                    new_pool_states.insert(min_asset_out.faucet_id(), pool_state_quote);
 
                     info!(
                         "Respawned note: serial {:?} recipient {:?}",
@@ -446,17 +463,12 @@ impl PoolExecution {
                         Some(respawned_note),
                     ))
                 } else {
-                    let p2id = TrustedNote::build_p2id(
-                        instructions.beneficiary,
-                        asset_in,
-                        Some(note.serial_number()),
-                    )?;
                     let result = if past_deadline {
                         ExecutionResult::PastDeadline
                     } else {
                         ExecutionResult::Failed
                     };
-                    Ok((result, PoolExecution::default(), Some(p2id)))
+                    Ok((result, PoolExecution::default(), Some(note)))
                 }
             }
             NoteKind::P2ID => Ok((ExecutionResult::Failed, PoolExecution::default(), None)),

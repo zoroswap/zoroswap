@@ -438,12 +438,13 @@ impl ZoroPool {
             HashMap::with_capacity(notes.len());
         for note in notes {
             let note_id = note.note().id();
-
+            let additional_advice_values = additional_advice_values.get(&note_id).cloned();
             let (execution_result, execution_details, output_note) = PoolExecution::new(
                 note,
                 *self.miden_account.id(),
                 &pool_states,
                 &prices,
+                additional_advice_values,
                 self.miden_client.client().code_builder(),
             )?;
             execution_details
@@ -472,11 +473,7 @@ impl ZoroPool {
             }
 
             if let Some(advice_map_value) = advice_map_value {
-                let mut value = advice_map_value.1;
-                if let Some(additional_advice_values) = additional_advice_values.get(&note_id) {
-                    value.extend(additional_advice_values);
-                }
-                advice_map.insert(advice_map_value.0, value);
+                advice_map.insert(advice_map_value.0, advice_map_value.1);
             };
             if let Some(input_note) = input_note {
                 input_notes.push(input_note);

@@ -376,7 +376,7 @@ async fn executing_position_swap() -> Result<()> {
     )?);
     let buy_asset_arg = asset_to_word(FungibleAsset::new(
         pool_config_token1.faucet_id,
-        amount / 3,
+        amount / 4,
     )?);
     let user_swap_args = HashMap::from([(
         note.note().id(),
