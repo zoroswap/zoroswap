@@ -49,7 +49,7 @@ impl PoolExecution {
         prices: &HashMap<AccountId, PriceData>,
         asset_delta: Option<(FungibleAsset, FungibleAsset)>, // for POSITION note
         code_builder: CodeBuilder,
-    ) -> Result<(ExecutionResult, Self)> {
+    ) -> Result<(ExecutionResult, Self, Option<TrustedNote>)> {
         let instructions = NoteInstructions::try_from(note.clone())?;
         let now = Utc::now().timestamp_millis();
         let mut new_pool_states = pool_states.clone();
@@ -60,7 +60,7 @@ impl PoolExecution {
                 let asset_in_opt = instructions.attached_assets.first();
                 let asset_in: FungibleAsset;
                 if asset_in_opt.is_none() {
-                    return Ok((ExecutionResult::Failed, PoolExecution::default()));
+                    return Ok((ExecutionResult::Failed, PoolExecution::default(), None));
                 } else {
                     asset_in = *asset_in_opt.unwrap();
                 }
@@ -87,6 +87,7 @@ impl PoolExecution {
                             expected_output_recipient: None,
                             counterparty_account: Some(instructions.beneficiary),
                         },
+                        None,
                     ))
                 } else {
                     // Return the asset back to the creator of this failed deposit
@@ -115,6 +116,7 @@ impl PoolExecution {
                             expected_output_recipient: Some(p2id.note().recipient().clone()),
                             counterparty_account: Some(instructions.beneficiary),
                         },
+                        Some(p2id),
                     ))
                 }
             }
@@ -122,7 +124,7 @@ impl PoolExecution {
                 let asset_input_opt = instructions.attached_assets.first();
                 let asset_input: FungibleAsset;
                 if asset_input_opt.is_none() {
-                    return Ok((ExecutionResult::Failed, PoolExecution::default()));
+                    return Ok((ExecutionResult::Failed, PoolExecution::default(), None));
                 } else {
                     asset_input = *asset_input_opt.unwrap();
                 }
@@ -164,6 +166,7 @@ impl PoolExecution {
                             expected_output_recipient: Some(p2id.note().recipient().clone()),
                             counterparty_account: Some(instructions.beneficiary),
                         },
+                        Some(p2id),
                     ))
                 } else {
                     Ok((
@@ -173,6 +176,7 @@ impl PoolExecution {
                             ExecutionResult::Failed
                         },
                         PoolExecution::default(),
+                        None,
                     ))
                 }
             }
@@ -180,14 +184,14 @@ impl PoolExecution {
                 let asset_in_opt = instructions.attached_assets.first();
                 let asset_in: FungibleAsset;
                 if asset_in_opt.is_none() {
-                    return Ok((ExecutionResult::Failed, PoolExecution::default()));
+                    return Ok((ExecutionResult::Failed, PoolExecution::default(), None));
                 } else {
                     asset_in = *asset_in_opt.unwrap();
                 }
                 let asset_input_opt = instructions.attached_assets.first();
                 let asset_input: FungibleAsset;
                 if asset_input_opt.is_none() {
-                    return Ok((ExecutionResult::Failed, PoolExecution::default()));
+                    return Ok((ExecutionResult::Failed, PoolExecution::default(), None));
                 } else {
                     asset_input = *asset_input_opt.unwrap();
                 }
@@ -318,20 +322,21 @@ impl PoolExecution {
                         expected_output_recipient: Some(p2id.note().recipient().clone()),
                         counterparty_account,
                     },
+                    Some(p2id),
                 ))
             }
             NoteKind::Position => {
                 let asset_in_opt = instructions.attached_assets.first();
                 let asset_in: FungibleAsset;
                 if asset_in_opt.is_none() {
-                    return Ok((ExecutionResult::Failed, PoolExecution::default()));
+                    return Ok((ExecutionResult::Failed, PoolExecution::default(), None));
                 } else {
                     asset_in = *asset_in_opt.unwrap();
                 }
                 let asset_input_opt = instructions.attached_assets.first();
                 let asset_input: FungibleAsset;
                 if asset_input_opt.is_none() {
-                    return Ok((ExecutionResult::Failed, PoolExecution::default()));
+                    return Ok((ExecutionResult::Failed, PoolExecution::default(), None));
                 } else {
                     asset_input = *asset_input_opt.unwrap();
                 }
@@ -435,6 +440,7 @@ impl PoolExecution {
                             ),
                             counterparty_account: None,
                         },
+                        Some(respawned_note),
                     ))
                 } else {
                     let p2id = TrustedNote::build_p2id(
@@ -447,10 +453,10 @@ impl PoolExecution {
                     } else {
                         ExecutionResult::Failed
                     };
-                    Ok((result, PoolExecution::default()))
+                    Ok((result, PoolExecution::default(), Some(p2id)))
                 }
             }
-            NoteKind::P2ID => Ok((ExecutionResult::Failed, PoolExecution::default())),
+            NoteKind::P2ID => Ok((ExecutionResult::Failed, PoolExecution::default(), None)),
         }
     }
 

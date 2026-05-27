@@ -91,7 +91,7 @@ impl TradingEngine {
                     .execute_notes(notes, prices, HashMap::default())
                     .await
             {
-                for (note_id, result) in &results {
+                for (note_id, (result, _output_note)) in &results {
                     let order_id = self.state.get_order_id(note_id).unwrap_or_default();
                     let _ = self.broadcaster.broadcast_order_update(OrderUpdateEvent {
                         order_id,

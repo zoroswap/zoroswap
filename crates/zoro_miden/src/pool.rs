@@ -364,7 +364,7 @@ impl ZoroPool {
         notes: Vec<TrustedNote>,
         prices: HashMap<AccountId, PriceData>,
         additional_advice_values: HashMap<NoteId, Vec<Felt>>,
-    ) -> Result<HashMap<NoteId, ExecutionResult>> {
+    ) -> Result<HashMap<NoteId, (ExecutionResult, Option<TrustedNote>)>> {
         info!("Executing {} notes on the zoro pool", notes.len());
         if notes.is_empty() {
             return Ok(HashMap::default());
@@ -424,14 +424,17 @@ impl ZoroPool {
         notes: Vec<TrustedNote>,
         prices: HashMap<AccountId, PriceData>,
         additional_advice_values: HashMap<NoteId, Vec<Felt>>,
-    ) -> Result<(HashMap<NoteId, ExecutionResult>, BatchExecutionDetails)> {
+    ) -> Result<(
+        HashMap<NoteId, (ExecutionResult, Option<TrustedNote>)>,
+        BatchExecutionDetails,
+    )> {
         info!("Preparing execution details for {} notes", notes.len());
         let mut advice_map = AdviceMap::default();
         let mut input_notes = Vec::with_capacity(notes.len());
         let mut expected_future_notes = Vec::with_capacity(notes.len());
         let mut expected_output_recipients = Vec::with_capacity(notes.len());
         let mut pool_states = self.pool_states.clone();
-        let mut note_execution_results: HashMap<NoteId, ExecutionResult> =
+        let mut note_execution_results: HashMap<NoteId, (ExecutionResult, Option<TrustedNote>)> =
             HashMap::with_capacity(notes.len());
         for note in notes {
             let note_id = note.note().id();
@@ -446,7 +449,7 @@ impl ZoroPool {
                 None
             };
 
-            let (execution_result, execution_details) = PoolExecution::new(
+            let (execution_result, execution_details, output_note) = PoolExecution::new(
                 note,
                 *self.miden_account.id(),
                 &pool_states,
@@ -499,7 +502,7 @@ impl ZoroPool {
                 pool_states = new_pool_states
             };
 
-            note_execution_results.insert(note_id, execution_result);
+            note_execution_results.insert(note_id, (execution_result, output_note));
         }
         Ok((
             note_execution_results,
@@ -576,8 +579,8 @@ mod tests {
         let res = zoro_pool
             .execute_notes(vec![p2id], HashMap::default(), HashMap::default())
             .await?;
-        let res_for_note = res.get(&p2id_id).unwrap();
-        assert_eq!(res_for_note, &ExecutionResult::FailedConsuming);
+        let res_for_note = res.get(&p2id_id).unwrap().0;
+        assert_eq!(res_for_note, ExecutionResult::FailedConsuming);
         Ok(())
     }
 }
