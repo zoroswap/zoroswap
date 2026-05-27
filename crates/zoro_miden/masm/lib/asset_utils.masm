@@ -48,6 +48,8 @@ proc is_asset_the_same_c(asset_0: word, asset_1: word) -> i1
         swap drop
         # => [is_equal]
     else # callbacks are different
+        # => [asset_0_suffix, asset_0_prefix, asset_0_value, asset_1_suffix, asset_1_prefix, asset_1_value]
+        dropw drop drop
         push.0
     end
 end

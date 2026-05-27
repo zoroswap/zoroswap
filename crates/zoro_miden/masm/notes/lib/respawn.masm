@@ -22,20 +22,23 @@ use common::INPUT_ASSETS_POINTER
 use common::OUTPUT_NOTE_STORAGE_START
 use common::OUTPUT_NOTE_ASSETS_START
 
+use common::OUTPUT_NOTE_ASSETS_END
+
 
 
 ##################################### NOTE RECREACTION LOGIC ##########################################
-const NUMBER_OF_ASSETS_LOCAL = 0
-const NUMBER_OF_STORAGE_ITEMS_LOCAL = 1
-const RECREATED_NOTE_IDX_LOCAL = 2
+const NUMBER_OF_ASSETS_LOCAL = 0 + 12
+const NUMBER_OF_STORAGE_ITEMS_LOCAL = 1 + 12
+const RECREATED_NOTE_IDX_LOCAL = 2 + 12
 
 #! Inputs:  [number_of_assets, note_type, tag]
 #! Outputs: [note_idx]
 #!
 #! Panics if:
 #! - the note is not valid
-@locals(3)
+@locals(50)
 proc recreate_note(number_of_assets: u16, number_of_storage_items: felt, note_type: u16, tag: felt) -> (u16)
+
     loc_store.NUMBER_OF_ASSETS_LOCAL loc_store.NUMBER_OF_STORAGE_ITEMS_LOCAL
     exec.active_note::get_script_root
     # => [SCRIPT_ROOT, note_type, tag]
@@ -74,11 +77,11 @@ proc recreate_note(number_of_assets: u16, number_of_storage_items: felt, note_ty
     loc_load.RECREATED_NOTE_IDX_LOCAL
 end
 
-const NOTE_IDX_LOCAL = 0
-const LOOP_POINTER_0_LOCAL = 1
-const ASSET_END_POINTER_LOCAL = 2
+const NOTE_IDX_LOCAL = 0 + 24
+const LOOP_POINTER_0_LOCAL = 1 + 24
+const ASSET_END_POINTER_LOCAL = 2 + 24
 #! Notice: assumes all assets are stored in memory from OUTPUT_NOTE_ASSETS_START
-@locals(3)
+@locals(50)
 proc move_all_assets_to_note(num_assets: u16, note_idx: u16)
     swap loc_store.NOTE_IDX_LOCAL push.OUTPUT_NOTE_ASSETS_START swap
     # => [num_assets, assets_ptr]
@@ -86,14 +89,13 @@ proc move_all_assets_to_note(num_assets: u16, note_idx: u16)
     # => [assets_allocation_size, assets_ptr]
     dup.1 add
     # => [end_ptr, assets_ptr]
-    loc_store.ASSET_END_POINTER_LOCAL dup loc_store.LOOP_POINTER_0_LOCAL
-    # => [ptr]
-    # loop if the amount of assets is non-zero
-    loc_load.ASSET_END_POINTER_LOCAL
-    # => [end_ptr, ptr]
+    dup loc_store.ASSET_END_POINTER_LOCAL 
+    # => [end_ptr, assets_ptr]
+    dup.1 loc_store.LOOP_POINTER_0_LOCAL
+    # => [end_ptr, assets_ptr]
+    # loop if the number of assets is non-zero
     lt
     # => [should_loop]
-
     while.true
         # => []
         #  pad the stack andload the pointer
@@ -122,7 +124,13 @@ proc move_all_assets_to_note(num_assets: u16, note_idx: u16)
 
 end
 
-# @todo move to output note library
+#! Inputs:  []
+#! Outputs: [num_assets, num_storage_items, note_type, tag]
+#!
+#! Panics if:
+#! - the number of assets is greater than the maximum number of assets.
+#! - the number of storage items is greater than the maximum number of storage items.
+#! @todo move to output note library
 proc prepare_for_recreation_of_the_note_as_is() -> (felt, felt, u16, felt)
     exec.get_note_type_and_tag_from_active_note
     # => [note_type, tag]
