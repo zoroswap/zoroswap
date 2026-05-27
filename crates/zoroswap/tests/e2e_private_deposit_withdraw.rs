@@ -9,7 +9,7 @@ use test_utils::*;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 use zoro_miden::account::MidenAccount;
-use zoro_miden::note::{DepositInstructions, NoteInstructions, TrustedNote, WithdrawInstructions};
+use zoro_miden::note::{NoteInstructions, NoteKind, TrustedNote};
 
 #[tokio::test]
 async fn e2e_private_deposit_withdraw() -> Result<()> {
@@ -56,16 +56,17 @@ async fn e2e_private_deposit_withdraw() -> Result<()> {
     let min_lp_amount_out = ((amount_in as f64) * (1.0 - max_slippage)) as u64;
 
     let deposit_note = TrustedNote::new(
-        NoteInstructions::Deposit(DepositInstructions {
-            asset_in: FungibleAsset::new(pool.faucet_id, amount_in)?,
-            min_lp_amount_out,
-            creator: *account.id(),
-            beneficiary: Some(*account.id()),
+        NoteInstructions {
+            attached_assets: vec![FungibleAsset::new(pool.faucet_id, amount_in)?],
+            amount_input: min_lp_amount_out,
+            beneficiary: *account.id(),
             note_type: NoteType::Private,
             deadline: Utc::now().timestamp_millis() as u64 + 120_000,
             p2id_tag: NoteTag::with_account_target(*account.id()),
             pool_tag: NoteTag::with_account_target(config.pool_account_id),
-        }),
+            note_kind: NoteKind::Deposit,
+            asset_input: None,
+        },
         miden_client.client_mut().code_builder(),
     )?;
 
@@ -104,16 +105,17 @@ async fn e2e_private_deposit_withdraw() -> Result<()> {
     let min_asset_amount_out = min_asset_amount_out as u64;
 
     let withdraw_note = TrustedNote::new(
-        NoteInstructions::Withdraw(WithdrawInstructions {
-            min_asset_out: FungibleAsset::new(pool.faucet_id, min_asset_amount_out)?,
-            lp_amount_in: amount_to_withdraw,
-            creator: *account.id(),
-            beneficiary: Some(*account.id()),
+        NoteInstructions {
+            asset_input: Some(FungibleAsset::new(pool.faucet_id, min_asset_amount_out)?),
+            amount_input: amount_to_withdraw,
+            beneficiary: *account.id(),
             note_type: NoteType::Private,
             p2id_tag: NoteTag::with_account_target(*account.id()),
             pool_tag: NoteTag::with_account_target(config.pool_account_id),
             deadline: Utc::now().timestamp_millis() as u64 + 120_000,
-        }),
+            note_kind: NoteKind::Withdraw,
+            attached_assets: vec![],
+        },
         miden_client.client_mut().code_builder(),
     )?;
 

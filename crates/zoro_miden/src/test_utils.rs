@@ -25,7 +25,7 @@ use walkdir::WalkDir;
 use crate::{
     account::MidenAccount,
     client::MidenClient,
-    note::{DepositInstructions, NoteInstructions, TrustedNote},
+    note::{NoteInstructions, TrustedNote},
     pool::{LiquidityPoolConfig, ZoroPool},
 };
 
@@ -445,16 +445,20 @@ impl TestUtils {
                         .await?;
                     info!("Creating a deposit note");
                     let deposit_note = TrustedNote::new(
-                        NoteInstructions::Deposit(DepositInstructions {
-                            asset_in: FungibleAsset::new(liq_config.faucet_id, mint_amount)?,
-                            min_lp_amount_out: mint_amount - 100,
-                            creator: *acc.miden_account.id(),
-                            beneficiary: Some(*acc.miden_account.id()),
+                        NoteInstructions {
+                            asset_input: None,
+                            attached_assets: vec![FungibleAsset::new(
+                                liq_config.faucet_id,
+                                mint_amount,
+                            )?],
+                            amount_input: mint_amount - 100,
+                            beneficiary: *acc.miden_account.id(),
                             note_type: miden_client::note::NoteType::Public,
                             deadline: Utc::now().timestamp_millis() as u64 + 120_000,
                             p2id_tag: acc.miden_account.tag(),
                             pool_tag: pool.miden_account.tag(),
-                        }),
+                            note_kind: crate::note::NoteKind::Deposit,
+                        },
                         self.miden_client.client().code_builder(),
                     )?;
                     self.miden_client_mut()

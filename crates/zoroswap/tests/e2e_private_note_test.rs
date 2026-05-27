@@ -8,7 +8,7 @@ use test_utils::*;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 use zoro_miden::account::MidenAccount;
-use zoro_miden::note::{NoteInstructions, SwapInstructions, TrustedNote};
+use zoro_miden::note::{NoteInstructions, NoteKind, TrustedNote};
 
 #[tokio::test]
 async fn e2e_private_note() -> Result<()> {
@@ -69,16 +69,17 @@ async fn e2e_private_note() -> Result<()> {
     );
 
     let note = TrustedNote::new(
-        NoteInstructions::Swap(SwapInstructions {
-            asset_in: FungibleAsset::new(pool0.faucet_id, amount_in)?,
-            min_asset_out: FungibleAsset::new(pool1.faucet_id, min_amount_out)?,
-            creator: *account.id(),
-            beneficiary: None,
+        NoteInstructions {
+            attached_assets: vec![FungibleAsset::new(pool0.faucet_id, amount_in)?],
+            asset_input: Some(FungibleAsset::new(pool1.faucet_id, min_amount_out)?),
+            beneficiary: *account.id(),
             note_type: NoteType::Private,
             deadline: Utc::now().timestamp_millis() as u64 + 120_000,
             p2id_tag: NoteTag::with_account_target(*account.id()),
             pool_tag: NoteTag::with_account_target(config.pool_account_id),
-        }),
+            note_kind: NoteKind::Swap,
+            amount_input: 0,
+        },
         miden_client.client_mut().code_builder(),
     )?;
 

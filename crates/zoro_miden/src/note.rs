@@ -268,11 +268,11 @@ impl NoteInstructions {
             .collect::<Vec<String>>()
             .join(", ");
         format!(
-            "{:?} of {:?} -> min LP: {} for faucet {}. From user {} (tag {}) with deadline {}. Type: {}.",
+            "Note kind: {:?}, with assets: {:?}. Asset input {:?}, amount input: {:?} for beneficiary {}. P2ID Tag {} with deadline {}. Type: {}.",
             self.note_kind,
-            self.asset,
-            self.min_amount,
             assets,
+            self.asset_input,
+            self.amount_input,
             self.beneficiary.to_bech32(network_id.clone()),
             self.p2id_tag.as_u32(),
             deadline,
@@ -283,7 +283,7 @@ impl NoteInstructions {
     pub fn involves_faucets(&self, faucets: &HashSet<AccountId>) -> bool {
         let mut faucets_involved: Vec<AccountId> =
             self.attached_assets.iter().map(|a| a.faucet_id()).collect();
-        if let Some(asset) = self.asset {
+        if let Some(asset) = self.asset_input {
             faucets_involved.push(asset.faucet_id());
         }
         let faucets_involved: HashSet<AccountId> = HashSet::from_iter(faucets_involved);
@@ -294,8 +294,8 @@ impl NoteInstructions {
 #[derive(Clone, Debug)]
 pub struct NoteInstructions {
     pub attached_assets: Vec<FungibleAsset>,
-    pub asset: Option<FungibleAsset>,
-    pub min_amount: u64,
+    pub asset_input: Option<FungibleAsset>,
+    pub amount_input: u64,
     pub beneficiary: AccountId,
     pub deadline: u64,
     pub p2id_tag: NoteTag,
@@ -341,10 +341,10 @@ impl TryFrom<TrustedNote> for NoteInstructions {
     fn try_from(note: TrustedNote) -> std::result::Result<Self, Self::Error> {
         let assets: Vec<FungibleAsset> = note.note().assets().iter_fungible().collect();
         let vals: &[Felt] = note.note().storage().items();
-        let asset = word_to_asset(Word::new(vals[..4].try_into()?)).ok();
-        let deadline: u64 = vals[4].as_canonical_u64();
-        let p2id_tag: u64 = vals[5].as_canonical_u64();
-        let min_amount: u64 = vals[6].as_canonical_u64();
+        let asset_input = word_to_asset(Word::new(vals[..4].try_into()?)).ok();
+        let deadline = vals[4].as_canonical_u64();
+        let p2id_tag = vals[5].as_canonical_u64();
+        let amount_input = vals[6].as_canonical_u64();
         let beneficiary_suffix = vals[8];
         let beneficiary_prefix = vals[9];
         let beneficiary_id =
@@ -352,8 +352,8 @@ impl TryFrom<TrustedNote> for NoteInstructions {
                 .map_err(|_| anyhow!("Couldn't parse beneficiary_id from order note"))?;
         Ok(Self {
             attached_assets: assets,
-            min_amount,
-            asset,
+            amount_input,
+            asset_input,
             beneficiary: beneficiary_id,
             note_type: note.note().metadata().note_type(),
             deadline,
@@ -411,10 +411,10 @@ impl TrustedNoteElements {
     }
     pub fn from_note_instructions(instructions: NoteInstructions) -> Result<Self> {
         let mut note_storage = NoteStorageBuilder::new(instructions.beneficiary)
-            .with_min_amount(instructions.min_amount)?
+            .with_min_amount(instructions.amount_input)?
             .with_deadline(instructions.deadline)?
             .with_p2id_tag(instructions.p2id_tag);
-        if let Some(asset) = instructions.asset {
+        if let Some(asset) = instructions.asset_input {
             note_storage = note_storage.with_asset(asset)
         }
         let note_storage = note_storage.build()?;
@@ -451,10 +451,10 @@ mod tests {
         TrustedNote::new(
             NoteInstructions {
                 attached_assets: vec![FungibleAsset::new(test_utils.faucet_1, 100_000)?],
-                asset: Some(FungibleAsset::new(test_utils.faucet_2, 100_000)?),
+                asset_input: Some(FungibleAsset::new(test_utils.faucet_2, 100_000)?),
                 beneficiary: test_utils.user_1,
                 note_type: NoteType::Public,
-                min_amount: 0, // TODO: ZOROSWAP should use this instead of asset in?
+                amount_input: 0,
                 deadline: Utc::now().timestamp_millis() as u64,
                 p2id_tag: NoteTag::with_account_target(test_utils.user_2),
                 pool_tag: NoteTag::with_account_target(test_utils.pool_1),
@@ -471,10 +471,10 @@ mod tests {
         let res = TrustedNote::new(
             NoteInstructions {
                 attached_assets: vec![FungibleAsset::new(test_utils.faucet_1, 100_000)?],
-                asset: Some(FungibleAsset::new(test_utils.faucet_1, 100_000)?),
+                asset_input: Some(FungibleAsset::new(test_utils.faucet_1, 100_000)?),
                 beneficiary: test_utils.user_1,
                 note_type: NoteType::Public,
-                min_amount: 0, // TODO: ZOROSWAP should use this instead of asset in?
+                amount_input: 0,
                 deadline: Utc::now().timestamp_millis() as u64,
                 p2id_tag: NoteTag::with_account_target(test_utils.user_2),
                 pool_tag: NoteTag::with_account_target(test_utils.pool_1),
@@ -492,10 +492,10 @@ mod tests {
         let res = TrustedNote::new(
             NoteInstructions {
                 attached_assets: vec![FungibleAsset::new(test_utils.faucet_1, 0)?],
-                asset: Some(FungibleAsset::new(test_utils.faucet_1, 100_000)?),
+                asset_input: Some(FungibleAsset::new(test_utils.faucet_1, 100_000)?),
                 beneficiary: test_utils.user_1,
                 note_type: NoteType::Public,
-                min_amount: 0, // TODO: ZOROSWAP should use this instead of asset in?
+                amount_input: 0,
                 deadline: Utc::now().timestamp_millis() as u64,
                 p2id_tag: NoteTag::with_account_target(test_utils.user_2),
                 pool_tag: NoteTag::with_account_target(test_utils.pool_1),
@@ -507,10 +507,10 @@ mod tests {
         let res = TrustedNote::new(
             NoteInstructions {
                 attached_assets: vec![FungibleAsset::new(test_utils.faucet_1, 100_000)?],
-                asset: Some(FungibleAsset::new(test_utils.faucet_1, 0)?),
+                asset_input: Some(FungibleAsset::new(test_utils.faucet_1, 0)?),
                 beneficiary: test_utils.user_1,
                 note_type: NoteType::Public,
-                min_amount: 0, // TODO: ZOROSWAP should use this instead of asset in?
+                amount_input: 0,
                 deadline: Utc::now().timestamp_millis() as u64,
                 p2id_tag: NoteTag::with_account_target(test_utils.user_2),
                 pool_tag: NoteTag::with_account_target(test_utils.pool_1),
@@ -528,10 +528,10 @@ mod tests {
         TrustedNote::new(
             NoteInstructions {
                 attached_assets: vec![FungibleAsset::new(test_utils.faucet_1, 100_000)?],
-                asset: None,
+                asset_input: None,
                 beneficiary: test_utils.user_1,
                 note_type: NoteType::Public,
-                min_amount: 100_000,
+                amount_input: 100_000,
                 deadline: Utc::now().timestamp_millis() as u64,
                 p2id_tag: NoteTag::with_account_target(test_utils.user_2),
                 pool_tag: NoteTag::with_account_target(test_utils.pool_1),
@@ -548,10 +548,10 @@ mod tests {
         let res = TrustedNote::new(
             NoteInstructions {
                 attached_assets: vec![FungibleAsset::new(test_utils.faucet_1, 0)?],
-                asset: None,
+                asset_input: None,
                 beneficiary: test_utils.user_1,
                 note_type: NoteType::Public,
-                min_amount: 100_000,
+                amount_input: 100_000,
                 deadline: Utc::now().timestamp_millis() as u64,
                 p2id_tag: NoteTag::with_account_target(test_utils.user_2),
                 pool_tag: NoteTag::with_account_target(test_utils.pool_1),
@@ -563,10 +563,10 @@ mod tests {
         let res = TrustedNote::new(
             NoteInstructions {
                 attached_assets: vec![FungibleAsset::new(test_utils.faucet_1, 100_000)?],
-                asset: None,
+                asset_input: None,
                 beneficiary: test_utils.user_1,
                 note_type: NoteType::Public,
-                min_amount: 0,
+                amount_input: 0,
                 deadline: Utc::now().timestamp_millis() as u64,
                 p2id_tag: NoteTag::with_account_target(test_utils.user_2),
                 pool_tag: NoteTag::with_account_target(test_utils.pool_1),
@@ -584,10 +584,10 @@ mod tests {
         TrustedNote::new(
             NoteInstructions {
                 attached_assets: vec![],
-                asset: Some(FungibleAsset::new(test_utils.faucet_1, 10_000)?),
+                asset_input: Some(FungibleAsset::new(test_utils.faucet_1, 10_000)?),
                 beneficiary: test_utils.user_1,
                 note_type: NoteType::Public,
-                min_amount: 10_000,
+                amount_input: 10_000,
                 deadline: Utc::now().timestamp_millis() as u64,
                 p2id_tag: NoteTag::with_account_target(test_utils.user_2),
                 pool_tag: NoteTag::with_account_target(test_utils.pool_1),
@@ -604,10 +604,10 @@ mod tests {
         let res = TrustedNote::new(
             NoteInstructions {
                 attached_assets: vec![],
-                asset: Some(FungibleAsset::new(test_utils.faucet_1, 0)?),
+                asset_input: Some(FungibleAsset::new(test_utils.faucet_1, 0)?),
                 beneficiary: test_utils.user_1,
                 note_type: NoteType::Public,
-                min_amount: 10_000,
+                amount_input: 10_000,
                 deadline: Utc::now().timestamp_millis() as u64,
                 p2id_tag: NoteTag::with_account_target(test_utils.user_2),
                 pool_tag: NoteTag::with_account_target(test_utils.pool_1),
@@ -619,10 +619,10 @@ mod tests {
         let res = TrustedNote::new(
             NoteInstructions {
                 attached_assets: vec![],
-                asset: Some(FungibleAsset::new(test_utils.faucet_1, 10_000)?),
+                asset_input: Some(FungibleAsset::new(test_utils.faucet_1, 10_000)?),
                 beneficiary: test_utils.user_1,
                 note_type: NoteType::Public,
-                min_amount: 0,
+                amount_input: 0,
                 deadline: Utc::now().timestamp_millis() as u64,
                 p2id_tag: NoteTag::with_account_target(test_utils.user_2),
                 pool_tag: NoteTag::with_account_target(test_utils.pool_1),

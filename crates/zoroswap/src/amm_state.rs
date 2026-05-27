@@ -54,8 +54,8 @@ impl AmmState {
         }
         self.note_ids.insert(order_id, hex.clone());
         self.notes.insert(order_id, note);
-        self.open_orders.insert(order_id, order);
-        Ok((hex, order_id, order))
+        self.open_orders.insert(order_id, order.clone());
+        Ok((hex, order_id, order.clone()))
     }
 
     pub fn get_order_id(&self, note_id: &NoteId) -> Option<Uuid> {
@@ -71,17 +71,20 @@ impl AmmState {
     }
 
     pub fn get_open_orders(&self) -> Vec<Order> {
-        self.open_orders.iter().map(|i| *i.value()).collect()
+        self.open_orders.iter().map(|i| i.value().clone()).collect()
     }
 
     pub fn get_closed_orders(&self) -> Vec<Order> {
-        self.closed_orders.iter().map(|i| *i.value()).collect()
+        self.closed_orders
+            .iter()
+            .map(|i| i.value().clone())
+            .collect()
     }
 
     pub fn flush_open_orders(&self) -> Vec<Order> {
         let orders = self.get_open_orders().clone();
         for order in orders.iter() {
-            self.closed_orders.insert(order.id, *order);
+            self.closed_orders.insert(order.id, order.clone());
         }
         self.open_orders.clear();
         orders

@@ -7,7 +7,7 @@ use zoro_miden::note::{NoteInstructions, TrustedNote};
 
 pub type OracleId = &'static str;
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct Order {
     pub id: Uuid,
     pub created_at: DateTime<Utc>,
