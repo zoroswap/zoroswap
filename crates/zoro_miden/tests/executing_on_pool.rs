@@ -366,7 +366,7 @@ async fn executing_position_swap() -> Result<()> {
         .miden_client_mut()
         .send_note(&user_id, test_pool.miden_account.id(), note.clone())
         .await?;
-    info!("--- Swap sent");
+    info!("--- POSITION note sent");
 
     let sell_asset_arg = asset_to_word(FungibleAsset::new(
         pool_config_token0.faucet_id,
@@ -387,7 +387,7 @@ async fn executing_position_swap() -> Result<()> {
     zoro_pool
         .execute_notes(vec![note], prices, user_swap_args)
         .await?;
-    info!("--- Swap executed");
+    info!("--- POSITION note executed");
 
     test_utils
         .miden_client_mut()

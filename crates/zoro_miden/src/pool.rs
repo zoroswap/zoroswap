@@ -31,6 +31,7 @@ use crate::{
         link_asset_utils, link_note_common_lib, link_output_note_utils_lib, link_storage_utils,
         read_masm_file,
     },
+    asset_utils::word_to_asset,
     client::MidenClient,
     note::TrustedNote,
     pool_execution::{ExecutionResult, PoolExecution},
@@ -74,6 +75,7 @@ impl TryFrom<BatchExecutionDetails> for TransactionRequest {
             .expected_output_recipients(value.expected_output_recipients)
             .build()
             .map_err(|e| anyhow::anyhow!("Failed to build batch transaction request: {}", e))?;
+        info!("Transaction request built.");
         Ok(consume_req)
     }
 }
@@ -371,7 +373,7 @@ impl ZoroPool {
         let (note_execution_details, batch_execution_details) = self
             .prepare_execution_details(notes, prices, additional_advice_values)
             .await?;
-
+        info!("Execution details ready.");
         if batch_execution_details.input_notes.is_empty() {
             // no notes are eligible for execution
             return Ok(note_execution_details);
@@ -433,8 +435,25 @@ impl ZoroPool {
             HashMap::with_capacity(notes.len());
         for note in notes {
             let note_id = note.note().id();
-            let (execution_result, execution_details) =
-                PoolExecution::new(note, &pool_states, &prices)?;
+            let asset_delta = if let Some(additional_advice_values) =
+                additional_advice_values.get(&note_id)
+                && additional_advice_values.len() == 8
+            {
+                let sold_asset = word_to_asset(additional_advice_values[0..4].try_into()?)?;
+                let bought_asset = word_to_asset(additional_advice_values[4..8].try_into()?)?;
+                Some((sold_asset, bought_asset))
+            } else {
+                None
+            };
+
+            let (execution_result, execution_details) = PoolExecution::new(
+                note,
+                *self.miden_account.id(),
+                &pool_states,
+                &prices,
+                asset_delta, // Only for POSITION note
+                self.miden_client.client().code_builder(),
+            )?;
             execution_details
                 .print_execution_details(self.endpoint.to_network_id(), &execution_result);
             let PoolExecution {

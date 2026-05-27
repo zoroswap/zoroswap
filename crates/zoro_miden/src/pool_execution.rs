@@ -7,6 +7,7 @@ use miden_client::{
     Felt, Word,
     account::AccountId,
     address::NetworkId,
+    assembly::CodeBuilder,
     asset::FungibleAsset,
     note::{Note, NoteDetails, NoteRecipient, NoteTag},
 };
@@ -43,8 +44,11 @@ pub enum ExecutionResult {
 impl PoolExecution {
     pub fn new(
         note: TrustedNote,
+        pool_id: AccountId,
         pool_states: &HashMap<AccountId, PoolState>,
         prices: &HashMap<AccountId, PriceData>,
+        asset_delta: Option<(FungibleAsset, FungibleAsset)>, // for POSITION note
+        code_builder: CodeBuilder,
     ) -> Result<(ExecutionResult, Self)> {
         let instructions = NoteInstructions::try_from(note.clone())?;
         let now = Utc::now().timestamp_millis();
@@ -359,7 +363,7 @@ impl PoolExecution {
                     .unwrap();
 
                 println!("past_deadline {past_deadline}, amount_out: {amount_out:?}");
-                let (p2id, amount_out, result, counterparty_account) = if !past_deadline
+                if !past_deadline
                     && let Ok((amount_out, new_base_pool_balances, new_quote_pool_balances)) =
                         get_curve_amount_out(
                             &pool_state_base,
@@ -371,22 +375,67 @@ impl PoolExecution {
                         )
                     && amount_out >= asset_input.amount()
                 {
-                    let p2id = TrustedNote::build_p2id(
-                        instructions.beneficiary,
-                        asset_in,
-                        Some(note.serial_number()),
-                    )?;
+                    let respawned_note =
+                        note.respawn_position_note(pool_id, asset_delta, code_builder)?;
 
                     pool_state_base.update_balances(new_base_pool_balances);
                     pool_state_quote.update_balances(new_quote_pool_balances);
                     new_pool_states.insert(asset_in.faucet_id(), pool_state_base);
                     new_pool_states.insert(asset_input.faucet_id(), pool_state_quote);
-                    (
-                        p2id,
-                        amount_out.to::<u64>(),
-                        ExecutionResult::SwapSuccess(amount_out.to::<u64>()),
-                        Some(instructions.beneficiary),
-                    )
+
+                    info!(
+                        "Respawned note: serial {:?} recipient {:?}",
+                        respawned_note.note().serial_num(),
+                        respawned_note.note().recipient().digest()
+                    );
+
+                    let advice_map_value = vec![
+                        Felt::new(amount_out.to()),
+                        Felt::new(
+                            pool_state_base
+                                .balances()
+                                .total_liabilities
+                                .saturating_to::<u64>(),
+                        ),
+                        Felt::new(pool_state_base.balances().reserve.saturating_to::<u64>()),
+                        Felt::new(
+                            pool_state_base
+                                .balances()
+                                .reserve_with_slippage
+                                .saturating_to::<u64>(),
+                        ),
+                        Felt::ZERO,
+                        Felt::new(
+                            pool_state_quote
+                                .balances()
+                                .total_liabilities
+                                .saturating_to::<u64>(),
+                        ),
+                        Felt::new(pool_state_quote.balances().reserve.saturating_to::<u64>()),
+                        Felt::new(
+                            pool_state_quote
+                                .balances()
+                                .reserve_with_slippage
+                                .saturating_to::<u64>(),
+                        ),
+                    ];
+
+                    Ok((
+                        ExecutionResult::SwapSuccess(amount_out.to()),
+                        PoolExecution {
+                            advice_map_value: Some((note.serial_number(), advice_map_value)),
+                            input_note: Some((note.note().clone(), None)),
+                            expected_future_note: Some((
+                                respawned_note.note().clone().into(),
+                                respawned_note.note().metadata().tag(),
+                            )),
+                            new_pool_states: Some(new_pool_states),
+                            expected_output_recipient: Some(
+                                respawned_note.note().recipient().clone(),
+                            ),
+                            counterparty_account: None,
+                        },
+                    ))
                 } else {
                     let p2id = TrustedNote::build_p2id(
                         instructions.beneficiary,
@@ -398,67 +447,8 @@ impl PoolExecution {
                     } else {
                         ExecutionResult::Failed
                     };
-                    (
-                        p2id,
-                        0, //instructions.asset_in.amount(),
-                        result,
-                        Some(instructions.beneficiary),
-                    )
-                };
-
-                info!(" swap execution result: {:?}", result);
-
-                info!(
-                    "P2ID: serial {:?} recipient {:?}",
-                    p2id.note().serial_num(),
-                    p2id.note().recipient().digest()
-                );
-
-                let advice_map_value = vec![
-                    Felt::new(amount_out),
-                    Felt::new(
-                        pool_state_base
-                            .balances()
-                            .total_liabilities
-                            .saturating_to::<u64>(),
-                    ),
-                    Felt::new(pool_state_base.balances().reserve.saturating_to::<u64>()),
-                    Felt::new(
-                        pool_state_base
-                            .balances()
-                            .reserve_with_slippage
-                            .saturating_to::<u64>(),
-                    ),
-                    Felt::ZERO,
-                    Felt::new(
-                        pool_state_quote
-                            .balances()
-                            .total_liabilities
-                            .saturating_to::<u64>(),
-                    ),
-                    Felt::new(pool_state_quote.balances().reserve.saturating_to::<u64>()),
-                    Felt::new(
-                        pool_state_quote
-                            .balances()
-                            .reserve_with_slippage
-                            .saturating_to::<u64>(),
-                    ),
-                ];
-
-                Ok((
-                    result,
-                    PoolExecution {
-                        advice_map_value: Some((note.serial_number(), advice_map_value)),
-                        input_note: Some((note.note().clone(), None)),
-                        expected_future_note: Some((
-                            p2id.note().clone().into(),
-                            p2id.note().metadata().tag(),
-                        )),
-                        new_pool_states: Some(new_pool_states),
-                        expected_output_recipient: Some(p2id.note().recipient().clone()),
-                        counterparty_account,
-                    },
-                ))
+                    Ok((result, PoolExecution::default()))
+                }
             }
             NoteKind::P2ID => Ok((ExecutionResult::Failed, PoolExecution::default())),
         }
