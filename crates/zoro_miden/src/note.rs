@@ -42,18 +42,11 @@ impl NoteKind {
 }
 
 #[derive(Clone, Debug)]
-pub struct PositionOptions {
-    asset_in: FungibleAsset,
-    asset_out: FungibleAsset,
-}
-
-#[derive(Clone, Debug)]
 pub struct TrustedNote {
     note: Note,
     note_kind: NoteKind,
     serial_number: Word,
     created_at: i64,
-    position_options: Option<PositionOptions>,
 }
 
 impl TrustedNote {
@@ -95,7 +88,6 @@ impl TrustedNote {
             note_kind: NoteKind::P2ID,
             serial_number,
             created_at: Utc::now().timestamp_millis(),
-            position_options: None,
         })
     }
     pub fn get_note_script(code_builder: CodeBuilder, note_file_name: &str) -> Result<NoteScript> {
@@ -128,7 +120,6 @@ impl TrustedNote {
             note_kind: note_elements.note_kind,
             serial_number,
             created_at: Utc::now().timestamp_millis(),
-            position_options: None,
         })
     }
 
@@ -149,7 +140,6 @@ impl TrustedNote {
             note_kind,
             serial_number,
             created_at: Utc::now().timestamp_millis(),
-            position_options: None,
         })
     }
     pub fn from_input_note(input_note_record: &InputNoteRecord) -> Result<Self> {
@@ -170,7 +160,6 @@ impl TrustedNote {
             note_kind,
             serial_number,
             created_at: Utc::now().timestamp_millis(),
-            position_options: None,
         })
     }
     pub fn from_output_note(output_note_record: &OutputNoteRecord) -> Result<Self> {
@@ -191,7 +180,6 @@ impl TrustedNote {
             note_kind,
             serial_number,
             created_at: Utc::now().timestamp_millis(),
-            position_options: None,
         })
     }
 
