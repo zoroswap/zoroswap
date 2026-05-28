@@ -5,14 +5,14 @@ members = ["crates/zoro_curve_base", "crates/zoro_miden", "crates/zoroswap"]
 [workspace.dependencies]
 alloy = { version = "1.0.23", features = ["full"] }
 miden-assembly = "0.22"
-miden-client = { version = "0.14.5", features = ["testing", "tonic"] }
-miden-client-sqlite-store = { version = "0.14.5" }
-miden-core = "0.22.1"
-miden-protocol = { version = "0.14.5", default-features = false, features = [
+miden-client = { version = "0.14", features = ["testing", "tonic"] }
+miden-client-sqlite-store = { version = "0.14" }
+miden-core = "0.22"
+miden-protocol = { version = "0.14", default-features = false, features = [
   "testing",
 ] }
-miden-standards = "0.14.5"
-miden-tx = "0.14.5"
+miden-standards = "0.14"
+miden-tx = "0.14"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
