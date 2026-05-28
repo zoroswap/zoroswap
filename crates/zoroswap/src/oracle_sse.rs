@@ -1,6 +1,5 @@
 use crate::{
     amm_state::AmmState,
-    order::OracleId,
     websocket::{EventBroadcaster, OraclePriceEvent},
 };
 use anyhow::Result;
@@ -11,6 +10,8 @@ use std::{collections::HashSet, str::FromStr, sync::Arc};
 use tracing::{error, info};
 use url::Url;
 use zoro_miden::price::PriceData;
+
+type OracleId = &'static str;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Binary {

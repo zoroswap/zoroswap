@@ -72,7 +72,7 @@ impl TradingEngine {
 
             info!(cycle = cycle, "Trading engine cycle.");
             for order in orders.iter() {
-                order.print_info(config.network_id.clone());
+                order.print_info();
             }
 
             // match & execute on the zoro pool

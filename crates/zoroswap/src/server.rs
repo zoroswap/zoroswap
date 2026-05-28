@@ -15,6 +15,7 @@ use std::sync::Arc;
 use tokio::sync::mpsc::Sender;
 use tower_http::cors::CorsLayer;
 use tracing::{debug, error, info};
+use uuid::Uuid;
 use zoro_miden::note::TrustedNote;
 
 use crate::{
@@ -37,6 +38,15 @@ struct SubmitOrderRequest {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+struct SubmitPositionSwap {
+    position: Uuid,
+    asset_in: String,
+    asset_out: String,
+    amount_in: u64,
+    amount_out: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 struct MintRequest {
     pub address: String,
     pub faucet_id: String,
@@ -46,6 +56,13 @@ struct MintRequest {
 struct SubmitOrderResponse {
     pub success: bool,
     pub order_id: String,
+    pub message: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct AddPositionResponse {
+    pub success: bool,
+    pub position_id: String,
     pub message: String,
 }
 
@@ -75,6 +92,8 @@ pub fn create_router(state: AppState) -> Router {
         .route("/faucets/mint", post(mint_faucet))
         .route("/stats", get(get_stats))
         .route("/ws", get(websocket_handler))
+        .route("/positions/new", post(position_new))
+        .route("/positions/swap", post(position_swap))
         .layer(CorsLayer::permissive())
         .with_state(state)
 }
@@ -235,8 +254,7 @@ async fn submit_swap(
         }
     };
     let note_id = note.note().id();
-
-    match state.amm_state.add_order(note) {
+    match state.amm_state.add_order(note, None) {
         Ok((_, order_id, _)) => {
             info!(
                 order_id =? order_id,
@@ -278,7 +296,7 @@ async fn submit_deposit(
         }
     };
     let note_id = note.note().id();
-    match state.amm_state.add_order(note) {
+    match state.amm_state.add_order(note, None) {
         Ok((_, order_id, _)) => {
             info!(
                 order_id =? order_id,
@@ -320,8 +338,7 @@ async fn submit_withdraw(
         }
     };
     let note_id = note.note().id();
-
-    match state.amm_state.add_order(note) {
+    match state.amm_state.add_order(note, None) {
         Ok((_, order_id, _)) => {
             info!(
                 order_id =? order_id,
@@ -342,6 +359,82 @@ async fn submit_withdraw(
                 success: false,
                 order_id: "".to_string(),
                 message: format!("Failed to submit withdraw order: {}", e),
+            })
+        }
+    }
+}
+
+async fn position_swap(
+    State(state): State<AppState>,
+    Json(payload): Json<SubmitPositionSwap>,
+) -> Json<SubmitOrderResponse> {
+    match state.amm_state.add_position_order(
+        payload.position,
+        payload.asset_in,
+        payload.asset_out,
+        payload.amount_in,
+        payload.amount_out,
+    ) {
+        Ok((note_id, order_id, _)) => {
+            info!(
+                order_id =? order_id,
+                note_id = note_id,
+                "New position swap order"
+            );
+            Json(SubmitOrderResponse {
+                success: true,
+                order_id: order_id.to_string(),
+                message:
+                    "Position Swap order submitted successfully. Matching engine will process it automatically."
+                        .to_string(),
+            })
+        }
+        Err(e) => {
+            error!("Failed to add swap order: {}", e);
+            Json(SubmitOrderResponse {
+                success: false,
+                order_id: "".to_string(),
+                message: format!("Failed to submit order: {}", e),
+            })
+        }
+    }
+}
+
+async fn position_new(
+    State(state): State<AppState>,
+    Json(payload): Json<SubmitOrderRequest>,
+) -> Json<AddPositionResponse> {
+    let note = match TrustedNote::from_base64(&payload.note_data) {
+        Ok(note) => note,
+        Err(e) => {
+            error!("Failed to deserialize note: {}", e);
+            return Json(AddPositionResponse {
+                success: false,
+                position_id: "".to_string(),
+                message: format!("Invalid note data: {}", e),
+            });
+        }
+    };
+    let note_id = note.note().id();
+    match state.amm_state.add_position(note) {
+        Ok(new_position_id) => {
+            info!(
+                new_position_id =? new_position_id,
+                note_id = note_id.to_hex(),
+                "New position opened"
+            );
+            Json(AddPositionResponse {
+                success: true,
+                position_id: new_position_id.to_string(),
+                message: "New position opened.".to_string(),
+            })
+        }
+        Err(e) => {
+            error!("Failed to open new position: {}", e);
+            Json(AddPositionResponse {
+                success: false,
+                position_id: "".to_string(),
+                message: format!("Failed to open new position: {}", e),
             })
         }
     }
