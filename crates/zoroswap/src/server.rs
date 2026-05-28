@@ -39,11 +39,11 @@ struct SubmitOrderRequest {
 
 #[derive(Debug, Serialize, Deserialize)]
 struct SubmitPositionSwap {
-    position: Uuid,
+    position_id: Uuid,
     asset_in: String,
     asset_out: String,
     amount_in: u64,
-    amount_out: u64,
+    min_amount_out: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -60,9 +60,9 @@ struct SubmitOrderResponse {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct AddPositionResponse {
+pub struct AddPositionResponse {
     pub success: bool,
-    pub position_id: String,
+    pub position_id: Uuid,
     pub message: String,
 }
 
@@ -369,11 +369,11 @@ async fn position_swap(
     Json(payload): Json<SubmitPositionSwap>,
 ) -> Json<SubmitOrderResponse> {
     match state.amm_state.add_position_order(
-        payload.position,
+        payload.position_id,
         payload.asset_in,
         payload.asset_out,
         payload.amount_in,
-        payload.amount_out,
+        payload.min_amount_out,
     ) {
         Ok((note_id, order_id, _)) => {
             info!(
@@ -410,7 +410,7 @@ async fn position_new(
             error!("Failed to deserialize note: {}", e);
             return Json(AddPositionResponse {
                 success: false,
-                position_id: "".to_string(),
+                position_id: Uuid::nil(),
                 message: format!("Invalid note data: {}", e),
             });
         }
@@ -425,7 +425,7 @@ async fn position_new(
             );
             Json(AddPositionResponse {
                 success: true,
-                position_id: new_position_id.to_string(),
+                position_id: new_position_id,
                 message: "New position opened.".to_string(),
             })
         }
@@ -433,7 +433,7 @@ async fn position_new(
             error!("Failed to open new position: {}", e);
             Json(AddPositionResponse {
                 success: false,
-                position_id: "".to_string(),
+                position_id: Uuid::nil(),
                 message: format!("Failed to open new position: {}", e),
             })
         }

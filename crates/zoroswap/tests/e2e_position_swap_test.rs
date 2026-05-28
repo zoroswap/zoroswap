@@ -3,15 +3,16 @@ mod test_utils;
 use anyhow::Result;
 use chrono::Utc;
 use miden_client::asset::FungibleAsset;
-use miden_client::note::{NoteTag, NoteType};
+use miden_client::note::NoteTag;
 use test_utils::*;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 use zoro_miden::account::MidenAccount;
 use zoro_miden::note::{NoteInstructions, NoteKind, TrustedNote};
+use zoroswap::server::AddPositionResponse;
 
 #[tokio::test]
-async fn e2e_private_note() -> Result<()> {
+async fn e2e_position_swap() -> Result<()> {
     let filter_layer = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
         EnvFilter::new(
             "info,miden_client=warn,rusqlite_migration=warn,h2=warn,rustls=warn,hyper=warn",
@@ -54,7 +55,40 @@ async fn e2e_private_note() -> Result<()> {
     info!("Minted: {amount} to the test account. New balance: {user_balance}");
 
     // ---------------------------------------------------------------------------------
-    println!("\n\t[STEP 2] Create & send zoroswap note\n");
+    println!("\n\t[STEP 2] Create position\n");
+
+    let note = TrustedNote::new(
+        NoteInstructions {
+            note_kind: NoteKind::Position,
+            attached_assets: vec![FungibleAsset::new(pool0.faucet_id, amount)?],
+            asset_input: None,
+            beneficiary: *account.id(),
+            amount_input: amount,
+            note_type: miden_client::note::NoteType::Private,
+            deadline: Utc::now().timestamp_millis() as u64 + 120_000,
+            p2id_tag: account.tag(),
+            pool_tag: zoro_pool.miden_account().tag(),
+        },
+        miden_client.client().code_builder(),
+    )?;
+
+    miden_client
+        .send_note(account.id(), &config.pool_account_id, note.clone())
+        .await?;
+
+    // ---------------------------------------------------------------------------------
+    println!("\n\t[STEP 3] Init position on server\n");
+
+    let res = send_to_server(
+        &format!("http://{}", config.server_url),
+        note.serialize_to_string()?,
+        "positions/new",
+    )
+    .await?;
+
+    let res: AddPositionResponse = serde_json::from_str(&res)?;
+
+    println!("\n\t[STEP 4] Swap position on the server\n");
     let pool0_price = prices.get(&pool0.faucet_id).unwrap().price;
     let pool1_price = prices.get(&pool1.faucet_id).unwrap().price;
     let amount_in = amount / 2;
@@ -63,45 +97,16 @@ async fn e2e_private_note() -> Result<()> {
         ((pool0_price as f64) / (pool1_price as f64)) * (amount_in as f64) * (1.0 - max_slippage);
     let min_amount_out = min_amount_out as u64;
 
-    println!(
-        "Made an order note requesting {amount_in} {} for at least {min_amount_out} {}.",
-        pool0.symbol, pool1.symbol
-    );
-
-    let note = TrustedNote::new(
-        NoteInstructions {
-            attached_assets: vec![FungibleAsset::new(pool0.faucet_id, amount_in)?],
-            asset_input: Some(FungibleAsset::new(pool1.faucet_id, min_amount_out)?),
-            beneficiary: *account.id(),
-            note_type: NoteType::Private,
-            deadline: Utc::now().timestamp_millis() as u64 + 120_000,
-            p2id_tag: NoteTag::with_account_target(*account.id()),
-            pool_tag: NoteTag::with_account_target(config.pool_account_id),
-            note_kind: NoteKind::Swap,
-            amount_input: 0,
-        },
-        miden_client.client_mut().code_builder(),
-    )?;
-
-    miden_client
-        .send_note(account.id(), zoro_pool.miden_account().id(), note.clone())
-        .await?;
-
-    // ---------------------------------------------------------------------------------
-    println!("\n\t[STEP 3] Send note to the server\n");
-
-    send_to_server(
+    send_position_swap_to_server(
         &format!("http://{}", config.server_url),
-        note.serialize_to_string()?,
-        "orders/submit",
+        "positions/swap",
+        res.position_id,
+        pool0.faucet_id.to_bech32(config.network_id.clone()),
+        pool1.faucet_id.to_bech32(config.network_id),
+        amount,
+        min_amount_out,
     )
     .await?;
-
-    // ---------------------------------------------------------------------------------
-    println!("\n\t[STEP 4] Wait for notes back\n");
-    miden_client.consume_simple_notes(account.id(), 1).await?;
-    miden_client.sync_state().await?;
-    account.print_vault(config.network_id.clone()).await?;
 
     // ---------------------------------------------------------------------------------
     println!("\n\t[STEP 5] Confirm pool states updated accordingly\n");

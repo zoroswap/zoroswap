@@ -78,7 +78,7 @@ async fn e2e_private_deposit_withdraw() -> Result<()> {
     send_to_server(
         &format!("http://{}", config.server_url),
         deposit_note.serialize_to_string()?,
-        "deposit",
+        "deposit/submit",
     )
     .await?;
 
@@ -126,7 +126,7 @@ async fn e2e_private_deposit_withdraw() -> Result<()> {
     send_to_server(
         &format!("http://{}", config.server_url),
         withdraw_note.serialize_to_string()?,
-        "withdraw",
+        "withdraw/submit",
     )
     .await?;
 

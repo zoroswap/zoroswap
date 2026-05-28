@@ -22,6 +22,7 @@ pub struct NoteRoots {
     withdraw: Word,
     swap: Word,
     p2id: Word,
+    position: Word,
 }
 
 impl NoteRoots {
@@ -29,19 +30,22 @@ impl NoteRoots {
         let deposit = get_script_root_for_local_script("DEPOSIT.masm")?;
         let withdraw = get_script_root_for_local_script("WITHDRAW.masm")?;
         let swap = get_script_root_for_local_script("ZOROSWAP.masm")?;
+        let position = get_script_root_for_local_script("POSITION.masm")?;
         let p2id = StandardNote::P2ID.script_root();
         info!(
             deposit = deposit.to_hex(),
             withdraw = withdraw.to_hex(),
             swap = swap.to_hex(),
             p2id = p2id.to_hex(),
+            position = p2id.to_hex(),
             "Note roots"
         );
         Ok(Self {
-            deposit: get_script_root_for_local_script("DEPOSIT.masm")?,
-            withdraw: get_script_root_for_local_script("WITHDRAW.masm")?,
-            swap: get_script_root_for_local_script("ZOROSWAP.masm")?,
-            p2id: StandardNote::P2ID.script_root(),
+            deposit,
+            withdraw,
+            swap,
+            p2id,
+            position,
         })
     }
 
@@ -52,6 +56,8 @@ impl NoteRoots {
             Ok(NoteKind::Withdraw)
         } else if root.eq(&self.swap) {
             Ok(NoteKind::Swap)
+        } else if root.eq(&self.position) {
+            Ok(NoteKind::Position)
         } else if root.eq(&self.p2id) {
             Ok(NoteKind::P2ID)
         } else {

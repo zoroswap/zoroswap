@@ -1,5 +1,5 @@
 use num_traits::pow::Pow;
-use std::{any::Any, collections::HashMap, time::Duration};
+use std::{collections::HashMap, time::Duration};
 
 use anyhow::Result;
 use chrono::Utc;
