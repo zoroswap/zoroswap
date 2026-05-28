@@ -4,7 +4,8 @@ use std::{collections::HashMap, time::Duration};
 use anyhow::Result;
 use chrono::Utc;
 use miden_client::{
-    Felt, account::AccountId, asset::FungibleAsset, transaction::TransactionRequestBuilder,
+    Felt, account::AccountId, asset::FungibleAsset, note::NoteType,
+    transaction::TransactionRequestBuilder,
 };
 use tracing::info;
 use zoro_miden::{
@@ -351,13 +352,10 @@ async fn executing_position_swap() -> Result<()> {
         NoteInstructions {
             note_kind: NoteKind::Position,
             attached_assets: vec![FungibleAsset::new(pool_config_token0.faucet_id, amount)?],
-            asset_input: Some(FungibleAsset::new(
-                pool_config_token1.faucet_id,
-                min_amount_out,
-            )?),
+            asset_input: None,
             beneficiary: *user.miden_account.id(),
             amount_input: amount,
-            note_type: miden_client::note::NoteType::Public,
+            note_type: NoteType::Public,
             deadline: Utc::now().timestamp_millis() as u64 + 120_000,
             p2id_tag: user.miden_account.tag(),
             pool_tag: test_pool.miden_account.tag(),

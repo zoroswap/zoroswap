@@ -1,12 +1,15 @@
 use anyhow::{Result, anyhow};
 use chrono::Utc;
+use miden_client::note::Note;
 use miden_client::{Felt, Word, account::AccountId, keystore::FilesystemKeyStore, note::NoteTag};
 use std::{collections::HashMap, str::FromStr};
 use tracing::error;
 use url::Url;
 use uuid::Uuid;
+use zoro_miden::note::TrustedNote;
 use zoro_miden::pool::ZoroPool;
 use zoro_miden::{client::MidenClient, price::PriceData};
+use zoroswap::PositionGetNoteResponse;
 use zoroswap::{Config, get_oracle_prices, oracle_sse::PriceMetadata};
 
 /// Common state for E2E tests.
@@ -90,7 +93,6 @@ impl E2ETestSetup {
     }
 }
 
-/// POST a serialized note to `{server_url}/{endpoint}/submit`.
 pub async fn send_to_server(server_url: &str, note: String, endpoint: &str) -> Result<String> {
     let url = Url::from_str(format!("{server_url}/{endpoint}").as_str())?;
     let client = reqwest::Client::new();
@@ -106,7 +108,6 @@ pub async fn send_to_server(server_url: &str, note: String, endpoint: &str) -> R
     Ok(text)
 }
 
-/// POST a serialized note to `{server_url}/{endpoint}/submit`.
 pub async fn send_position_swap_to_server(
     server_url: &str,
     endpoint: &str,
@@ -137,6 +138,23 @@ pub async fn send_position_swap_to_server(
     let text = res.text().await?;
     println!("Server response: {:?}", text);
     Ok(text)
+}
+
+pub async fn get_position_note(
+    server_url: &str,
+    endpoint: &str,
+    position_id: Uuid,
+) -> Result<TrustedNote> {
+    let client = reqwest::Client::new();
+    let params = [("position_id", &position_id.to_string())];
+    let url = Url::parse_with_params(format!("http://{server_url}/{endpoint}").as_str(), params)?;
+    let res = client.get(url).send().await?;
+
+    let text = res.text().await?;
+    let payload: PositionGetNoteResponse = serde_json::from_str(&text)?;
+    let note = TrustedNote::from_base64(&payload.note_data)?;
+    println!("Server response: {:?}", text);
+    Ok(note)
 }
 
 /// Look up a single price by oracle ID from fetched price metadata.

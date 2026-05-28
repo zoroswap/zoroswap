@@ -52,6 +52,14 @@ impl AmmState {
         }
     }
 
+    pub fn get_position_note_serialized(&self, position_id: Uuid) -> Result<String> {
+        let note = self
+            .positions
+            .get(&position_id)
+            .ok_or(anyhow!("Position {position_id} not found."))?;
+        note.serialize_to_string()
+    }
+
     pub fn add_position_order(
         &self,
         position_id: Uuid,

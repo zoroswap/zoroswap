@@ -2,7 +2,7 @@ use anyhow::{Result, anyhow};
 use axum::{
     Json, Router,
     body::Body,
-    extract::State,
+    extract::{Query, State},
     http::{HeaderMap, HeaderValue, Response, StatusCode},
     response::IntoResponse,
     routing::{get, post},
@@ -47,6 +47,11 @@ struct SubmitPositionSwap {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+struct PositionGetNote {
+    position_id: Uuid,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 struct MintRequest {
     pub address: String,
     pub faucet_id: String,
@@ -63,6 +68,13 @@ struct SubmitOrderResponse {
 pub struct AddPositionResponse {
     pub success: bool,
     pub position_id: Uuid,
+    pub message: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PositionGetNoteResponse {
+    pub success: bool,
+    pub note_data: String, // Base64 encoded serialized note
     pub message: String,
 }
 
@@ -94,6 +106,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/ws", get(websocket_handler))
         .route("/positions/new", post(position_new))
         .route("/positions/swap", post(position_swap))
+        .route("/positions/get_note", get(position_get_note))
         .layer(CorsLayer::permissive())
         .with_state(state)
 }
@@ -359,6 +372,30 @@ async fn submit_withdraw(
                 success: false,
                 order_id: "".to_string(),
                 message: format!("Failed to submit withdraw order: {}", e),
+            })
+        }
+    }
+}
+
+async fn position_get_note(
+    State(state): State<AppState>,
+    Query(payload): Query<PositionGetNote>,
+) -> Json<PositionGetNoteResponse> {
+    match state
+        .amm_state
+        .get_position_note_serialized(payload.position_id)
+    {
+        Ok(serialized_note) => Json(PositionGetNoteResponse {
+            success: true,
+            note_data: serialized_note,
+            message: "Getting position note successful.".to_string(),
+        }),
+        Err(e) => {
+            error!("Failed to add swap order: {}", e);
+            Json(PositionGetNoteResponse {
+                success: false,
+                note_data: "".to_string(),
+                message: format!("Failed to get note for position: {}", e),
             })
         }
     }

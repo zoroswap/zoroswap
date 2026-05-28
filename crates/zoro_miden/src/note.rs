@@ -73,7 +73,7 @@ impl TrustedNote {
         let note_storage = self.note().storage().clone();
         let note_assets = self.note().assets().clone();
         let note_metadata = self.note().metadata().clone();
-        let note_kind = self.note_kind().clone();
+        let note_kind = *self.note_kind();
 
         let mut bought_asset_is_an_old_asset = false;
         let mut new_note_assets: Vec<Asset> = Vec::new();

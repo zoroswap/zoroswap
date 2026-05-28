@@ -1,9 +1,12 @@
 mod test_utils;
 
+use std::time::Duration;
+
 use anyhow::Result;
 use chrono::Utc;
 use miden_client::asset::FungibleAsset;
 use miden_client::note::NoteTag;
+use miden_client::transaction::TransactionRequestBuilder;
 use test_utils::*;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
@@ -51,8 +54,12 @@ async fn e2e_position_swap() -> Result<()> {
     miden_client
         .mint_asset(pool0.faucet_id, *account.id(), amount)
         .await?;
-    let user_balance = account.get_balance(&pool0.faucet_id).await?;
-    info!("Minted: {amount} to the test account. New balance: {user_balance}");
+
+    tokio::time::sleep(Duration::from_millis(4100)).await;
+
+    let user_balance0 = account.get_balance(&pool0.faucet_id).await?;
+    let user_balance1 = account.get_balance(&pool1.faucet_id).await?;
+    info!("Minted: {amount} to the test account. New balance: {user_balance0}");
 
     // ---------------------------------------------------------------------------------
     println!("\n\t[STEP 2] Create position\n");
@@ -64,13 +71,15 @@ async fn e2e_position_swap() -> Result<()> {
             asset_input: None,
             beneficiary: *account.id(),
             amount_input: amount,
-            note_type: miden_client::note::NoteType::Private,
+            note_type: miden_client::note::NoteType::Public,
             deadline: Utc::now().timestamp_millis() as u64 + 120_000,
             p2id_tag: account.tag(),
             pool_tag: zoro_pool.miden_account().tag(),
         },
         miden_client.client().code_builder(),
     )?;
+
+    println!("Original note id: {}", note.note().id());
 
     miden_client
         .send_note(account.id(), &config.pool_account_id, note.clone())
@@ -88,7 +97,6 @@ async fn e2e_position_swap() -> Result<()> {
 
     let res: AddPositionResponse = serde_json::from_str(&res)?;
 
-    println!("\n\t[STEP 4] Swap position on the server\n");
     let pool0_price = prices.get(&pool0.faucet_id).unwrap().price;
     let pool1_price = prices.get(&pool1.faucet_id).unwrap().price;
     let amount_in = amount / 2;
@@ -96,6 +104,9 @@ async fn e2e_position_swap() -> Result<()> {
     let min_amount_out =
         ((pool0_price as f64) / (pool1_price as f64)) * (amount_in as f64) * (1.0 - max_slippage);
     let min_amount_out = min_amount_out as u64;
+
+    // ---------------------------------------------------------------------------------
+    println!("\n\t[STEP 4] Do position swap on server\n");
 
     send_position_swap_to_server(
         &format!("http://{}", config.server_url),
@@ -108,13 +119,37 @@ async fn e2e_position_swap() -> Result<()> {
     )
     .await?;
 
-    // ---------------------------------------------------------------------------------
-    println!("\n\t[STEP 5] Confirm pool states updated accordingly\n");
+    println!("\n\t... waiting for the note to be executed on the server \n");
+    tokio::time::sleep(Duration::from_millis(20_000)).await;
 
+    // ---------------------------------------------------------------------------------
+    println!("\n\t[STEP 5] Get note back from server\n");
+
+    let reclaimed_note =
+        get_position_note(config.server_url, "positions/get_note", res.position_id).await?;
+    println!("Reclaim note id: {}", reclaimed_note.note().id());
+
+    // ---------------------------------------------------------------------------------
+    println!("\n\t[STEP 6] Reclaim the note\n");
+    miden_client.sync_state().await?;
+
+    let reclaim_transaction_request = TransactionRequestBuilder::new()
+        .build_consume_notes(vec![reclaimed_note.note().clone()])?;
+    miden_client
+        .client_mut()
+        .submit_new_transaction(*account.id(), reclaim_transaction_request)
+        .await?;
+
+    // ---------------------------------------------------------------------------------
+    println!("\n\t[STEP 7] Confirm pool states updated accordingly\n");
+    tokio::time::sleep(Duration::from_millis(4100)).await;
     zoro_pool.update_pool_state_from_chain().await?;
     let end_vault = zoro_pool.vault().await?;
     let end_pool0 = *zoro_pool.pool_states().get(&pool0.faucet_id).unwrap();
     let end_pool1 = *zoro_pool.pool_states().get(&pool1.faucet_id).unwrap();
+    let end_user_balance0 = account.get_balance(&pool0.faucet_id).await?;
+    let end_user_balance1 = account.get_balance(&pool1.faucet_id).await?;
+
     zoro_pool.print_pool_states();
 
     assert!(
@@ -126,6 +161,14 @@ async fn e2e_position_swap() -> Result<()> {
         "Balances for pool 1 havent changed"
     );
     assert!(end_vault != initial_vault, "Vault hasn't changed");
+    assert!(
+        end_user_balance0 != user_balance0,
+        "Balances for user for faucet0 havent changed"
+    );
+    assert!(
+        end_user_balance1 != user_balance1,
+        "Balances for user for faucet1 havent changed"
+    );
 
     Ok(())
 }
