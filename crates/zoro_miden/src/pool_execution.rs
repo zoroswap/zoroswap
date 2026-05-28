@@ -122,14 +122,13 @@ impl PoolExecution {
                 }
             }
             NoteKind::Withdraw => {
-                let asset_input_opt = instructions.attached_assets.first();
+                let asset_input_opt = instructions.asset_input;
                 let asset_input: FungibleAsset;
                 if asset_input_opt.is_none() {
                     return Ok((ExecutionResult::Failed, PoolExecution::default(), None));
                 } else {
-                    asset_input = *asset_input_opt.unwrap();
+                    asset_input = asset_input_opt.unwrap();
                 }
-
                 let past_deadline = now > instructions.deadline as i64;
                 let mut pool_state = *pool_states.get(&asset_input.faucet_id()).ok_or(anyhow!(
                     "Trying to execute withdrawal for an unknown asset."
