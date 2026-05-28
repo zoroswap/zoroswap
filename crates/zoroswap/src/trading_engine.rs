@@ -12,7 +12,11 @@ use std::{
     time::{Duration, Instant},
 };
 use tracing::{info, warn};
-use zoro_miden::{note::TrustedNote, note_roots::get_note_roots, pool::ZoroPool};
+use zoro_miden::{
+    note::{NoteKind, TrustedNote},
+    note_roots::get_note_roots,
+    pool::ZoroPool,
+};
 
 pub struct TradingEngine {
     state: Arc<AmmState>,
@@ -71,8 +75,17 @@ impl TradingEngine {
             orders.shuffle(&mut rand::rng());
 
             info!(cycle = cycle, "Trading engine cycle.");
+
+            let mut additional_details = HashMap::new();
+            let mut position_notes_to_position_id = HashMap::new();
             for order in orders.iter() {
-                order.print_info(config.network_id.clone());
+                if let Some(additional_details_array) = &order.additional_details {
+                    additional_details.insert(order.note_id, additional_details_array.to_vec());
+                }
+                if let Some(position_id) = order.position_id {
+                    position_notes_to_position_id.insert(order.note_id, position_id);
+                }
+                order.print_info();
             }
 
             // match & execute on the zoro pool
@@ -86,12 +99,13 @@ impl TradingEngine {
                 .clone()
                 .into_iter()
                 .collect::<HashMap<_, _>>();
+
             if !notes.is_empty()
                 && let Ok(results) = zoro_pool
-                    .execute_notes(notes, prices, HashMap::default())
+                    .execute_notes(notes, prices, additional_details)
                     .await
             {
-                for (note_id, (result, _output_note)) in &results {
+                for (note_id, (result, output_note)) in &results {
                     let order_id = self.state.get_order_id(note_id).unwrap_or_default();
                     let _ = self.broadcaster.broadcast_order_update(OrderUpdateEvent {
                         order_id,
@@ -99,6 +113,14 @@ impl TradingEngine {
                         status: (*result).into(),
                         timestamp: Utc::now().timestamp_millis() as u64,
                     });
+
+                    if let Some(output_note) = output_note
+                        && output_note.note_kind().eq(&NoteKind::Position)
+                        && let Some(position_id) = position_notes_to_position_id.get(note_id)
+                    {
+                        self.state
+                            .replace_position_note(*position_id, output_note.clone());
+                    }
                 }
             }
             info!(cycle=cycle, time_elapsed =? start.elapsed(), "Trading engine cycle ends.");
