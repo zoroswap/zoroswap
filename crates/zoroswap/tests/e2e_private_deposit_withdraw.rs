@@ -82,7 +82,7 @@ async fn e2e_private_deposit_withdraw() -> Result<()> {
     )
     .await?;
 
-    tokio::time::sleep(Duration::from_secs(15)).await;
+    tokio::time::sleep(Duration::from_secs(20)).await;
     miden_client.sync_state().await?;
 
     zoro_pool.update_pool_state_from_chain().await?;
@@ -130,7 +130,7 @@ async fn e2e_private_deposit_withdraw() -> Result<()> {
     )
     .await?;
 
-    tokio::time::sleep(Duration::from_secs(15)).await;
+    tokio::time::sleep(Duration::from_secs(20)).await;
 
     zoro_pool.update_pool_state_from_chain().await?;
     let pool_after_withdraw = *zoro_pool.pool_states().get(&pool.faucet_id).unwrap();
