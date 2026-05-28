@@ -224,6 +224,9 @@ const CURRENT_ASSET_VALUE_LOCAL = 20
 #! - the number of assets is greater than the maximum number of assets.
 @locals(24)
 proc prepare_assets_for_recreation_of_the_note() -> (felt)
+    debug.stack.4
+    debug.local
+    loc_load.2 debug.stack.4 drop
     exec.common::store_all_active_note_assets_to_output_assets_memory
     # => [num_assets, assets_ptr]
     dup loc_store.NUMBER_OF_ASSETS_LOCAL
