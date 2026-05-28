@@ -81,16 +81,21 @@ impl AmmState {
             asset_out[2],
             asset_out[3],
         ];
-        self.add_order(note, Some(position_details))
+        self.add_order(note, Some(position_id), Some(position_details))
+    }
+
+    pub fn replace_position_note(&self, position_id: Uuid, note: TrustedNote) {
+        self.positions.insert(position_id, note);
     }
 
     pub fn add_order(
         &self,
         note: TrustedNote,
+        position_id: Option<Uuid>,
         additional_details: Option<Vec<Felt>>,
     ) -> Result<(String, Uuid, Order)> {
         let hex = note.note().id().to_hex();
-        let order = Order::from_trusted_note(note.clone(), additional_details)?;
+        let order = Order::from_trusted_note(note.clone(), position_id, additional_details)?;
         let order_id = order.id;
         let instructions: NoteInstructions = note.clone().try_into()?;
         if !instructions.involves_faucets(&self.valid_faucets) {

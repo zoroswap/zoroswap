@@ -11,12 +11,14 @@ pub struct Order {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub note_id: NoteId,
+    pub position_id: Option<Uuid>,
     pub additional_details: Option<Vec<Felt>>,
 }
 
 impl Order {
     pub fn from_trusted_note(
         note: TrustedNote,
+        position_id: Option<Uuid>,
         additional_details: Option<Vec<Felt>>,
     ) -> Result<Self> {
         let note_id = note.note().id();
@@ -25,6 +27,7 @@ impl Order {
             id: Uuid::new_v4(),
             created_at: now,
             updated_at: now,
+            position_id,
             note_id,
             additional_details,
         })

@@ -254,7 +254,7 @@ async fn submit_swap(
         }
     };
     let note_id = note.note().id();
-    match state.amm_state.add_order(note, None) {
+    match state.amm_state.add_order(note, None, None) {
         Ok((_, order_id, _)) => {
             info!(
                 order_id =? order_id,
@@ -296,7 +296,7 @@ async fn submit_deposit(
         }
     };
     let note_id = note.note().id();
-    match state.amm_state.add_order(note, None) {
+    match state.amm_state.add_order(note, None, None) {
         Ok((_, order_id, _)) => {
             info!(
                 order_id =? order_id,
@@ -338,7 +338,7 @@ async fn submit_withdraw(
         }
     };
     let note_id = note.note().id();
-    match state.amm_state.add_order(note, None) {
+    match state.amm_state.add_order(note, None, None) {
         Ok((_, order_id, _)) => {
             info!(
                 order_id =? order_id,
