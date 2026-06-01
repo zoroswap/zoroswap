@@ -37,7 +37,7 @@ impl NoteRoots {
             withdraw = withdraw.to_hex(),
             swap = swap.to_hex(),
             p2id = p2id.to_hex(),
-            position = p2id.to_hex(),
+            position = position.to_hex(),
             "Note roots"
         );
         Ok(Self {
