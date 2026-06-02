@@ -2,8 +2,8 @@ use anyhow::{Result, anyhow};
 use axum::{
     Json, Router,
     body::Body,
-    extract::{Query, State},
-    http::{HeaderMap, HeaderValue, Response, StatusCode},
+    extract::{Path, Query, State},
+    http::{HeaderMap, HeaderValue, Response, StatusCode, uri::PathAndQuery},
     response::IntoResponse,
     routing::{get, post},
 };
@@ -387,9 +387,9 @@ async fn submit_withdraw(
 
 async fn position_get_info(
     State(state): State<AppState>,
-    Query(payload): Query<PositionGetNote>,
+    Path(position_id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
-    match state.amm_state.get_position_note_info(payload.position_id) {
+    match state.amm_state.get_position_note_info(position_id) {
         Ok((assets, serial_num, note_id)) => Ok(Json(PositionGetInfoResponse {
             assets,
             serial_num,

@@ -2,7 +2,7 @@ use crate::{
     config::Config,
     oracle_sse::PriceMetadata,
     order::Order,
-    websocket::{EventBroadcaster, messages::PoolStateEvent},
+    websocket::{EventBroadcaster, OrderStatus, OrderUpdateEvent, messages::PoolStateEvent},
 };
 use anyhow::{Result, anyhow};
 use chrono::Utc;
@@ -109,7 +109,18 @@ impl AmmState {
             asset_out[2],
             asset_out[3],
         ];
-        self.add_order(note, Some(position_id), Some(position_details))
+        let (note_id, order_id, order) =
+            self.add_order(note, Some(position_id), Some(position_details))?;
+        let event = OrderUpdateEvent {
+            order_id,
+            note_id: note_id.clone(),
+            status: OrderStatus::Pending,
+            timestamp: Utc::now().timestamp_millis() as u64,
+        };
+        if let Err(e) = self.broadcaster.broadcast_order_update(event) {
+            error!("Failed to broadcast order update: {:?}", e);
+        }
+        Ok((note_id, order_id, order))
     }
 
     pub fn replace_position_note(&self, position_id: Uuid, note: TrustedNote) {
