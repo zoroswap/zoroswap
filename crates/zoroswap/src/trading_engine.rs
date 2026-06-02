@@ -145,31 +145,38 @@ impl TradingEngine {
                 }
             });
 
-            if !notes.is_empty()
-                && let Ok(results) = zoro_pool
-                    .execute_notes(notes, prices, additional_details, Some(preliminary_tx))
-                    .await
-            {
-                for (note_id, (result, output_note)) in &results {
-                    let order_id = self.state.get_order_id(note_id).unwrap_or_default();
-                    let _ = self.broadcaster.broadcast_order_update(OrderUpdateEvent {
-                        order_id,
-                        note_id: note_id.to_hex(),
-                        status: (*result).into(),
-                        timestamp: Utc::now().timestamp_millis() as u64,
-                    });
+            cycle += 1;
+            if notes.is_empty() {
+                continue;
+            }
 
-                    if let Some(output_note) = output_note
-                        && output_note.note_kind().eq(&NoteKind::Position)
-                        && let Some(position_id) = position_notes_to_position_id.get(note_id)
-                    {
-                        self.state
-                            .replace_position_note(*position_id, output_note.clone());
+            match zoro_pool
+                .execute_notes(notes, prices, additional_details, Some(preliminary_tx))
+                .await
+            {
+                Ok(results) => {
+                    for (note_id, (result, output_note)) in &results {
+                        if let Some(output_note) = output_note
+                            && output_note.note_kind().eq(&NoteKind::Position)
+                            && let Some(position_id) = position_notes_to_position_id.get(note_id)
+                        {
+                            self.state
+                                .replace_position_note(*position_id, output_note.clone());
+                        }
+                        let order_id = self.state.get_order_id(note_id).unwrap_or_default();
+                        let _ = self.broadcaster.broadcast_order_update(OrderUpdateEvent {
+                            order_id,
+                            note_id: note_id.to_hex(),
+                            status: (*result).into(),
+                            timestamp: Utc::now().timestamp_millis() as u64,
+                        });
                     }
+                }
+                Err(e) => {
+                    error!("Error on execution: {e:?}");
                 }
             }
             info!(cycle=cycle, time_elapsed =? start.elapsed(), "Trading engine cycle ends.");
-            cycle += 1;
         }
     }
 
