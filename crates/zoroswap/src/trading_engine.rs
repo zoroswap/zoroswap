@@ -1,6 +1,6 @@
 use crate::{
     amm_state::AmmState,
-    websocket::{EventBroadcaster, OrderUpdateEvent},
+    websocket::{EventBroadcaster, OrderStatus, OrderUpdateEvent},
 };
 use anyhow::Result;
 use chrono::Utc;
@@ -69,6 +69,16 @@ impl TradingEngine {
             let mut orders = self.state.flush_open_orders();
             if orders.is_empty() {
                 continue;
+            }
+
+            let timestamp = Utc::now().timestamp_millis() as u64;
+            for order in &orders {
+                let _ = self.broadcaster.broadcast_order_update(OrderUpdateEvent {
+                    order_id: order.id,
+                    note_id: order.note_id.to_hex(),
+                    status: OrderStatus::Matching,
+                    timestamp,
+                });
             }
 
             // MEV protection: randomize order processing sequence

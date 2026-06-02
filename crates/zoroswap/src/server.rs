@@ -2,8 +2,8 @@ use anyhow::{Result, anyhow};
 use axum::{
     Json, Router,
     body::Body,
-    extract::{Query, State},
-    http::{HeaderMap, HeaderValue, Response, StatusCode},
+    extract::{Path, Query, State},
+    http::{HeaderMap, HeaderValue, Response, StatusCode, uri::PathAndQuery},
     response::IntoResponse,
     routing::{get, post},
 };
@@ -78,6 +78,13 @@ pub struct PositionGetNoteResponse {
     pub message: String,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PositionGetInfoResponse {
+    assets: Vec<(String, u64)>,
+    note_id: String,
+    serial_num: String,
+}
+
 #[derive(Debug)]
 struct ApiError(anyhow::Error);
 
@@ -107,6 +114,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/positions/new", post(position_new))
         .route("/positions/swap", post(position_swap))
         .route("/positions/get_note", get(position_get_note))
+        .route("/positions/{position_id}", get(position_get_info))
         .layer(CorsLayer::permissive())
         .with_state(state)
 }
@@ -377,6 +385,20 @@ async fn submit_withdraw(
     }
 }
 
+async fn position_get_info(
+    State(state): State<AppState>,
+    Path(position_id): Path<Uuid>,
+) -> Result<impl IntoResponse, ApiError> {
+    match state.amm_state.get_position_note_info(position_id) {
+        Ok((assets, serial_num, note_id)) => Ok(Json(PositionGetInfoResponse {
+            assets,
+            serial_num,
+            note_id,
+        })),
+        Err(e) => Err(ApiError(e)),
+    }
+}
+
 async fn position_get_note(
     State(state): State<AppState>,
     Query(payload): Query<PositionGetNote>,
@@ -391,7 +413,7 @@ async fn position_get_note(
             message: "Getting position note successful.".to_string(),
         }),
         Err(e) => {
-            error!("Failed to add swap order: {}", e);
+            error!("Failed getting position note: {:?}", e);
             Json(PositionGetNoteResponse {
                 success: false,
                 note_data: "".to_string(),
