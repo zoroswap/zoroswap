@@ -60,6 +60,26 @@ impl AmmState {
         note.serialize_to_string()
     }
 
+    pub fn get_position_note_info(
+        &self,
+        position_id: Uuid,
+    ) -> Result<(Vec<(String, u64)>, String, String)> {
+        let note = self
+            .positions
+            .get(&position_id)
+            .ok_or(anyhow!("Position {position_id} not found."))?;
+        let network_id = self.config().network_id;
+        let assets: Vec<(String, u64)> = note
+            .note()
+            .assets()
+            .iter_fungible()
+            .map(|a| (a.faucet_id().to_bech32(network_id.clone()), a.amount()))
+            .collect();
+        let serial = note.note().serial_num();
+        let note_id = note.note().id().to_hex();
+        Ok((assets, serial.to_hex(), note_id))
+    }
+
     pub fn add_position_order(
         &self,
         position_id: Uuid,
