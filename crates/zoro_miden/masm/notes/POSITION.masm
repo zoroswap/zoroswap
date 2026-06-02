@@ -1,0 +1,396 @@
+use miden::protocol::active_account
+use miden::protocol::account_id
+use miden::protocol::active_note
+use miden::protocol::output_note
+use miden::protocol::tx
+use miden::protocol::asset
+use miden::protocol::asset::ASSET_VALUE_MEMORY_OFFSET
+use miden::protocol::asset::ASSET_SIZE
+use miden::standards::wallets::basic->basic_wallet
+
+
+use miden::core::sys
+
+use zoroswap::zoropool
+use zoro_miden::lib::asset_utils
+use zoro_miden::note::common
+use zoro_miden::note::respawn
+use zoro_miden::note::reclaim
+
+use common::AccountId
+use common::bool
+use common::DEFAULT_NUMBER_OF_STORAGE_ITEMS
+use common::STORAGE_POINTER
+use common::INPUT_ASSETS_POINTER
+use common::OUTPUT_NOTE_ASSETS_START
+use common::ARGUMENTS_WORD_2
+const FREE_MEMORY_POINTER = 4000#use common::FREE_MEMORY_POINTER
+
+
+
+# @todo consider moving to pointer to a standarised location - read it from common library
+const SELL_ASSET_POINTER = FREE_MEMORY_POINTER
+const SELL_ASSET_AMOUNT_POINTER = SELL_ASSET_POINTER + 3
+const BUY_ASSET_POINTER = SELL_ASSET_POINTER + 4
+const BUY_ASSET_AMOUNT_POINTER = BUY_ASSET_POINTER + 3
+const BUY_ASSET_END = BUY_ASSET_POINTER + 3
+
+
+
+
+# META
+# =================================================================================================
+# ZTD stands for Zoro Trader Deposit 
+
+# ERRORS
+# =================================================================================================
+
+
+const ERR_ZTD_RECLAIM_NOT_INITIATED="failed to reclaim ZTD note because the reclaim has not been initiated"
+
+
+# CONSTANTS
+# =================================================================================================
+const NUMBER_OF_STORAGE_ITEMS = DEFAULT_NUMBER_OF_STORAGE_ITEMS
+const NUMBER_OF_ARGUMENT_WORDS = 4
+
+# ARGUMENTS
+# =================================================================================================
+# TRADE_ARGS_START = ARGUMENTS_WORD_2 
+#
+# TRADE_ARGS_0 = TRADE_ARGS_START
+# TRADE_ARGS_1 = TRADE_ARGS_START + 4
+#
+# TRADE_SELL_ASSET_POINTER = TRADE_ARGS_0    [SELL_ASSET]
+# TRADE_BUY_ASSET_POINTER  = TRADE_ARGS_1    [BUY_ASSET]
+
+proc get_sell_asset_argument(word_padding: word) -> word
+    push.2 exec.common::get_argument_word_by_index
+end
+
+proc get_sell_asset_amount_argument() -> felt
+    padw exec.get_sell_asset_argument exec.asset_utils::get_amount_c
+end
+    
+
+proc get_buy_asset_argument(word_padding: word) -> word
+    push.3 exec.common::get_argument_word_by_index
+end
+
+proc get_buy_asset_amount_argument() -> felt
+    padw exec.get_buy_asset_argument exec.asset_utils::get_amount_c
+end
+
+
+# SETTERS
+# =================================================================================================
+proc set_sell_asset(key: word)
+    mem_storew_le.SELL_ASSET_POINTER
+end
+
+proc set_buy_asset(key: word)
+    mem_storew_le.BUY_ASSET_POINTER
+end
+
+
+# HELPER PROCEDURES
+# =================================================================================================
+
+
+
+
+#! Helper procedure which ensures the validity of passed arguments
+#!
+#! Checks if ZTD signature is valid, and maybe provided arguments validity
+#!
+#! Inputs:  []
+#! Outputs: [bool]
+#!
+#! Panics if:
+#! - the reclaim of the active note is disabled.
+#! - the reclaim block height is not reached yet.
+#! - the account attempting to reclaim the note is not the sender account.
+proc is_note_consumption_permitted() -> bool
+    exec.common::has_arguments_from_advicemap
+    if.true
+        ## read arguments from memory stack to memory using ARGSS_POINTER
+
+        ## validate signature
+        # => [SIG...]
+        exec.validate_signature
+        # => [is signature valid]
+        ## maybe other checks
+    else
+        push.0
+    end
+
+    exec.sys::truncate_stack
+end
+
+#! Inputs:  [SIG...]
+#! Outputs: [bool]
+#! this is a stub and always returns true
+proc validate_signature
+    push.1
+    exec.sys::truncate_stack
+end
+
+#! Outputs: [bool]
+#! Outputs if recalim is possible
+#! At this points it's a stub and always returns true
+proc has_reclaim_been_initiated() -> bool
+    push.1
+    exec.sys::truncate_stack
+end
+
+
+
+
+
+proc get_expected_asset_from_signed_args(_padding: word) -> word
+    ### @todo placehoder implementation, will need to be modified to read the expected asset from the signed args
+    exec.get_buy_asset_argument
+end
+
+
+const ACTUAL_ASSET_OUT_LOCAL = 0
+#! Inputs:  []
+#! Outputs: [note_idx]
+#!
+#! Panics if:
+@locals(4)
+proc execute_swap() -> (u16)
+    ### get amount out 
+    exec.common::get_amount_out_argument
+    ### get min amount out - from the signed args
+    padw exec.get_expected_asset_from_signed_args exec.asset_utils::get_amount_c
+    # => [min_amount_out, amount_out]
+    ### check if min amount out is not met
+    lt
+    # => [is_min_amount_out_not_met]
+    if.true
+        ### min output amount not met - respwan the note as is
+        exec.respawn::prepare_for_recreation_of_the_note_as_is
+        exec.respawn::recreate_note
+        # => [note_idx]
+    else
+        ### min output amount met - execute swap and respwan the note with updated assets
+        ## execute swap-in
+        exec.common::get_pool_0_reserve_with_slippage exec.common::get_pool_0_reserve exec.common::get_pool_0_liabilities
+        # => [in_pool_liabilities, in_pool_reserve, in_pool_reserve_with_slippage]
+        padw exec.get_sell_asset_argument exec.set_sell_asset
+        # => [ASSET_IN, in_pool_liabilities, in_pool_reserve, in_pool_reserve_with_slippage]
+        call.zoropool::receive_asset
+
+    
+        ## execute swap-out
+        ## set buy asset amount to actual amount out
+        padw exec.get_expected_asset_from_signed_args movup.3 drop
+        # => [ suffix, prefix, cb]
+        exec.common::get_amount_out_argument movdn.3
+        # => [ACTUAL_ASSET_OUT] 
+        exec.set_buy_asset dropw
+        exec.common::get_pool_1_reserve_with_slippage exec.common::get_pool_1_reserve exec.common::get_pool_1_liabilities
+        # => [out_pool_liabilities, out_pool_reserve, out_pool_reserve_with_slippage]
+        padw mem_loadw_le.BUY_ASSET_POINTER
+        # => [ACTUAL_ASSET_OUT, out_pool_liabilities, out_pool_reserve, out_pool_reserve_with_slippage]
+        call.zoropool::remove_asset_from_pool
+
+        exec.respawn::prepare_for_recreation_of_the_note_as_is
+        # => [num_assets, num_storage_items, note_type, tag]
+        ## drop num_assets, it will be replaced by the return of prepare_assets_for_recreation_of_the_note
+        drop
+        # => [num_storage_items, note_type, tag]
+        exec.prepare_assets_for_recreation_of_the_note
+        # => [totao_num_assets, num_storage_items, note_type, tag]
+
+        exec.respawn::recreate_note
+    # => [note_idx]
+    end
+end
+
+
+const NUMBER_OF_ASSETS_LOCAL = 12
+const ASSET_END_POINTER_LOCAL = 13
+const LOOP_POINTER_0_LOCAL = 14
+const BUY_TOKEN_PREVIOUSLY_IN_THE_NOTE_LOCAL = 15
+
+const CURRENT_ASSET_KEY_LOCAL = 16
+const CURRENT_ASSET_VALUE_LOCAL = 20
+#! Inputs:  []
+#! Outputs: [total_number_of_assets]
+#!
+#! Panics if:
+#! - the number of assets is greater than the maximum number of assets.
+@locals(24)
+proc prepare_assets_for_recreation_of_the_note() -> (felt)
+    exec.common::store_all_active_note_assets_to_output_assets_memory
+    # => [num_assets, assets_ptr]
+    dup loc_store.NUMBER_OF_ASSETS_LOCAL
+    # => [num_assets, assets_ptr]
+    ### update sell and buy assets in memory
+    mul.ASSET_SIZE
+    # => [assets_allocation_size, assets_ptr]
+    dup.1 add
+    # => [end_ptr, assets_ptr]
+    # loop if the amount of assets is non-zero
+    dup loc_store.ASSET_END_POINTER_LOCAL 
+    # => [end_ptr, assets_ptr]
+    dup.1 loc_store.LOOP_POINTER_0_LOCAL
+    # => [end_ptr, assets_ptr]
+    lt
+    ### iterate over all output assets to find sell and buy assets
+    # => [should_loop]
+    while.true
+        # => []
+        #  pad the stack andload the pointer
+        padw padw loc_load.LOOP_POINTER_0_LOCAL
+        # => [ptr, pad(8)]
+        # load the asset value
+        add.ASSET_VALUE_MEMORY_OFFSET mem_loadw_le swapw
+         # => [EMPTY_WORD, ASSET_VALUE]
+        loc_load.LOOP_POINTER_0_LOCAL mem_loadw_le
+        # => [ASSET_KEY, ASSET_VALUE]
+        loc_storew_le.CURRENT_ASSET_KEY_LOCAL swapw loc_storew_le.CURRENT_ASSET_VALUE_LOCAL swapw
+        # => [ASSET_KEY, ASSET_VALUE]
+        ### is sell asset?
+        exec.asset_utils::compress_asset
+        # => [ASSET]
+        padw mem_loadw_le.SELL_ASSET_POINTER
+        # => [ASSET, SELL_ASSET_POINTER]
+        exec.asset_utils::is_asset_the_same_c
+        # => [is_same]
+        if.true ### updating sell asset amount
+            padw loc_loadw_le.CURRENT_ASSET_VALUE_LOCAL
+            mem_load.SELL_ASSET_AMOUNT_POINTER
+            # => [sold_amount, OLD_VALUE]
+            # @todo consider safe sub
+            sub
+            # => [NEW_VLUE]
+            loc_load.LOOP_POINTER_0_LOCAL add.ASSET_VALUE_MEMORY_OFFSET
+            # => [sell_asset_value_output_memory_pointer, NEW_VALUE]
+            mem_storew_le dropw
+            # => []
+        else 
+            nop
+        end
+        ### is buy asset?
+        padw loc_loadw_le.CURRENT_ASSET_VALUE_LOCAL padw loc_loadw_le.CURRENT_ASSET_KEY_LOCAL exec.asset_utils::compress_asset
+        # => [ASSET]
+        padw mem_loadw_le.BUY_ASSET_POINTER
+        # => [ASSET, BUY_ASSET_POINTER]
+        exec.asset_utils::is_asset_the_same_c
+        # => [is_same]
+        if.true ### updating buy asset amount
+            padw loc_loadw_le.CURRENT_ASSET_VALUE_LOCAL
+            mem_load.BUY_ASSET_AMOUNT_POINTER
+            # => [bought_amount, OLD_VALUE]
+            # @todo consider safe add
+            add
+            # => [NEW_VALUE]
+            loc_load.LOOP_POINTER_0_LOCAL add.ASSET_VALUE_MEMORY_OFFSET
+            # => [buy_asset_value_output_memory_pointer, NEW_VALUE]
+            mem_storew_le dropw
+            # => []
+            push.1 loc_store.BUY_TOKEN_PREVIOUSLY_IN_THE_NOTE_LOCAL
+        else
+            nop
+        end
+
+                ### increment the pointer
+        loc_load.LOOP_POINTER_0_LOCAL add.ASSET_SIZE dup loc_store.LOOP_POINTER_0_LOCAL
+        # => [ptr']
+        # continue looping if ptr != end_ptr
+        loc_load.ASSET_END_POINTER_LOCAL lt
+        # => [should_loop]
+    end
+
+    # add buy asset to note if it's not in the old note
+    loc_load.BUY_TOKEN_PREVIOUSLY_IN_THE_NOTE_LOCAL not 
+    ## => [is_buy_asset_new]
+    if.true
+        padw mem_loadw_le.BUY_ASSET_POINTER exec.asset_utils::expand_asset 
+        # => [NEWLY_BOUGHT_ASSET_KEY, NEWLY_BOUGHT_ASSET_VALUE]
+        ## append newly bought asset key to the output assets
+        loc_load.LOOP_POINTER_0_LOCAL mem_storew_le dropw
+        ## append newly bought asset value to the output assets
+        loc_load.LOOP_POINTER_0_LOCAL add.ASSET_VALUE_MEMORY_OFFSET mem_storew_le dropw
+        ## update number of assets (increment by 1 since buy asset is new)
+        loc_load.NUMBER_OF_ASSETS_LOCAL add.1 loc_store.NUMBER_OF_ASSETS_LOCAL
+    else
+        nop
+    end
+
+    loc_load.NUMBER_OF_ASSETS_LOCAL
+end
+
+#! Extended Pay-to-ID note script (Reclaimable & Timelockable)
+#!
+#! Adds all assets from the note to the account if all of the following conditions are true:
+#! - The transaction's reference block number is greater than or equal to the note's timelock block height.
+#! - Any of the following conditions is true:
+#!   - The account ID against which the transaction is executed matches the note's target account id.
+#!   - The account ID against which the transaction is executed matches the note's sender account id and
+#!     the transaction's reference block number is greater than or equal to the note's reclaim block height.
+#!
+#! Requires that the account exposes:
+#! - miden::standards::wallets::basic::receive_asset procedure.
+#!
+#! Inputs:  []
+#! Outputs: []
+#!
+#! Note storage is assumed to be as follows:
+#! - target_account_id is the ID of the account for which the note is intended.
+#! - reclaim_block_height is the block height at which the note can be reclaimed by the sender.
+#! - timelock_block_height is the block height at which the note can be consumed by the target.
+#!
+#! Panics if:
+#! - The account does not expose miden::standards::wallets::basic::receive_asset procedure.
+#! - The note is consumed before the timelock expired, i.e. the transaction's reference block
+#!   number is less than the timelock block height.
+#! - Before reclaim block height: the account ID of the executing account is not equal to the specified
+#!   account ID.
+#! - At and after reclaim block height: the account ID of the executing account is not equal to
+#!   the specified account ID or sender account ID.
+#! - The same non-fungible asset already exists in the account.
+#! - Adding a fungible asset would result in an amount overflow, i.e., the total amount would be
+#!   greater than 2^63.
+@note_script
+pub proc main
+    push.DEFAULT_NUMBER_OF_STORAGE_ITEMS exec.common::store_storage_to_memory
+    exec.common::store_all_assets_to_memory
+
+    exec.common::has_arguments_from_advicemap
+    if.true
+        push.NUMBER_OF_ARGUMENT_WORDS exec.common::store_arbitrary_arguments_from_advicemap_to_memory
+    else
+        nop
+    end
+
+    #exec.store_args_to_memory
+
+    # can active account consume the note
+    exec.is_note_consumption_permitted
+
+    if.true
+        # we can safely consume the note since the active account is the target of the note
+        exec.execute_swap
+        # => [note_idx]
+        drop
+
+    else
+        # checks if active account is sender and if reclaim is enabled
+        exec.has_reclaim_been_initiated assert.err=ERR_ZTD_RECLAIM_NOT_INITIATED
+        exec.reclaim::reclaim_note
+        # => []
+    end
+
+    # => []
+end
+
+
+
+
+
+
+

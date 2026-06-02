@@ -1,0 +1,410 @@
+use miden::protocol::active_note
+use miden::protocol::active_account
+use miden::protocol::account_id
+use miden::core::mem
+use miden::core::sys
+use miden::protocol::asset::ASSET_VALUE_MEMORY_OFFSET
+use miden::protocol::asset::ASSET_SIZE
+
+use zoro_miden::lib::asset_utils
+
+# GENERIC CONSTANTS
+const WORD_SIZE = 4
+
+############################################# TYPES ###############################################
+# =================================================================================================
+
+pub type AccountId = u64
+pub type bool = i1
+
+###  TYPES END
+
+################################### NOTE STORAGE LIBRARY ##########################################
+# =================================================================================================
+
+const STORAGE_POINTER = 32
+const STORAGE_END     = STORAGE_WORD_3 + 63
+const MAX_NUMBER_OF_STORAGE_WORDS = 16
+
+const DEFAULT_NUMBER_OF_STORAGE_ITEMS = 12
+const DEFAULT_STORAGE_END = STORAGE_POINTER + 11
+
+const STORAGE_WORD_0 = STORAGE_POINTER
+const STORAGE_WORD_1 = STORAGE_POINTER + 4              
+const STORAGE_WORD_2 = STORAGE_POINTER + 8             
+const STORAGE_WORD_3 = STORAGE_POINTER + 12        
+
+
+const STORAGE_EXPECTED_ASSET_WORD = STORAGE_WORD_0      # EXPECTED_ASSET [asset_id_suffix, asset_id_prefix, cb, amount]
+const STORAGE_METADATA_WORD = STORAGE_WORD_1            # METADATA  [deadline, p2id_tag, metadata_2, metadata_3]
+const STORAGE_BENEFICIARY_WORD = STORAGE_WORD_2         # BENEFICIARY  [beneficiary_id_suffix, beneficiary_id_prefix, 0, 0]
+
+## EXPECTED ASSET
+const EXPECTED_ASSET_ID_SUFFIX = STORAGE_EXPECTED_ASSET_WORD
+const EXPECTED_ASSET_ID_PREFIX = STORAGE_EXPECTED_ASSET_WORD + 1
+const EXPECTED_ASSET_CB = STORAGE_EXPECTED_ASSET_WORD + 2
+const EXPECTED_ASSET_AMOUNT = STORAGE_EXPECTED_ASSET_WORD + 3
+
+## METADATA
+const METADATA_DEADLINE = STORAGE_METADATA_WORD
+const METADATA_P2ID_TAG = STORAGE_METADATA_WORD + 1
+const METADATA_ITEM_2 = STORAGE_METADATA_WORD + 2
+const METADATA_ITEM_3 = STORAGE_METADATA_WORD + 3
+
+## BENEFICIARY
+const BENEFICIARY_ID_SUFFIX = STORAGE_BENEFICIARY_WORD
+const BENEFICIARY_ID_PREFIX = STORAGE_BENEFICIARY_WORD + 1
+const BENEFICIARY_2_ID_SUFFIX = STORAGE_BENEFICIARY_WORD + 2  # default empty
+const BENEFICIARY_2_ID_PREFIX = STORAGE_BENEFICIARY_WORD + 3  # default empty
+
+
+const ERR_UNEXPECTED_NUMBER_OF_STORAGE_ITEMS = "unexpected number of storage items"
+
+### SETTERS
+proc store_storage_to_memory(expected_num_storage_items: u16)
+    push.STORAGE_POINTER exec.active_note::get_storage
+    # => [num_storage_items, storage_ptr, expected_num_storage_items]
+    # make sure the number of storage items is equal to the expected number of storage items
+    swap drop 
+    # => [num_storage_items, expected_num_storage_items]
+    eq assert.err=ERR_UNEXPECTED_NUMBER_OF_STORAGE_ITEMS
+end
+
+
+### GETTERS ###
+#! Expected word padding
+proc get_expected_asset() -> word
+    mem_loadw_le.STORAGE_EXPECTED_ASSET_WORD
+end
+
+#! Expected word padding
+proc get_metadata() -> word
+    mem_loadw_le.STORAGE_METADATA_WORD
+end
+
+proc get_deadline() -> felt
+    mem_load.METADATA_DEADLINE
+end
+proc get_p2id_tag() -> felt
+    mem_load.METADATA_P2ID_TAG
+end
+proc get_metadata_item_2() -> felt
+    mem_load.METADATA_ITEM_2
+end
+proc get_metadata_item_3() -> felt
+    mem_load.METADATA_ITEM_3
+end
+
+proc get_beneficiary_id() -> AccountId
+    mem_load.BENEFICIARY_ID_PREFIX
+    mem_load.BENEFICIARY_ID_SUFFIX
+end
+
+
+#########  ACTIVE ACCOUNT UTILS  #########
+
+#! Library: (Active) Account Utils
+#! Inputs:  [AccountID]
+#! Outputs: [bool]
+#!
+#! Panics if:
+#! - the account_id is not valid.
+
+proc is_active_account(account_id: AccountId) -> bool
+    exec.active_account::get_id
+    exec.account_id::is_equal
+end
+
+proc is_active_account_beneficiary() -> bool
+    exec.active_account::get_id
+    exec.get_beneficiary_id
+    exec.account_id::is_equal
+end
+
+
+
+
+################################### NOTE ARGUMENTS LIBRARY ##########################################
+# =================================================================================================
+
+const ERR_MAX_NUMBER_OF_ARGUMENTS_EXCEEDED = "max number of arguments (32 words) exceeded"
+
+const ARGUMENTS_POINTER = STORAGE_END + 17
+
+const ARGUMENTS_END     = ARGUMENTS_POINTER + 127
+const MAXNUMBER_OF_ARGUMENTS_WORDS = 32
+const MAX_ARGUMENTS_MEMORY_ALLOCATION = MAXNUMBER_OF_ARGUMENTS_WORDS * 4 # 128
+
+const ARGUMENTS_WORD_0 = ARGUMENTS_POINTER  
+const ARGUMENTS_WORD_1 = ARGUMENTS_POINTER + 4      
+const ARGUMENTS_WORD_2 = ARGUMENTS_POINTER + 8      
+const ARGUMENTS_WORD_3 = ARGUMENTS_POINTER + 12  
+const ARGUMENTS_WORD_4 = ARGUMENTS_POINTER + 16  
+
+
+const AMOUNT_OUT = ARGUMENTS_WORD_0   
+const LIABILITIES_0 = ARGUMENTS_WORD_0 + 1  
+const RESERVE_0 = ARGUMENTS_WORD_0 + 2
+const RESERVE_WITH_SLIPPAGE_0 = ARGUMENTS_WORD_0 + 3
+
+const EMPTY_ARGUMENT_1 = ARGUMENTS_WORD_1   # 0x0040
+const LIABILITIES_1 = ARGUMENTS_WORD_1 + 1  # 0x0041
+const RESERVE_1 = ARGUMENTS_WORD_1 + 2  # 0x0042
+const RESERVE_WITH_SLIPPAGE_1 = ARGUMENTS_WORD_1 + 3  # 0x0043
+
+
+# ====================================================
+proc store_arguments_from_stack_to_memory
+    mem_storew_le.ARGUMENTS_WORD_0
+    dropw
+end
+
+
+proc store_arguments_from_advicemap_to_memory
+    exec.active_note::get_serial_number
+    adv.push_mapval dropw
+    push.ARGUMENTS_POINTER push.2 #number_of words
+    # => [number_of_words, arguments_ptr]
+    exec.mem::pipe_words_to_memory
+    # => [R0, R1, C, write_ptr']
+    dropw dropw dropw drop
+end
+
+proc store_arbitrary_arguments_from_advicemap_to_memory(num_words: u16)
+    dup push.MAXNUMBER_OF_ARGUMENTS_WORDS lte assert.err=ERR_MAX_NUMBER_OF_ARGUMENTS_EXCEEDED
+    # => [num_words]
+    exec.active_note::get_serial_number
+    # => [NOTE_SERIAL_NUMBER, num_words]
+    adv.push_mapval dropw
+    # =>[num_words]
+    push.ARGUMENTS_POINTER swap #number_of words
+    # => [number_of_words, arguments_ptr]
+    exec.mem::pipe_words_to_memory
+    # => [R0, R1, C, write_ptr']
+    dropw dropw dropw drop
+end
+
+
+
+proc has_arguments_from_advicemap() -> bool
+    exec.active_note::get_serial_number
+    adv.has_mapkey
+    adv_push.1
+end
+
+
+### GETTERS ###
+proc get_amount_out_argument() -> felt
+    mem_load.AMOUNT_OUT
+end
+
+#! Returns POOL 0 STATE, expexts padding
+proc get_pool_0_state() -> (felt, felt, felt)
+    mem_loadw_le.ARGUMENTS_WORD_0
+    # => [amount_out, liabilities_0, reserve_0, reserve_with_slippage_0]
+    drop
+    # => [liabilities_0, reserve_0, reserve_with_slippage_0]
+end
+proc get_pool_0_liabilities() -> felt
+    mem_load.LIABILITIES_0
+end
+proc get_pool_0_reserve() -> felt
+    mem_load.RESERVE_0
+end
+proc get_pool_0_reserve_with_slippage() -> felt
+    mem_load.RESERVE_WITH_SLIPPAGE_0
+end
+
+#! Returns POOL 0 STATE, expexts padding
+proc get_pool_1_state() -> (felt, felt, felt)
+    mem_loadw_le.ARGUMENTS_WORD_1
+    # => [amount_out, liabilities_1, reserve_1, reserve_with_slippage_1]
+    drop
+    # => [liabilities_1, reserve_1, reserve_with_slippage_1]
+end
+proc get_pool_1_liabilities() -> felt
+    mem_load.LIABILITIES_1
+end
+proc get_pool_1_reserve() -> felt
+    mem_load.RESERVE_1
+end
+proc get_pool_1_reserve_with_slippage() -> felt
+    mem_load.RESERVE_WITH_SLIPPAGE_1
+end
+
+proc get_argument_word_by_index(word_index: u16, word_padding: word) -> word
+    # => [word_index, pad(4)]
+    mul.WORD_SIZE add.ARGUMENTS_POINTER
+    # => [word_ptr, pad(4)]
+    mem_loadw_le
+end
+
+
+
+
+###################################### NOTE ASSETS LIBRARY ##########################################
+# =================================================================================================
+
+const ERR_WRONG_NUMBER_OF_ASSETS="unexpected number of note assets"
+
+const INPUT_ASSETS_POINTER = ARGUMENTS_END + 17
+const MAX_NUMBER_OF_NOTE_ASSETS = 32
+const INPUT_ASSETS_MEMORY_ALLOCATION = MAX_NUMBER_OF_NOTE_ASSETS * ASSET_SIZE   # 256
+const INPUT_ASSETS_END = INPUT_ASSETS_POINTER + 255
+
+const INPUT_ASSET_START = INPUT_ASSETS_POINTER
+const INPUT_ASSET_KEY = INPUT_ASSET_START
+const INPUT_ASSET_VALUE = INPUT_ASSET_KEY + 4
+const INPUT_ASSET_END = INPUT_ASSET_VALUE + 3
+
+
+#! Will write to INPUT_ASSET_KEY and INPUT_ASSET_VALUE if there is exactly 1 asset attached to the note
+#!
+#! Inputs: []
+#! Outputs: []
+#!
+#! Panics is there is more than one asset in the active note.
+#!
+proc store_asset_to_memory
+    push.INPUT_ASSET_KEY exec.active_note::get_assets assert.err=ERR_WRONG_NUMBER_OF_ASSETS
+    drop
+end
+
+
+proc store_all_assets_to_memory() -> (felt, felt)
+    push.INPUT_ASSETS_POINTER exec.active_note::get_assets
+    # => [num_assets, assets_ptr]
+    # make sure the number of assets is less than the maximum number of input assets
+    dup push.MAX_NUMBER_OF_NOTE_ASSETS lte assert.err=ERR_WRONG_NUMBER_OF_ASSETS
+    # => [num_assets, assets_ptr]
+    exec.sys::truncate_stack
+end
+
+
+### GETTERS ###
+# @todo rename and remove padding
+# Needs padw
+proc get_input_asset_key(_padding_word: word) -> word
+   mem_loadw_le.INPUT_ASSET_KEY
+end
+
+# Needs padw
+proc get_input_asset_value(_padding_word: word) -> word 
+   mem_loadw_le.INPUT_ASSET_VALUE
+end
+
+# Gets the stored input asset in one word
+# Needs padw
+proc get_input_asset(_padding_word: word) -> word
+    exec.get_input_asset_value padw exec.get_input_asset_key
+    # => [ASSET_KEY, ASSET_VALUE]
+    exec.asset_utils::compress_asset
+    # => [ASSET]
+end
+
+################################### OUTPUT NOTE LIBRARY ##########################################
+# =================================================================================================
+
+const OUTPUT_NOTE_START = INPUT_ASSETS_END + 17
+
+const OUTPUT_NOTE_STORAGE_START = OUTPUT_NOTE_START
+## reminder MAX_NUMBER_OF_STORAGE_WORDS  = 16
+const OUTPUT_NOTE_STORAGE_ALLOCATION = MAX_NUMBER_OF_STORAGE_WORDS * 4 # 64
+const OUTPUT_NOTE_STORAGE_END = OUTPUT_NOTE_STORAGE_START + ( OUTPUT_NOTE_STORAGE_ALLOCATION - 1) # + 63
+
+const OUTPUT_NOTE_STORAGE_WORD_0 = OUTPUT_NOTE_STORAGE_START
+
+const OUTPUT_NOTE_STORAGE_BENEFICIARY_WORD = OUTPUT_NOTE_STORAGE_START
+
+const OUTPUT_ASSET_TARGET_PREFIX = OUTPUT_NOTE_ASSETS_START
+const OUTPUT_ASSET_TARGET_SUFFIX = OUTPUT_NOTE_ASSETS_START + 1
+
+
+const OUTPUT_NOTE_ASSETS_START = OUTPUT_NOTE_STORAGE_END + 17
+## reminder MAX_NUMBER_OF_NOTE_ASSETS = 32
+const OUTPUT_NOTE_ASSETS_MEMORY_ALLOCATION = MAX_NUMBER_OF_NOTE_ASSETS * ASSET_SIZE   # 256
+const OUTPUT_NOTE_ASSETS_END = OUTPUT_NOTE_ASSETS_START + 255
+
+
+const OUTPUT_ASSET_KEY = OUTPUT_NOTE_ASSETS_START + 4
+const OUTPUT_ASSET_VALUE = OUTPUT_ASSET_KEY + 4
+const OUTPUT_ASSET_END = OUTPUT_ASSET_VALUE + 4
+
+proc set_output_asset(key: word, value: word)
+    # => [ASSET_KEY, ASSET_VALUE]
+    mem_storew_be.OUTPUT_ASSET_KEY dropw mem_storew_be.OUTPUT_ASSET_VALUE dropw
+    # => []
+end
+
+proc set_output_asset_to_input_asset
+    padw padw mem_loadw_be.INPUT_ASSET_VALUE mem_loadw_be.INPUT_ASSET_KEY
+    # => [ASSET_KEY, ASSET_VALUE]
+    mem_storew_be.OUTPUT_ASSET_KEY mem_storew_be.OUTPUT_ASSET_VALUE
+    # => []
+end
+
+proc get_output_asset_key_pointer() -> felt
+   push.OUTPUT_ASSET_KEY
+end
+
+proc get_output_asset_target_pointer() -> felt
+   push.OUTPUT_ASSET_TARGET_PREFIX
+end
+
+proc get_output_asset_key() -> word
+   padw mem_loadw_be.OUTPUT_ASSET_KEY 
+end
+
+proc get_output_asset_value() -> word
+   padw mem_loadw_be.OUTPUT_ASSET_VALUE
+end
+
+#! Stores beneficiary AccountId to memory for creating output notes
+#!
+#! Inputs: []_
+#! Outputs: []
+#!
+proc set_beneficiary_as_output_note_target
+    exec.get_beneficiary_id
+    # [suffix, prefix]
+    mem_store.OUTPUT_ASSET_TARGET_PREFIX mem_store.OUTPUT_ASSET_TARGET_SUFFIX
+    # []
+end
+
+#! Stores creator AccountId to memory for creating output notes
+#!
+#! Inputs: []
+#! Outputs: []
+#!
+proc set_sender_as_output_note_target
+    exec.active_note::get_sender
+    # [prefix, suffix]
+    mem_store.OUTPUT_ASSET_TARGET_PREFIX drop mem_store.OUTPUT_ASSET_TARGET_SUFFIX drop
+    # []
+end
+
+
+#! Caution: targeted memory location is not checked for emptiness
+#! and will overwrite existing data
+proc store_all_active_note_assets_to_output_assets_memory() -> (felt, felt)
+    push.OUTPUT_NOTE_ASSETS_START exec.active_note::get_assets
+    # => [num_assets, assets_ptr]
+    # make sure the number of assets is less than the maximum number of input assets
+    dup push.MAX_NUMBER_OF_NOTE_ASSETS lte assert.err=ERR_WRONG_NUMBER_OF_ASSETS
+    # => [num_assets, assets_ptr]
+    exec.sys::truncate_stack
+end
+
+proc store_all_active_note_storage_items_to_output_storage_memory() -> (felt, felt)
+    push.OUTPUT_NOTE_STORAGE_START exec.active_note::get_storage
+    # => [num_storage_items, storage_ptr]
+    exec.sys::truncate_stack
+end
+
+
+
+
+########################################### CONSTANTS #############################################
+# =================================================================================================
+
+const FREE_MEMORY_POINTER = OUTPUT_NOTE_ASSETS_END + 129

@@ -1,4 +1,5 @@
 use miden::protocol::asset
+use miden::protocol::account_id
 use miden::core::sys
 
 #! Inputs: [ASSET] = [asset_account_suffix, asset_account_prefix, callback_enabled, amount]
@@ -33,5 +34,34 @@ pub proc compress_asset(asset_key: word, asset_value: word) -> (word)
     # => [suffix, prefix, cb_on, value, 0, 0, 0]
    
     movup.4 drop movup.4 drop movup.4 drop
+end
+
+
+proc is_asset_the_same_c(asset_0: word, asset_1: word) -> i1
+    ### compare callback flags
+    movup.2 movup.6 eq if.true
+        # => [asset_0_suffix, asset_0_prefix, asset_0_value, asset_1_suffix, asset_1_prefix, asset_1_value]
+        ### compare faucet ids
+        movup.2 drop 
+        exec.account_id::is_equal
+        # => [is_equal, asset_1_value]
+        swap drop
+        # => [is_equal]
+    else # callbacks are different
+        # => [asset_0_suffix, asset_0_prefix, asset_0_value, asset_1_suffix, asset_1_prefix, asset_1_value]
+        dropw drop drop
+        push.0
+    end
+end
+
+
+# AMOUNT
+# =================================================================================================
+proc has_amount_c(asset: word) -> bool
+    drop drop drop gt.0
+end
+
+proc get_amount_c(asset: word) -> felt
+    drop drop drop
 end
 

@@ -239,9 +239,9 @@ impl PoolState {
     pub fn to_lp_note_args(&self, amount: u64) -> Word {
         Word::from(&[
             Felt::new(amount),
-            Felt::new(self.balances.reserve_with_slippage.to::<u64>()),
-            Felt::new(self.balances.reserve.to::<u64>()),
             Felt::new(self.balances.total_liabilities.to::<u64>()),
+            Felt::new(self.balances.reserve.to::<u64>()),
+            Felt::new(self.balances.reserve_with_slippage.to::<u64>()),
         ])
     }
 }

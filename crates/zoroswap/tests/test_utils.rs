@@ -1,11 +1,15 @@
 use anyhow::{Result, anyhow};
 use chrono::Utc;
+use miden_client::note::Note;
 use miden_client::{Felt, Word, account::AccountId, keystore::FilesystemKeyStore, note::NoteTag};
 use std::{collections::HashMap, str::FromStr};
 use tracing::error;
 use url::Url;
+use uuid::Uuid;
+use zoro_miden::note::TrustedNote;
 use zoro_miden::pool::ZoroPool;
 use zoro_miden::{client::MidenClient, price::PriceData};
+use zoroswap::PositionGetNoteResponse;
 use zoroswap::{Config, get_oracle_prices, oracle_sse::PriceMetadata};
 
 /// Common state for E2E tests.
@@ -89,9 +93,8 @@ impl E2ETestSetup {
     }
 }
 
-/// POST a serialized note to `{server_url}/{endpoint}/submit`.
-pub async fn send_to_server(server_url: &str, note: String, endpoint: &str) -> Result<()> {
-    let url = Url::from_str(format!("{server_url}/{endpoint}/submit").as_str())?;
+pub async fn send_to_server(server_url: &str, note: String, endpoint: &str) -> Result<String> {
+    let url = Url::from_str(format!("{server_url}/{endpoint}").as_str())?;
     let client = reqwest::Client::new();
     let res = client
         .post(url)
@@ -100,8 +103,58 @@ pub async fn send_to_server(server_url: &str, note: String, endpoint: &str) -> R
         .send()
         .await?;
 
-    println!("Server response: {:?}", res.text().await?);
-    Ok(())
+    let text = res.text().await?;
+    println!("Server response: {:?}", text);
+    Ok(text)
+}
+
+pub async fn send_position_swap_to_server(
+    server_url: &str,
+    endpoint: &str,
+    position_id: Uuid,
+    asset_in: String,
+    asset_out: String,
+    amount_in: u64,
+    amount_out: u64,
+) -> Result<String> {
+    let url = Url::from_str(format!("{server_url}/{endpoint}").as_str())?;
+    let client = reqwest::Client::new();
+    let res = client
+        .post(url)
+        .body(
+            serde_json::json!({
+                "position_id": position_id,
+                "asset_in": asset_in,
+                "asset_out": asset_out,
+                "amount_in": amount_in,
+                "min_amount_out": amount_out
+            })
+            .to_string(),
+        )
+        .header("Content-Type", "application/json")
+        .send()
+        .await?;
+
+    let text = res.text().await?;
+    println!("Server response: {:?}", text);
+    Ok(text)
+}
+
+pub async fn get_position_note(
+    server_url: &str,
+    endpoint: &str,
+    position_id: Uuid,
+) -> Result<TrustedNote> {
+    let client = reqwest::Client::new();
+    let params = [("position_id", &position_id.to_string())];
+    let url = Url::parse_with_params(format!("http://{server_url}/{endpoint}").as_str(), params)?;
+    let res = client.get(url).send().await?;
+
+    let text = res.text().await?;
+    let payload: PositionGetNoteResponse = serde_json::from_str(&text)?;
+    let note = TrustedNote::from_base64(&payload.note_data)?;
+    println!("Server response: {:?}", text);
+    Ok(note)
 }
 
 /// Look up a single price by oracle ID from fetched price metadata.

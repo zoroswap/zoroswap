@@ -2,23 +2,29 @@ use crate::{
     config::Config,
     oracle_sse::PriceMetadata,
     order::Order,
-    websocket::{EventBroadcaster, messages::PoolStateEvent},
+    websocket::{EventBroadcaster, OrderStatus, OrderUpdateEvent, messages::PoolStateEvent},
 };
 use anyhow::{Result, anyhow};
 use chrono::Utc;
 use dashmap::DashMap;
-use miden_client::{account::AccountId, note::NoteId};
+use miden_client::{Felt, account::AccountId, asset::FungibleAsset, note::NoteId};
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
 };
 use tracing::error;
 use uuid::Uuid;
-use zoro_miden::{note::TrustedNote, pool_state::PoolState, price::PriceData};
+use zoro_miden::{
+    asset_utils::asset_to_word,
+    note::{NoteInstructions, TrustedNote},
+    pool_state::PoolState,
+    price::PriceData,
+};
 
 pub struct AmmState {
     open_orders: DashMap<Uuid, Order>,
     closed_orders: DashMap<Uuid, Order>,
+    positions: DashMap<Uuid, TrustedNote>,
     notes: DashMap<Uuid, TrustedNote>,
     note_ids: DashMap<Uuid, String>,
     liquidity_pools: DashMap<AccountId, PoolState>,
@@ -37,6 +43,7 @@ impl AmmState {
             closed_orders: DashMap::new(),
             notes: DashMap::new(),
             note_ids: DashMap::new(),
+            positions: DashMap::new(),
             liquidity_pools: DashMap::new(),
             config: Arc::new(config),
             oracle_prices: DashMap::new(),
@@ -45,17 +52,104 @@ impl AmmState {
         }
     }
 
-    pub fn add_order(&self, note: TrustedNote) -> Result<(String, Uuid, Order)> {
+    pub fn get_position_note_serialized(&self, position_id: Uuid) -> Result<String> {
+        let note = self
+            .positions
+            .get(&position_id)
+            .ok_or(anyhow!("Position {position_id} not found."))?;
+        note.serialize_to_string()
+    }
+
+    pub fn get_position_note_info(
+        &self,
+        position_id: Uuid,
+    ) -> Result<(Vec<(String, u64)>, String, String)> {
+        let note = self
+            .positions
+            .get(&position_id)
+            .ok_or(anyhow!("Position {position_id} not found."))?;
+        let network_id = self.config().network_id;
+        let assets: Vec<(String, u64)> = note
+            .note()
+            .assets()
+            .iter_fungible()
+            .map(|a| (a.faucet_id().to_bech32(network_id.clone()), a.amount()))
+            .collect();
+        let serial = note.note().serial_num();
+        let note_id = note.note().id().to_hex();
+        Ok((assets, serial.to_hex(), note_id))
+    }
+
+    pub fn add_position_order(
+        &self,
+        position_id: Uuid,
+        asset_in: String,
+        asset_out: String,
+        amount_in: u64,
+        amount_out: u64,
+    ) -> Result<(String, Uuid, Order)> {
+        let note = self
+            .positions
+            .get(&position_id)
+            .ok_or(anyhow!("No note found for position {}", position_id))?
+            .clone();
+        let (_, asset_in) = AccountId::from_bech32(&asset_in)?;
+        let asset_in = FungibleAsset::new(asset_in, amount_in)?;
+        let asset_in = asset_to_word(asset_in);
+        let (_, asset_out) = AccountId::from_bech32(&asset_out)?;
+        let asset_out = FungibleAsset::new(asset_out, amount_out)?;
+        let asset_out = asset_to_word(asset_out);
+        let position_details = vec![
+            asset_in[0],
+            asset_in[1],
+            asset_in[2],
+            asset_in[3],
+            asset_out[0],
+            asset_out[1],
+            asset_out[2],
+            asset_out[3],
+        ];
+        let (note_id, order_id, order) =
+            self.add_order(note, Some(position_id), Some(position_details))?;
+        let event = OrderUpdateEvent {
+            order_id,
+            note_id: note_id.clone(),
+            status: OrderStatus::Pending,
+            timestamp: Utc::now().timestamp_millis() as u64,
+        };
+        if let Err(e) = self.broadcaster.broadcast_order_update(event) {
+            error!("Failed to broadcast order update: {:?}", e);
+        }
+        Ok((note_id, order_id, order))
+    }
+
+    pub fn replace_position_note(&self, position_id: Uuid, note: TrustedNote) {
+        self.positions.insert(position_id, note);
+    }
+
+    pub fn add_order(
+        &self,
+        note: TrustedNote,
+        position_id: Option<Uuid>,
+        additional_details: Option<Vec<Felt>>,
+    ) -> Result<(String, Uuid, Order)> {
         let hex = note.note().id().to_hex();
-        let order = Order::from_trusted_note(note.clone())?;
+        let order = Order::from_trusted_note(note.clone(), position_id, additional_details)?;
         let order_id = order.id;
-        if !order.instructions.involves_faucets(&self.valid_faucets) {
+        let instructions: NoteInstructions = note.clone().try_into()?;
+        if !instructions.involves_faucets(&self.valid_faucets) {
             return Err(anyhow!("Wrong faucet ids for order."));
         }
         self.note_ids.insert(order_id, hex.clone());
         self.notes.insert(order_id, note);
-        self.open_orders.insert(order_id, order);
-        Ok((hex, order_id, order))
+        self.open_orders.insert(order_id, order.clone());
+        Ok((hex, order_id, order.clone()))
+    }
+
+    pub fn add_position(&self, note: TrustedNote) -> Result<Uuid> {
+        let new_id = Uuid::new_v4();
+        self.positions.insert(new_id, note);
+        Ok(new_id)
     }
 
     pub fn get_order_id(&self, note_id: &NoteId) -> Option<Uuid> {
@@ -71,17 +165,20 @@ impl AmmState {
     }
 
     pub fn get_open_orders(&self) -> Vec<Order> {
-        self.open_orders.iter().map(|i| *i.value()).collect()
+        self.open_orders.iter().map(|i| i.value().clone()).collect()
     }
 
     pub fn get_closed_orders(&self) -> Vec<Order> {
-        self.closed_orders.iter().map(|i| *i.value()).collect()
+        self.closed_orders
+            .iter()
+            .map(|i| i.value().clone())
+            .collect()
     }
 
     pub fn flush_open_orders(&self) -> Vec<Order> {
         let orders = self.get_open_orders().clone();
         for order in orders.iter() {
-            self.closed_orders.insert(order.id, *order);
+            self.closed_orders.insert(order.id, order.clone());
         }
         self.open_orders.clear();
         orders

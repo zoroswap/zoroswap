@@ -65,12 +65,43 @@ pub fn link_asset_utils(mut code_builder: CodeBuilder) -> Result<CodeBuilder> {
 pub fn link_zoropool(code_builder: CodeBuilder) -> Result<CodeBuilder> {
     let code_builder = link_asset_utils(code_builder)?;
     let mut code_builder = link_storage_utils(code_builder)?;
-
     let pool_code = read_masm_file(&["accounts", "zoropool.masm"])?;
     code_builder.link_module("zoroswap::zoropool", &pool_code)?;
     Ok(code_builder)
 }
 
+pub fn link_note_common_lib(code_builder: CodeBuilder) -> Result<CodeBuilder> {
+    let mut code_builder = code_builder.clone();
+    let note_common_lib_code = read_masm_file(&["notes", "lib", "common.masm"])?;
+    code_builder.link_module("zoro_miden::note::common", &note_common_lib_code)?;
+    Ok(code_builder)
+}
+
+pub fn link_output_note_utils_lib(code_builder: CodeBuilder) -> Result<CodeBuilder> {
+    let mut code_builder = code_builder.clone();
+    let lib_code = read_masm_file(&["lib", "output_note_utils.masm"])?;
+    code_builder.link_module("zoro_miden::lib::output_note_utils", &lib_code)?;
+    Ok(code_builder)
+}
+  
+pub fn link_note_respawn_lib(code_builder: CodeBuilder) -> Result<CodeBuilder> {
+    let mut code_builder = code_builder.clone();
+    let note_respawn_lib_code = read_masm_file(&["notes", "lib", "respawn.masm"])?;
+    code_builder.link_module("zoro_miden::note::respawn", &note_respawn_lib_code)?;
+    Ok(code_builder)
+}
+
+pub fn link_note_reclaim_lib(code_builder: CodeBuilder) -> Result<CodeBuilder> {
+    let mut code_builder = code_builder.clone();
+    let note_reclaim_lib_code = read_masm_file(&["notes", "lib", "reclaim.masm"])?;
+    code_builder.link_module("zoro_miden::note::reclaim", &note_reclaim_lib_code)?;
+    Ok(code_builder)
+}
+
+pub fn link_all_note_libraries(code_builder: CodeBuilder) -> Result<CodeBuilder> {
+    link_note_common_lib(link_output_note_utils_lib(link_note_respawn_lib(link_note_reclaim_lib(code_builder)?)?)?)
+}
+
 pub fn link_all_libraries(code_builder: CodeBuilder) -> Result<CodeBuilder> {
-    link_zoropool(code_builder)
+    link_all_note_libraries(link_zoropool(code_builder)?)
 }

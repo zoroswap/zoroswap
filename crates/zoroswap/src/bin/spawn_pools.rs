@@ -11,7 +11,7 @@ use tracing_subscriber::EnvFilter;
 use zoro_miden::{
     account::MidenAccount,
     client::MidenClient,
-    note::{DepositInstructions, NoteInstructions, TrustedNote},
+    note::{NoteInstructions, NoteKind, TrustedNote},
     pool::ZoroPool,
 };
 use zoroswap::Config;
@@ -91,15 +91,17 @@ async fn main() -> Result<()> {
         let max_slippage = 0.5; // 0.5 %
         let min_lp_amount_out = ((amount as f64) * (1.0 - max_slippage)) as u64;
         let deposit_note = TrustedNote::new(
-            NoteInstructions::Deposit(DepositInstructions {
-                asset_in: FungibleAsset::new(pool.faucet_id, amount)?,
-                min_lp_amount_out,
-                creator: *lp_account.id(),
+            NoteInstructions {
+                attached_assets: vec![FungibleAsset::new(pool.faucet_id, amount)?],
+                amount_input: min_lp_amount_out,
+                beneficiary: *lp_account.id(),
                 note_type: NoteType::Private,
                 deadline: (Utc::now().timestamp_millis() + 120_000) as u64,
                 p2id_tag: lp_account.tag(),
                 pool_tag: NoteTag::with_account_target(*zoro_pool.miden_account().id()),
-            }),
+                asset_input: None,
+                note_kind: NoteKind::Deposit,
+            },
             miden_client.client_mut().code_builder(),
         )?;
         miden_client
@@ -112,7 +114,9 @@ async fn main() -> Result<()> {
         notes.push(deposit_note);
     }
     println!("\n[STEP 4] Execute DEPOSIT notes on zoro pool");
-    zoro_pool.execute_notes(notes, HashMap::default()).await?;
+    zoro_pool
+        .execute_notes(notes, HashMap::default(), HashMap::default())
+        .await?;
     zoro_pool.print_pool_states();
     println!(
         "\n------\n New pool created: {:?}\n-----\n",
