@@ -3,7 +3,7 @@ use std::{collections::BTreeSet, fs, path::PathBuf, sync::Arc, time::Duration};
 use anyhow::{Result, anyhow};
 
 use miden_client::{
-    Client, DebugMode, Felt,
+    Client, DebugMode, Felt, RemoteTransactionProver,
     account::{
         Account, AccountBuilder, AccountId, AccountStorageMode, AccountType,
         component::{AuthControlled, BasicFungibleFaucet},
@@ -73,9 +73,19 @@ impl MidenClient {
             .rpc(rpc_client.clone())
             .authenticator(keystore.clone())
             .sqlite_store(store_path.clone())
-            .in_debug_mode(DebugMode::Enabled)
-            .build()
-            .await?;
+            .in_debug_mode(DebugMode::Enabled);
+
+        if endpoint.ne(&Endpoint::localhost()) {
+            let url = if endpoint.eq(&Endpoint::testnet()) {
+                "https://tx-prover.testnet.miden.io"
+            } else {
+                "https://tx-prover.devnet.miden.io"
+            };
+            let prover = Arc::new(RemoteTransactionProver::new(url));
+            client = client.prover(prover);
+        }
+
+        let mut client = client.build().await?;
         client.ensure_genesis_in_place().await?;
         client.sync_state().await?;
 
