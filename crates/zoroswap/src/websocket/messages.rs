@@ -129,6 +129,7 @@ impl SubscriptionChannel {
 pub enum OrderStatus {
     Pending,
     Matching,
+    Matched,
     Executed,
     Failed,
     Expired,
