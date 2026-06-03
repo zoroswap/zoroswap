@@ -389,12 +389,21 @@ async fn position_get_info(
     State(state): State<AppState>,
     Path(position_id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("max-age=1, must-revalidate"),
+    );
+
     match state.amm_state.get_position_note_info(position_id) {
-        Ok((assets, serial_num, note_id)) => Ok(Json(PositionGetInfoResponse {
-            assets,
-            serial_num,
-            note_id,
-        })),
+        Ok((assets, serial_num, note_id)) => Ok((
+            headers,
+            Json(PositionGetInfoResponse {
+                assets,
+                serial_num,
+                note_id,
+            }),
+        )),
         Err(e) => Err(ApiError(e)),
     }
 }
