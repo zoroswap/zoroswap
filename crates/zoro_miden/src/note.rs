@@ -483,8 +483,12 @@ impl TrustedNoteElements {
             note_storage = note_storage.with_asset(asset)
         }
         let note_storage = note_storage.build()?;
-        let note_metadata = NoteMetadata::new(instructions.beneficiary, instructions.note_type)
-            .with_tag(instructions.pool_tag);
+        let tag = match instructions.note_kind() {
+            NoteKind::Position => NoteTag::with_account_target(instructions.beneficiary),
+            _ => instructions.pool_tag,
+        };
+        let note_metadata =
+            NoteMetadata::new(instructions.beneficiary, instructions.note_type).with_tag(tag);
         let note_kind = instructions.note_kind();
         let note_assets = NoteAssets::new(
             instructions

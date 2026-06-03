@@ -144,7 +144,7 @@ end
 
 
 proc get_note_type_and_tag_from_active_note() -> (u16, felt)
-    exec.active_note::get_metadata dupw
+    exec.active_note::get_metadata dropw dupw
     # => [METADATA, METADATA]
     #exec.note::metadata_into_tag movdn.4
 #pub proc metadata_into_tag

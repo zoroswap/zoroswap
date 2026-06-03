@@ -63,7 +63,12 @@ async fn executing_deposit() -> Result<()> {
         .send_note(&user_id, pool.miden_account.id(), deposit_note.clone())
         .await?;
     zoro_pool
-        .execute_notes(vec![deposit_note], HashMap::default(), HashMap::default())
+        .execute_notes(
+            vec![deposit_note],
+            HashMap::default(),
+            HashMap::default(),
+            None,
+        )
         .await?;
 
     let user_balance_after = user
@@ -206,7 +211,7 @@ async fn executing_swap() -> Result<()> {
         .await?;
     info!("--- Swap sent");
     zoro_pool
-        .execute_notes(vec![note], prices, HashMap::default())
+        .execute_notes(vec![note], prices, HashMap::default(), None)
         .await?;
     info!("--- Swap executed");
 
@@ -388,7 +393,7 @@ async fn executing_position_swap() -> Result<()> {
     )]);
     let note_id = note.note().id();
     let execution_result = zoro_pool
-        .execute_notes(vec![note], prices, user_swap_args)
+        .execute_notes(vec![note], prices, user_swap_args, None)
         .await?;
 
     let respawned_note = execution_result.get(&note_id).unwrap().clone().1.unwrap();
@@ -555,7 +560,7 @@ async fn executing_deposit_withdraw() -> Result<()> {
         .await?;
     info!("--- Deposit sent");
     zoro_pool
-        .execute_notes(vec![deposit_note], prices, HashMap::default())
+        .execute_notes(vec![deposit_note], prices, HashMap::default(), None)
         .await?;
     info!("--- Deposit executed");
 
@@ -617,7 +622,7 @@ async fn executing_deposit_withdraw() -> Result<()> {
         .await?;
     info!("--- Withdraw sent");
     zoro_pool
-        .execute_notes(vec![note], HashMap::default(), HashMap::default())
+        .execute_notes(vec![note], HashMap::default(), HashMap::default(), None)
         .await?;
     info!("--- Withdraw executed");
 

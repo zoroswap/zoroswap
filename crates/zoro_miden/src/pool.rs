@@ -22,7 +22,7 @@ use miden_client::{
     vm::AdviceMap,
 };
 use rand::RngCore;
-use tokio::time::sleep;
+use tokio::{sync::oneshot, time::sleep};
 use tracing::{error, info};
 
 use crate::{
@@ -31,7 +31,6 @@ use crate::{
         link_asset_utils, link_note_common_lib, link_output_note_utils_lib, link_storage_utils,
         read_masm_file,
     },
-    asset_utils::word_to_asset,
     client::MidenClient,
     note::TrustedNote,
     pool_execution::{ExecutionResult, PoolExecution},
@@ -364,6 +363,7 @@ impl ZoroPool {
         notes: Vec<TrustedNote>,
         prices: HashMap<AccountId, PriceData>,
         additional_advice_values: HashMap<NoteId, Vec<Felt>>,
+        preliminary_execution_tx: Option<oneshot::Sender<Vec<(NoteId, ExecutionResult)>>>,
     ) -> Result<HashMap<NoteId, (ExecutionResult, Option<TrustedNote>)>> {
         info!("Executing {} notes on the zoro pool", notes.len());
         if notes.is_empty() {
@@ -373,6 +373,15 @@ impl ZoroPool {
         let (note_execution_details, batch_execution_details) = self
             .prepare_execution_details(notes, prices, additional_advice_values)
             .await?;
+        if let Some(preliminary_execution_tx) = preliminary_execution_tx {
+            let results: Vec<(NoteId, ExecutionResult)> = note_execution_details
+                .iter()
+                .map(|(note_id, (result, _))| (*note_id, *result))
+                .collect();
+            if let Err(e) = preliminary_execution_tx.send(results) {
+                error!("Error sending preliminary execution results back: {e:?}");
+            }
+        }
         info!("Execution details ready.");
         if batch_execution_details.input_notes.is_empty() {
             // no notes are eligible for execution
@@ -544,7 +553,7 @@ mod tests {
             test_pool: _,
         } = &mut test_utils.get_initialized_pools(1).await?[..][0];
         zoro_pool
-            .execute_notes(vec![], HashMap::default(), HashMap::default())
+            .execute_notes(vec![], HashMap::default(), HashMap::default(), None)
             .await?;
         Ok(())
     }
@@ -563,7 +572,7 @@ mod tests {
         )?;
         let p2id_id = p2id.note().id();
         let res = zoro_pool
-            .execute_notes(vec![p2id], HashMap::default(), HashMap::default())
+            .execute_notes(vec![p2id], HashMap::default(), HashMap::default(), None)
             .await?;
         let res_for_note = res.get(&p2id_id).unwrap().0;
         assert_eq!(res_for_note, ExecutionResult::FailedConsuming);

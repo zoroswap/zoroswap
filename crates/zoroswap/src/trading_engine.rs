@@ -4,18 +4,20 @@ use crate::{
 };
 use anyhow::Result;
 use chrono::Utc;
-use miden_client::account::AccountId;
+use miden_client::{account::AccountId, note::NoteId};
 use rand::seq::SliceRandom;
 use std::{
     collections::HashMap,
     sync::Arc,
     time::{Duration, Instant},
 };
-use tracing::{info, warn};
+use tokio::sync::oneshot;
+use tracing::{error, info, warn};
 use zoro_miden::{
     note::{NoteKind, TrustedNote},
     note_roots::get_note_roots,
     pool::ZoroPool,
+    pool_execution::ExecutionResult,
 };
 
 pub struct TradingEngine {
@@ -88,6 +90,7 @@ impl TradingEngine {
 
             let mut additional_details = HashMap::new();
             let mut position_notes_to_position_id = HashMap::new();
+            let mut note_id_to_order_id = HashMap::new();
             for order in orders.iter() {
                 if let Some(additional_details_array) = &order.additional_details {
                     additional_details.insert(order.note_id, additional_details_array.to_vec());
@@ -95,6 +98,7 @@ impl TradingEngine {
                 if let Some(position_id) = order.position_id {
                     position_notes_to_position_id.insert(order.note_id, position_id);
                 }
+                note_id_to_order_id.insert(order.note_id, order.id);
                 order.print_info();
             }
 
@@ -110,31 +114,71 @@ impl TradingEngine {
                 .into_iter()
                 .collect::<HashMap<_, _>>();
 
-            if !notes.is_empty()
-                && let Ok(results) = zoro_pool
-                    .execute_notes(notes, prices, additional_details)
-                    .await
-            {
-                for (note_id, (result, output_note)) in &results {
-                    let order_id = self.state.get_order_id(note_id).unwrap_or_default();
-                    let _ = self.broadcaster.broadcast_order_update(OrderUpdateEvent {
-                        order_id,
-                        note_id: note_id.to_hex(),
-                        status: (*result).into(),
-                        timestamp: Utc::now().timestamp_millis() as u64,
-                    });
+            let (preliminary_tx, preliminary_rx) =
+                oneshot::channel::<Vec<(NoteId, ExecutionResult)>>();
+            let broadcast_clone = self.broadcaster.clone();
 
-                    if let Some(output_note) = output_note
-                        && output_note.note_kind().eq(&NoteKind::Position)
-                        && let Some(position_id) = position_notes_to_position_id.get(note_id)
-                    {
-                        self.state
-                            .replace_position_note(*position_id, output_note.clone());
+            cycle += 1;
+            if notes.is_empty() {
+                continue;
+            }
+
+            // TODO: ugly, not okay, remove with proper refactor
+            tokio::spawn(async move {
+                match preliminary_rx.await {
+                    Ok(results) => {
+                        for (note_id, result) in results.iter() {
+                            if let Some(order_id) = note_id_to_order_id.get(note_id) {
+                                let status = match result {
+                                    ExecutionResult::SwapSuccess(_) => OrderStatus::Matched,
+                                    ExecutionResult::WithdrawSuccess(_) => OrderStatus::Matched,
+                                    ExecutionResult::DepositSuccess(_) => OrderStatus::Matched,
+                                    ExecutionResult::PastDeadline => OrderStatus::Expired,
+                                    ExecutionResult::Failed => OrderStatus::Failed,
+                                    ExecutionResult::FailedConsuming => OrderStatus::Failed,
+                                };
+                                let _ = broadcast_clone.broadcast_order_update(OrderUpdateEvent {
+                                    order_id: *order_id,
+                                    note_id: note_id.to_hex(),
+                                    status,
+                                    timestamp: Utc::now().timestamp_millis() as u64,
+                                });
+                            }
+                        }
                     }
+                    Err(e) => {
+                        error!("Error on preliminary execution results: {e:?}")
+                    }
+                }
+            });
+
+            match zoro_pool
+                .execute_notes(notes, prices, additional_details, Some(preliminary_tx))
+                .await
+            {
+                Ok(results) => {
+                    for (note_id, (result, output_note)) in &results {
+                        if let Some(output_note) = output_note
+                            && output_note.note_kind().eq(&NoteKind::Position)
+                            && let Some(position_id) = position_notes_to_position_id.get(note_id)
+                        {
+                            self.state
+                                .replace_position_note(*position_id, output_note.clone());
+                        }
+                        let order_id = self.state.get_order_id(note_id).unwrap_or_default();
+                        let _ = self.broadcaster.broadcast_order_update(OrderUpdateEvent {
+                            order_id,
+                            note_id: note_id.to_hex(),
+                            status: (*result).into(),
+                            timestamp: Utc::now().timestamp_millis() as u64,
+                        });
+                    }
+                }
+                Err(e) => {
+                    error!("Error on execution: {e:?}");
                 }
             }
             info!(cycle=cycle, time_elapsed =? start.elapsed(), "Trading engine cycle ends.");
-            cycle += 1;
         }
     }
 

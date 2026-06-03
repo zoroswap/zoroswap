@@ -469,7 +469,12 @@ impl TestUtils {
                         )
                         .await?;
                     zoro_pool
-                        .execute_notes(vec![deposit_note], HashMap::default(), HashMap::default())
+                        .execute_notes(
+                            vec![deposit_note],
+                            HashMap::default(),
+                            HashMap::default(),
+                            None,
+                        )
                         .await?;
                     info!("Successfully deposited into new pool.");
                 };
