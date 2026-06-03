@@ -3,7 +3,7 @@ use axum::{
     Json, Router,
     body::Body,
     extract::{Path, Query, State},
-    http::{HeaderMap, HeaderValue, Response, StatusCode, uri::PathAndQuery},
+    http::{HeaderMap, HeaderValue, Response, StatusCode},
     response::IntoResponse,
     routing::{get, post},
 };
@@ -402,23 +402,34 @@ async fn position_get_info(
 async fn position_get_note(
     State(state): State<AppState>,
     Query(payload): Query<PositionGetNote>,
-) -> Json<PositionGetNoteResponse> {
+) -> impl IntoResponse {
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("max-age=1, must-revalidate"),
+    );
     match state
         .amm_state
         .get_position_note_serialized(payload.position_id)
     {
-        Ok(serialized_note) => Json(PositionGetNoteResponse {
-            success: true,
-            note_data: serialized_note,
-            message: "Getting position note successful.".to_string(),
-        }),
+        Ok(serialized_note) => (
+            headers,
+            Json(PositionGetNoteResponse {
+                success: true,
+                note_data: serialized_note,
+                message: "Getting position note successful.".to_string(),
+            }),
+        ),
         Err(e) => {
             error!("Failed getting position note: {:?}", e);
-            Json(PositionGetNoteResponse {
-                success: false,
-                note_data: "".to_string(),
-                message: format!("Failed to get note for position: {}", e),
-            })
+            (
+                headers,
+                Json(PositionGetNoteResponse {
+                    success: false,
+                    note_data: "".to_string(),
+                    message: format!("Failed to get note for position: {}", e),
+                }),
+            )
         }
     }
 }
@@ -426,7 +437,12 @@ async fn position_get_note(
 async fn position_swap(
     State(state): State<AppState>,
     Json(payload): Json<SubmitPositionSwap>,
-) -> Json<SubmitOrderResponse> {
+) -> impl IntoResponse {
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("max-age=1, must-revalidate"),
+    );
     match state.amm_state.add_position_order(
         payload.position_id,
         payload.asset_in,
@@ -440,21 +456,24 @@ async fn position_swap(
                 note_id = note_id,
                 "New position swap order"
             );
-            Json(SubmitOrderResponse {
+            (headers, Json(SubmitOrderResponse {
                 success: true,
                 order_id: order_id.to_string(),
                 message:
                     "Position Swap order submitted successfully. Matching engine will process it automatically."
                         .to_string(),
-            })
+            }))
         }
         Err(e) => {
             error!("Failed to add swap order: {}", e);
-            Json(SubmitOrderResponse {
-                success: false,
-                order_id: "".to_string(),
-                message: format!("Failed to submit order: {}", e),
-            })
+            (
+                headers,
+                Json(SubmitOrderResponse {
+                    success: false,
+                    order_id: "".to_string(),
+                    message: format!("Failed to submit order: {}", e),
+                }),
+            )
         }
     }
 }
