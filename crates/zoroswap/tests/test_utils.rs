@@ -93,24 +93,32 @@ impl E2ETestSetup {
     }
 }
 
-pub async fn send_to_server(server_url: &str, note: String, endpoint: &str) -> Result<String> {
+pub async fn send_to_server(
+    server_url: &str,
+    notes: Vec<String>,
+    endpoint: &str,
+) -> Result<Vec<String>> {
     let url = Url::from_str(format!("{server_url}/{endpoint}").as_str())?;
     let client = reqwest::Client::new();
-    let res = client
-        .post(url)
-        .body(serde_json::json!({ "note_data": note }).to_string())
-        .header("Content-Type", "application/json")
-        .send()
-        .await?;
+    let mut texts = Vec::new();
+    for note in notes {
+        let res = client
+            .post(url.clone())
+            .body(serde_json::json!({ "note_data": note }).to_string())
+            .header("Content-Type", "application/json")
+            .send()
+            .await?;
+        let text = res.text().await?;
+        println!("Server response: {:?}", text);
+        texts.push(text);
+    }
 
-    let text = res.text().await?;
-    println!("Server response: {:?}", text);
-    Ok(text)
+    Ok(texts)
 }
 
 pub async fn send_position_swap_to_server(
-    server_url: &str,
-    endpoint: &str,
+    server_url: String,
+    endpoint: String,
     position_id: Uuid,
     asset_in: String,
     asset_out: String,
@@ -141,8 +149,8 @@ pub async fn send_position_swap_to_server(
 }
 
 pub async fn get_position_note(
-    server_url: &str,
-    endpoint: &str,
+    server_url: String,
+    endpoint: String,
     position_id: Uuid,
 ) -> Result<TrustedNote> {
     let client = reqwest::Client::new();

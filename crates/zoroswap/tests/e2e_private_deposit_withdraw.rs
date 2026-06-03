@@ -77,7 +77,7 @@ async fn e2e_private_deposit_withdraw() -> Result<()> {
     miden_client.sync_state().await?;
     send_to_server(
         &format!("http://{}", config.server_url),
-        deposit_note.serialize_to_string()?,
+        vec![deposit_note.serialize_to_string().unwrap()],
         "deposit/submit",
     )
     .await?;
@@ -125,7 +125,7 @@ async fn e2e_private_deposit_withdraw() -> Result<()> {
 
     send_to_server(
         &format!("http://{}", config.server_url),
-        withdraw_note.serialize_to_string()?,
+        vec![withdraw_note.serialize_to_string().unwrap()],
         "withdraw/submit",
     )
     .await?;

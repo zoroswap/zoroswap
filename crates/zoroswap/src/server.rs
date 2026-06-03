@@ -64,7 +64,7 @@ struct SubmitOrderResponse {
     pub message: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct AddPositionResponse {
     pub success: bool,
     pub position_id: Uuid,

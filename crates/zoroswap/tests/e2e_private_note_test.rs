@@ -92,7 +92,7 @@ async fn e2e_private_note() -> Result<()> {
 
     send_to_server(
         &format!("http://{}", config.server_url),
-        note.serialize_to_string()?,
+        vec![note.serialize_to_string().unwrap()],
         "orders/submit",
     )
     .await?;
