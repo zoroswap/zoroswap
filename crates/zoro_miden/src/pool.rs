@@ -378,9 +378,9 @@ impl ZoroPool {
                 .iter()
                 .map(|(note_id, (result, _))| (*note_id, *result))
                 .collect();
-            preliminary_execution_tx
-                .send(results)
-                .map_err(|e| anyhow!("Error sending preliminary execution results back: {e:?}"))?;
+            if let Err(e) = preliminary_execution_tx.send(results) {
+                error!("Error sending preliminary execution results back: {e:?}");
+            }
         }
         info!("Execution details ready.");
         if batch_execution_details.input_notes.is_empty() {

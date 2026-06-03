@@ -117,6 +117,13 @@ impl TradingEngine {
             let (preliminary_tx, preliminary_rx) =
                 oneshot::channel::<Vec<(NoteId, ExecutionResult)>>();
             let broadcast_clone = self.broadcaster.clone();
+
+            cycle += 1;
+            if notes.is_empty() {
+                continue;
+            }
+
+            // TODO: ugly, not okay, remove with proper refactor
             tokio::spawn(async move {
                 match preliminary_rx.await {
                     Ok(results) => {
@@ -144,11 +151,6 @@ impl TradingEngine {
                     }
                 }
             });
-
-            cycle += 1;
-            if notes.is_empty() {
-                continue;
-            }
 
             match zoro_pool
                 .execute_notes(notes, prices, additional_details, Some(preliminary_tx))
