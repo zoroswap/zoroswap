@@ -75,15 +75,16 @@ impl MidenClient {
             .sqlite_store(store_path.clone())
             .in_debug_mode(DebugMode::Enabled);
 
-        if endpoint.ne(&Endpoint::localhost()) {
-            let url = if endpoint.eq(&Endpoint::testnet()) {
-                "https://tx-prover.testnet.miden.io"
-            } else {
-                "https://tx-prover.devnet.miden.io"
-            };
-            let prover = Arc::new(RemoteTransactionProver::new(url));
-            client = client.prover(prover);
-        }
+        // if endpoint.ne(&Endpoint::localhost()) {
+        //     let url = if endpoint.eq(&Endpoint::testnet()) {
+        //         "https://tx-prover.testnet.miden.io"
+        //     } else {
+        //         "https://tx-prover.devnet.miden.io"
+        //     };
+        //     let prover =
+        //         Arc::new(RemoteTransactionProver::new(url).with_timeout(Duration::from_secs(60)));
+        //     client = client.prover(prover);
+        // }
 
         let mut client = client.build().await?;
         client.ensure_genesis_in_place().await?;
